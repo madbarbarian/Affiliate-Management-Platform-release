@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .stamp { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 24px 0 10px; font-weight: 500;
+    }
+    .rest {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 22px 16px; text-align: center;
+    }
+    .rest .big { font-size: 16px; font-weight: 600; }
+    .rest .next { margin-top: 6px; color: var(--muted); font-size: 13px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .slot { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+    .time { font-size: 15px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .hook { font-weight: 600; line-height: 1.45; margin-top: 3px; }
+    .stat-row { display: flex; gap: 22px; flex-wrap: wrap; }
+    .stat { color: var(--muted); font-size: 13px; }
+    .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .log { font-size: 14px; line-height: 1.6; }
+    .line { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .line.last { border-bottom: none; }
+    .when {
+      color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+      flex: none; width: 42px; padding-top: 3px;
+    }
+    .up { color: var(--accent); }
+    .down { color: var(--danger); }
+    b.ink { font-weight: 600; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <h1>朝のツール部屋</h1>
+    <span class="muted stamp">8月31日 06:40</span>
+  </header>
+
+  <div class="scroll">
+    <div class="rest">
+      <div class="big">いま決めることはありません</div>
+      <div class="next">次の判断は 今日 07:00 ・ 企画10案</div>
+    </div>
+
+    <h2>予約中</h2>
+    <div class="card">
+      <div class="slot"><span class="time">12:15</span><span>今日</span></div>
+      <div class="hook">朝30分をやめて、3週間なにも起きなかった。</div>
+    </div>
+    <div class="card">
+      <div class="slot"><span class="time">21:00</span><span>今日</span></div>
+      <div class="hook">見積もりを2倍にした。3件断られた。</div>
+    </div>
+
+    <h2>昨日</h2>
+    <div class="card">
+      <div class="stat-row">
+        <span class="stat">投稿<b>3本</b></span>
+        <span class="stat">保存<b>612</b></span>
+        <span class="stat">クリック<b>41</b></span>
+        <span class="stat">確定報酬<b>¥4,200</b></span>
+      </div>
+      <div class="muted" style="margin-top: 10px">米ドル建ての未確定分 $18.00 は別に数えています。円とは合算しません。</div>
+    </div>
+
+    <h2>会社が昨日やったこと</h2>
+    <div class="card log">
+      <div class="line"><span class="when">05:10</span><span>分析担当が <b class="ink">pat_003</b>「やめた」から始める一人称 の信頼度を <span class="up">0.66 → 0.71</span> に上げました</span></div>
+      <div class="line"><span class="when">05:12</span><span>分析担当が <b class="ink">pat_009</b>「数字を3つ並べる型」を <span class="down">引退</span> させました（14日たっても改善がなかったため）</span></div>
+      <div class="line"><span class="when">05:40</span><span>リサーチ担当が新しい型の候補を <b class="ink">2件</b> 提出しました（証拠不足のため保留）</span></div>
+      <div class="line"><span class="when">06:20</span><span>企画担当が <b class="ink">10案</b> を用意しました。うち2案は探索枠（まだ試していない型を試す枠）です</span></div>
+      <div class="line last"><span class="when">21:02</span><span>投稿担当が 21:00 の枠に投稿し、コメント2件を付けました</span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

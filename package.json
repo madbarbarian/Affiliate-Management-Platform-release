@@ -1,0 +1,50 @@
+{
+  "name": "affiliate-management-platform",
+  "version": "0.2.0",
+  "description": "An autonomous AI-company platform that runs affiliate operations end to end, with the human kept in the loop for approval and ordering only.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "amp": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "prompts",
+    "docs",
+    "platform.config.example.yaml",
+    ".env",
+    ".env.local.sample",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "amp": "node src/cli.ts",
+    "console": "node src/cli.ts console",
+    "build": "node scripts/bundle-worker.ts",
+    "pretypecheck": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "deploy": "npm run build && node scripts/deploy-worker.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^7.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "AMP_CONSOLE_TOKEN": {
+        "description": "承認画面をあなただけのものにする合言葉です。**必須**。右の「作る」で作れます。投稿のリンク（`/go/`）と承認画面は同じアドレスで答えるので、これが無いとアドレスを知っている人が承認画面を開けます。"
+      },
+      "DB": {
+        "description": "投稿・数字・報酬を保管する場所です。**新しく作ってください。** 既にあるものを選ぶと、そちらのデータに書き込みます。"
+      }
+    }
+  }
+}

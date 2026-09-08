@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .stamp { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    .lede { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 14px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .title { font-weight: 600; font-size: 16px; line-height: 1.45; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.55; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 14px 0 4px; font-weight: 500; }
+    p { margin: 0; font-size: 14px; line-height: 1.6; }
+    .hooks p { padding-left: 10px; border-left: 2px solid var(--line); margin-bottom: 4px; }
+    .stop { border-left: 3px solid var(--warn); padding-left: 10px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); font-size: 14px;
+    }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+    .done { color: var(--accent); font-size: 13px; line-height: 1.6; margin-top: 8px; }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+      font-size: 12px; margin: 8px 0 0; font-family: ui-monospace, Menlo, monospace; line-height: 1.55; color: var(--muted);
+    }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <h1>探索の提案</h1>
+    <span class="muted stamp">週に1回</span>
+  </header>
+
+  <div class="scroll">
+    <p class="lede">探索担当が、全アカウントの数字から次に試すアカウントを提案します。採用するか見送るかを決めるのはあなたです。毎日の判断の下に置いてあり、急ぎではありません。</p>
+
+    <div class="card">
+      <div class="title">在宅ワーカーの姿勢と机まわり</div>
+      <div class="sub">一日8時間座って働く在宅ワーカー</div>
+      <div class="chips">
+        <span class="chip">市場 jp</span>
+        <span class="chip">案件 offer_desk_chair</span>
+        <span class="chip">9月2日</span>
+      </div>
+
+      <h3>名前の候補</h3>
+      <p>机の上の3年 / 椅子を買い替えた人 / 腰をやった翌日</p>
+
+      <h3>仮説</h3>
+      <p>「朝のツール部屋」で、失敗の告白から入る型がいちばん強く効いています（ふだんの1.8倍）。同じ読者層の隣の悩みが「机と腰」で、同じ型がそのまま使えると見ています。</p>
+
+      <h3>根拠</h3>
+      <p class="muted">main: 直近30日 41本、中央値 212、失敗告白の型の信頼度 0.71。案件カテゴリ productivity が成果9件のうち7件。</p>
+
+      <h3>リスク</h3>
+      <p>商品が机まわりに寄ると、案件の無い投稿が書けなくなり、売る話ばかりになります。</p>
+
+      <h3>最初の3本</h3>
+      <div class="hooks">
+        <p>椅子を3回買い替えた話。</p>
+        <p>立って働くのを2週間でやめた。</p>
+        <p>机の上から消したもの、7つ。</p>
+      </div>
+
+      <h3>やめる条件</h3>
+      <p class="stop">30日で中央値が「朝のツール部屋」の半分を下回る、または保存が20本で0件。</p>
+
+      <div class="row">
+        <button class="primary">採用する</button>
+        <button>見送る</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">育児とテクノロジー</div>
+      <div class="sub">0〜3歳の子を育てながら在宅で働く親</div>
+      <div class="chips">
+        <span class="chip">市場 jp</span>
+        <span class="chip">この市場に使える案件なし</span>
+        <span class="chip">8月26日</span>
+      </div>
+      <div class="done">採用しました。設定ファイルの ventures: の下に active: false で追記しました。元のファイルは .amp/config-backups/ にあります。文体を読んで直し、active: true にして、デーモンを再起動してください。それまで何も動きません。</div>
+      <pre>  # --- Proposed by the scout (prp_…, 2026-08-26)
+  # Stop when: 30日で保存が20本で0件
+  - id: "parenting-desk"
+    name: "育休明けの手帳"
+    active: false
+    …</pre>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

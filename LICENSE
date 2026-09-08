@@ -1,0 +1,111 @@
+PROPRIETARY SOFTWARE — LICENCE NOTICE
+=====================================
+
+Copyright (c) 2026 [LICENSOR LEGAL NAME]. All rights reserved.
+
+This software ("the Platform") is proprietary. It is not open source, and no
+licence is granted by the act of receiving or forking this repository.
+
+Your right to use the Platform comes from a signed agreement, not from this
+file. **This file is a notice, not the agreement.**
+
+
+HOW THE LICENCE IS STRUCTURED
+-----------------------------
+
+The Platform is distributed in three tiers. Which agreement applies to you
+depends on where you sit.
+
+    [ Tier 3 ]  Tenants / end users
+                  ▲
+                  │  Multi-tenant terms of service, accepted on sign-up.
+                  │  A drafting checklist is in contracts/tenant-terms.template.md
+                  ▼
+    [ Tier 2 ]  Licensee — the operating company
+                  ▲
+                  │  Master licence agreement, signed with the licensor.
+                  │  This is what permits a fork, and sets its limits.
+                  │  (contracts/master-licence.template.md)
+                  │
+                  │  Before the first formal release, an early-access licence
+                  │  stands in for it. (contracts/early-access-licence.md)
+                  ▼
+    [ Tier 1 ]  Licensor — holder of the copyright in the Platform
+
+If you forked this repository from a release repository, you are **Tier 2**,
+and the master licence agreement (or the early-access licence) you signed
+governs everything you may do with it. If you are using an instance somebody
+else operates, you are **Tier 3** and the terms you accepted on sign-up govern.
+How the tiers were arrived at, and what is still undecided, is in
+docs/1-requirements/licensing.md.
+
+Points the Tier-2 agreement settles, so you know what to look for in yours:
+what you may fork and modify (config, prompts and your own instance's source,
+yes; redistribution, no); whether you may operate on behalf of clients, and
+under what terms; the fee model (for now: none — the licence is free, your
+feedback is the consideration, and what you earn is yours); whether future
+releases are included; and
+what happens to your instance and your operating data if the agreement ends
+(the data is yours and stays). It also contains a change-of-control clause:
+the licence does not transfer with your company if your company is sold, and
+it does not travel with an account you sell — the buyer signs their own.
+
+
+WHAT YOU ARE RESPONSIBLE FOR
+----------------------------
+
+The Platform publishes content and promotes affiliate offers automatically.
+It enforces in code what it can — the disclosure, the prohibited claims per
+market, the posting caps, the cross-border caveats. It cannot know your
+jurisdiction, your contracts, or your accounts. You are solely responsible for:
+
+  1. **Advertising-disclosure law in every market you operate in.** In Japan,
+     景品表示法 and the stealth-marketing rules; in the United States, the FTC
+     Endorsement Guides; elsewhere, the local equivalent. `markets:` in
+     `platform.config.yaml` is where you encode these, and the values shipped
+     in the example file are a starting point, not legal advice.
+
+  2. **Cross-border promotion.** Where the audience and the merchant are in
+     different countries, the audience's rules govern the advertising and the
+     merchant's terms govern the offer. Both are yours to satisfy.
+
+  3. **Every affiliate network's contract.** Territory restrictions, prohibited
+     claim types, permitted traffic sources, creative pre-approval.
+     `targetMarkets` and `complianceNotes` on each offer are where you record
+     them; the Platform enforces what you put there and nothing you leave out.
+
+  4. **Every channel's terms of service and automation policy.**
+
+  5. **All content published from your accounts**, including content the
+     Platform generated, and including content published while running in
+     `autonomy: auto` with nobody reading it first.
+
+
+NO WARRANTY
+-----------
+
+THE PLATFORM IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE PLATFORM OR THE USE OR OTHER DEALINGS IN THE PLATFORM.
+
+This includes, without limitation, any loss arising from content the Platform
+generated, from a post it published, from an account suspended or terminated by
+a channel, from an affiliate network withholding or reversing a commission, or
+from any regulatory action.
+
+
+THIRD-PARTY COMPONENTS
+----------------------
+
+The Platform depends on @anthropic-ai/sdk (MIT). Third-party components are
+licensed by their own authors under their own terms; see the licences in
+node_modules for the full dependency tree.
+
+
+---
+For the licensor: replace [LICENSOR LEGAL NAME] and confirm this notice matches
+the master agreement you actually issue. Nothing in this file has been reviewed
+by a lawyer.

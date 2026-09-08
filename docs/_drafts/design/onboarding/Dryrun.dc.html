@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 > div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  </style>
+</helmet>
+<div class="frame">
+  <header>
+    <div class="crumb">セットアップ ・ ステップ 5 / 9</div>
+    <h1>1日を通す</h1>
+    <p class="lede">1日分の流れを丸ごと通します。実際には何も投稿されません。鍵もまだ1つも要りません。</p>
+  </header>
+  <main>
+    <div class="card">
+      <pre>✓ 分析      型 5件を読み込み（参考投稿から）
+✓ リサーチ  候補 12件 → 再現できる型 3件
+✓ 企画      10案。うち2案は探索枠（まだ試していない型を試す枠）
+⏸ あなたの判断 ──────────────────────────────
+✓ 執筆      2本
+✓ 検品      AIっぽさ 18 と 9 ・ 指摘 1件（修正済み）
+✓ 枠決め    07:30 と 12:15
+⏸ あなたの判断 ──────────────────────────────
+✓ 投稿      2本 <span class="warnc">（練習モード。実際には出ていません）</span>
+
+モデル呼び出し 9回 ・ 実費 0円</pre>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:8px">実際に動かすと、1日あたり</h2>
+      <p class="note">
+        入力 約 38,000 トークン ・ 出力 約 4,200 トークン<br>
+        <b style="color:var(--ink)">今ここで測った数字</b>です。
+        次のステップで鍵を入れると、ここから1か月の費用の目安が出ます。
+      </p>
+    </div>
+
+    <div class="card" style="border-color: var(--accent)">
+      <p class="note" style="margin:0">
+        <b class="ok">ここでやめられます。</b>
+        気に入らなければ、Meta開発者コンソールを一度も開かずに終えられます。
+      </p>
+    </div>
+  </main>
+  <div class="bar">
+    <span class="stepcount">5 / 9 ・ 鍵やトークンはまだ不要</span>
+    <span class="spacer"></span>
+    <button class="ghost">もう一度見る</button>
+    <button class="primary">実際に動かす準備をする</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

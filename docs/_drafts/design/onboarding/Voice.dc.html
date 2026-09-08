@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 > div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  </style>
+</helmet>
+<div class="frame">
+  <header>
+    <div class="crumb">セットアップ ・ ステップ 3 / 9</div>
+    <h1>文体を決める</h1>
+    <p class="lede">入力し終わった瞬間に、その文体で3行のサンプルが出ます。お試しの模擬データなので、費用はかかりません。</p>
+  </header>
+  <main>
+    <div class="card">
+      <div class="row2">
+        <div>
+          <label>一人称</label>
+          <div class="field filled">僕</div>
+        </div>
+        <div>
+          <label>人物像 <span class="hint">誰として書くか</span></label>
+          <div class="field filled">元編集者。ツールを試しては失敗している当事者。</div>
+        </div>
+      </div>
+      <label>トーン</label>
+      <div class="chips" style="margin-bottom:14px">
+        <span class="chip on">率直</span><span class="chip on">自嘲気味</span><span class="chip on">具体的</span>
+        <span class="chip">断定的</span><span class="chip">やわらかい</span><span class="chip">分析的</span>
+      </div>
+      <label>絶対に使わない言い回し <span class="hint">AIっぽく読める原因は、たいていこの言い回しです</span></label>
+      <div class="chips">
+        <span class="chip on">皆さん</span><span class="chip on">〜ではないでしょうか</span>
+        <span class="chip on">いかがでしたか</span><span class="chip">ぜひ参考に</span>
+      </div>
+    </div>
+
+    <h2>この文体だと、こう書かれます</h2>
+    <div class="card">
+      <pre>僕が3日で捨てたツールの話。
+
+朝30分をやめて、3週間なにも起きなかった。
+
+見積もりを2倍にした。3件断られた。</pre>
+      <p class="note" style="margin-top:10px">
+        気に入らなければ、上を直すとここも変わります。<br>
+        <b style="color:var(--ink)">文体は、実際の投稿を見ないと決められません。</b>
+        だから鍵を入れる前の、この画面で決めておきます。
+      </p>
+    </div>
+  </main>
+  <div class="bar">
+    <span class="stepcount">3 / 9 ・ 鍵やトークンはまだ不要</span>
+    <span class="spacer"></span>
+    <button class="ghost">戻る</button>
+    <button class="primary">この文体で進む</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

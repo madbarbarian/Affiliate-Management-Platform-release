@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .back { font-size: 15px; color: var(--muted); }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .id { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 22px 0 10px; font-weight: 500;
+    }
+    h2.first { margin-top: 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .title { font-weight: 600; line-height: 1.45; font-size: 16px; }
+    .title.small { font-size: 15px; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.55; margin-top: 4px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 500; }
+    td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .stat-row { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
+    .stat { color: var(--muted); font-size: 13px; }
+    .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .risk { border-left: 3px solid var(--warn); padding-left: 11px; }
+    .risk .title { font-size: 15px; color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+      font-size: 13px; margin: 8px 0 0; font-family: inherit; line-height: 1.6;
+    }
+    b.ink { color: var(--ink); }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <span class="back">←</span>
+    <h1>企画 #1</h1>
+    <span class="muted id">idea_0831_01</span>
+  </header>
+
+  <div class="scroll">
+    <div class="card">
+      <div class="title">自動化ツールを3つ捨てた話</div>
+      <div class="sub">増やすほど遅くなった。残したのは1つだけ。</div>
+      <div class="chips">
+        <span class="chip">根拠 pat_003 ふだんの1.8倍</span>
+        <span class="chip warn">リスク 比較記事に見える</span>
+        <span class="chip pr">PR</span>
+      </div>
+    </div>
+
+    <h2>根拠</h2>
+    <div class="card">
+      <div class="title small">pat_003 — 「やめた」から始める一人称</div>
+      <div class="sub">自分がやめた具体的な数を先に出し、理由を後に置く型です。主張ではなく結果から入るので、読み手が身構えません。</div>
+      <div class="stat-row">
+        <span class="stat">信頼度<b>0.71</b></span>
+        <span class="stat">直近14日<b>6本</b></span>
+        <span class="stat">ふだんの投稿との比<b>1.8倍</b></span>
+      </div>
+      <table>
+        <tr><th>この型で出した投稿</th><th class="n">保存</th><th class="n">CV</th></tr>
+        <tr><td>外注を全部やめた月</td><td class="n">312</td><td class="n">4</td></tr>
+        <tr><td>通知を切った2週間</td><td class="n">248</td><td class="n">1</td></tr>
+        <tr><td>会議を3つ消した話</td><td class="n">201</td><td class="n">2</td></tr>
+      </table>
+      <div class="sub">実績は古くなるほど軽く数えられます。6本はまだ、「効く」と言い切れる数ではありません。</div>
+    </div>
+
+    <h2>どこで失敗しそうか</h2>
+    <div class="card risk">
+      <div class="title">比較記事に見える</div>
+      <div class="sub">3つのツール名を並べた時点で、体験談ではなく比較記事として読まれます。そうなると数字は伸びても、リンクは踏まれません。検品担当は「捨てた1つを具体名で、残りは名前を出さない」書き方に寄せます。</div>
+    </div>
+
+    <h2>この投稿に含まれる案件</h2>
+    <div class="card">
+      <div class="sub" style="margin-top: 0">案件 <b class="ink">Notion 年間プラン</b> ・ 商品の国 US ・ 読者の国 JP</div>
+      <pre>読者の国と商品の国が違うときの注意書き（自動で本文末に付きます）
+・決済は米ドルです
+・サポートは英語のみ
+・販売元は Notion Labs, Inc. です</pre>
+      <pre>#PR
+※本投稿にはアフィリエイトリンクを含みます</pre>
+      <div class="sub">この表記は、読者の国である日本の規則（景表法・ステマ規制）に従います。商品がどの国のものかでは決まりません。</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

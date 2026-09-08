@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: baseline; gap: 8px; }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .step { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .question { margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 12px 12px 14px; margin-bottom: 10px;
+    }
+    .item { display: flex; gap: 10px; align-items: flex-start; }
+    .box {
+      width: 19px; height: 19px; flex: none; margin-top: 3px; padding: 0;
+      border: 2px solid var(--accent); border-radius: 5px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .item-body { flex: 1; min-width: 0; }
+    .slot { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+    .rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 999px; flex: none;
+      font-size: 12px; font-weight: 650;
+    }
+    .time { font-size: 15px; font-weight: 650; }
+    .hook { font-weight: 600; line-height: 1.45; margin-top: 4px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    .more { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .move { display: flex; flex-direction: column; gap: 4px; flex: none; }
+    .move button {
+      font: inherit; font-size: 14px; line-height: 1; padding: 6px 9px;
+      border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); cursor: pointer;
+    }
+    .bar {
+      flex: none; padding: 12px 16px 18px; background: var(--bg);
+      border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px;
+    }
+    .primary {
+      font: inherit; font-weight: 600; width: 100%; padding: 13px 16px;
+      border-radius: var(--radius); border: 1px solid transparent;
+      background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    }
+    .quiet {
+      font: inherit; font-size: 14px; width: 100%; padding: 8px;
+      background: none; border: none; color: var(--muted); cursor: pointer;
+    }
+    .done { flex: 1; padding: 40px 24px; text-align: center; }
+    .done h3 { font-size: 16px; margin: 0 0 6px; font-weight: 650; }
+    .done p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
+    .undo {
+      font: inherit; font-size: 14px; margin-top: 18px; background: none;
+      border: none; color: var(--accent); cursor: pointer;
+    }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <div class="head-row">
+      <h1>{{ventureName}}</h1>
+      <span class="muted step">2 / 2</span>
+    </div>
+    <p class="question">出す順番を決めてください。<br>時刻はこのアカウントの実績から選ばれています。決めるのは「どの投稿をどの枠に出すか」だけで、並べ替えると時刻が入れ替わります。</p>
+  </header>
+
+  <sc-if value="{{deciding}}" hint-placeholder-val="{{ true }}">
+    <div class="scroll">
+      <h2>今日の枠</h2>
+      <sc-for list="{{posts}}" as="p" hint-placeholder-count="4">
+        <div class="card" style="border-color: {{p.edge}}">
+          <div class="item">
+            <button class="box" onClick="{{p.toggle}}" aria-label="この投稿を出す" style="background: {{p.fill}}">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="opacity: {{p.check}}"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            </button>
+            <div class="item-body">
+              <div class="slot">
+                <span class="rank" style="background: {{p.rankBg}}; color: {{p.rankInk}}">{{p.rank}}</span>
+                <span class="time" style="color: {{p.timeInk}}">{{p.time}}</span>
+                <span class="muted">{{p.slotNote}}</span>
+              </div>
+              <div class="hook">{{p.hook}}</div>
+              <div class="chips">
+                <span class="chip" style="color: {{p.smellInk}}">{{p.smell}}</span>
+                <span class="chip" style="color: {{p.findingInk}}">{{p.findings}}</span>
+                <span class="chip pr" style="display: {{p.prShown}}">PR</span>
+              </div>
+              <div class="more">{{p.comments}} ・ 本文を見る</div>
+            </div>
+            <div class="move">
+              <button onClick="{{p.up}}" aria-label="ひとつ上へ" style="opacity: {{p.upOpacity}}">↑</button>
+              <button onClick="{{p.down}}" aria-label="ひとつ下へ" style="opacity: {{p.downOpacity}}">↓</button>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div class="bar">
+      <button class="primary" onClick="{{schedule}}" style="opacity: {{submitOpacity}}">{{submitLabel}}</button>
+      <button class="quiet" onClick="{{skip}}">今日は出さない</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{decided}}" hint-placeholder-val="{{ false }}">
+    <div class="done">
+      <h3>{{doneTitle}}</h3>
+      <p>{{doneNote}}</p>
+      <button class="undo" onClick="{{reset}}">やり直す</button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844},"ventureName":{"editor":"text","default":"朝のツール部屋","section":"投稿の承認"},"accent":{"editor":"color","default":"#2f6f4f","options":["#2f6f4f","#1a1a19","#8a5a00"],"section":"投稿の承認"}}'>
+class Component extends DCLogic {
+  // 枠の時刻は投稿担当が実測から決めたもので、人間は動かせない。
+  // 動かせるのは「どれを、どの枠に」だけ。だから並べ替えると時刻が付け替わる。
+  SLOTS = [
+    { time: '07:30', note: '火曜のこの枠が最良' },
+    { time: '12:15', note: '' },
+    { time: '21:00', note: '' },
+    { time: '22:40', note: '' },
+  ];
+
+  state = {
+    posts: [
+      { id: 'p1', on: true, hook: '僕が3日で捨てたツールの話。',
+        smell: 18, findings: 1, pr: true, comments: 'コメント下書き 2件' },
+      { id: 'p2', on: true, hook: '朝30分をやめて、3週間なにも起きなかった。',
+        smell: 9, findings: 0, pr: false, comments: 'コメント下書き 2件' },
+      { id: 'p3', on: true, hook: '見積もりを2倍にした。3件断られた。',
+        smell: 31, findings: 2, pr: true, comments: 'コメント下書き 3件' },
+      { id: 'p4', on: false, hook: '使わなくなったSaaSに共通していたこと。',
+        smell: 22, findings: 0, pr: false, comments: 'コメント下書き 2件' },
+    ],
+    outcome: null,
+  };
+
+  move(index, delta) {
+    const to = index + delta;
+    this.setState((s) => {
+      if (to < 0 || to >= s.posts.length) return {};
+      const posts = s.posts.slice();
+      const moved = posts[index];
+      posts[index] = posts[to];
+      posts[to] = moved;
+      return { posts };
+    });
+  }
+
+  toggle(id) {
+    this.setState((s) => ({
+      posts: s.posts.map((post) => (post.id === id ? { ...post, on: !post.on } : post)),
+    }));
+  }
+
+  renderVals() {
+    const accent = this.props.accent ?? '#2f6f4f';
+    const outcome = this.state.outcome;
+    const chosen = this.state.posts.filter((post) => post.on).length;
+    let slot = 0;
+
+    const posts = this.state.posts.map((post, index) => {
+      const assigned = post.on ? this.SLOTS[slot++] : undefined;
+      const last = index === this.state.posts.length - 1;
+      return {
+        hook: post.hook,
+        rank: post.on ? String(slot) : '–',
+        rankBg: post.on ? accent : '#f0f0ec',
+        rankInk: post.on ? '#ffffff' : '#6b6b66',
+        time: assigned ? assigned.time : '枠なし',
+        timeInk: post.on ? '#1a1a19' : '#6b6b66',
+        slotNote: assigned ? assigned.note : '',
+        smell: 'AIっぽさ ' + post.smell,
+        smellInk: post.smell >= 30 ? '#8a5a00' : '#6b6b66',
+        findings: post.findings === 0 ? '指摘 なし' : '指摘 ' + post.findings + '件',
+        findingInk: post.findings === 0 ? '#6b6b66' : '#8a5a00',
+        prShown: post.pr ? 'inline-block' : 'none',
+        comments: post.comments,
+        fill: post.on ? accent : 'transparent',
+        check: post.on ? 1 : 0,
+        edge: post.on ? accent : '#e4e4e0',
+        upOpacity: index === 0 ? 0.3 : 1,
+        downOpacity: last ? 0.3 : 1,
+        toggle: () => this.toggle(post.id),
+        up: () => this.move(index, -1),
+        down: () => this.move(index, 1),
+      };
+    });
+
+    return {
+      ventureName: this.props.ventureName ?? '朝のツール部屋',
+      posts,
+      submitLabel: chosen === 0 ? '選ばれていません' : chosen + '件を予約する',
+      submitOpacity: chosen === 0 ? 0.4 : 1,
+      schedule: () => { if (chosen > 0) this.setState({ outcome: 'scheduled' }); },
+      skip: () => this.setState({ outcome: 'skipped' }),
+      reset: () => this.setState({ outcome: null }),
+      deciding: outcome === null,
+      decided: outcome !== null,
+      doneTitle: outcome === 'skipped' ? '今日は出しません' : chosen + '件を予約しました',
+      doneNote: outcome === 'skipped'
+        ? '4件とも破棄されます。明日はまた新しい企画から始まります。'
+        : '選ばなかった投稿は破棄されます。明日に漏れ出しません。',
+    };
+  }
+}
+</script>
+</body>
+</html>

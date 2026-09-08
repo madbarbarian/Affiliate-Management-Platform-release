@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "amp",
+  "main": "src/worker/index.ts",
+  // Node's built-ins (node:crypto, node:buffer) are what the console's
+  // constant-time token compare needs. They are on by default from this
+  // compatibility date; the flags are named anyway, because a later date that
+  // changes the default would otherwise break the login silently, and a
+  // redundant flag is ignored.
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Created for you on the first deploy and bound as DB. The schema applies
+  // itself on the first request, so there is no migration step to remember.
+  //
+  // "For you" means the Deploy to Cloudflare button, which provisions it and
+  // rewrites the id below. A hand-run `wrangler deploy` gets neither: run
+  // `wrangler d1 create amp` first and paste the id it prints, or the deploy
+  // fails on a database that does not exist.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "amp",
+      "database_id": "placeholder-replaced-on-first-deploy"
+    }
+  ],
+
+  // One of these exists per name across the whole account, and it handles one
+  // request at a time - which is what makes it a lock. It keeps nothing
+  // durable: if it is evicted the lock is free, the same as its TTL expiring.
+  "durable_objects": {
+    "bindings": [{ "name": "LOCK", "class_name": "TickLock" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TickLock"] }],
+
+  "triggers": {
+    "crons": [
+      // Publishing what is due. A slot is to the minute, so this has to be.
+      "* * * * *",
+      // The day's cycles. On an hourly-or-longer schedule a cron trigger gets
+      // fifteen minutes of CPU instead of thirty seconds - and the six model
+      // calls a cycle makes are mostly waiting, which is not counted at all.
+      // The cost is that `cycleStartsAt` is honoured to the hour here.
+      "0 * * * *"
+    ]
+  },
+
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 > div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  </style>
+</helmet>
+<div class="frame">
+  <header>
+    <div class="crumb">セットアップ ・ ステップ 9 / 9</div>
+    <h1>案件を登録する</h1>
+    <p class="lede">読者の国と商品の国が違うときは、その場で必須項目が増えます。理由も一緒に表示します。</p>
+  </header>
+  <main>
+    <div class="card">
+      <div class="row2">
+        <div>
+          <label>ASP</label>
+          <div class="field filled">Impact</div>
+        </div>
+        <div>
+          <label>案件名</label>
+          <div class="field filled">Notion 年間プラン</div>
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label>商品の国 <span class="hint">どこの会社の商品か</span></label>
+          <div class="field filled">US</div>
+        </div>
+        <div>
+          <label>読者の国 <span class="hint">運用アカウントの市場から</span></label>
+          <div class="field filled">JP ・ このアカウントの設定</div>
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label>報酬</label>
+          <div class="field filled">売上の30%（revshare）・ USD</div>
+        </div>
+        <div>
+          <label>ランディングURL</label>
+          <div class="field filled">https://…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="border-color: var(--warn)">
+      <h2 style="margin-bottom:8px; color: var(--warn)">読者の国と商品の国が違うので、注意書きが3つ必須になりました</h2>
+      <p class="note" style="margin-bottom:10px">
+        米国の商品を、日本の読者に紹介します。<b style="color:var(--ink)">従うのは日本の規則</b>（景表法とステマ規制）です。
+        規則は商品の国ではなく、読者がいる国で決まります。<br>
+        読者がクリックする前に知っておくべきことを、日本語で書きます。
+      </p>
+      <div class="field filled">決済は米ドルです</div>
+      <div class="field filled">サポートは英語のみです</div>
+      <div class="field filled">販売元は Notion Labs, Inc. です</div>
+      <p class="note" style="margin:0">
+        書き忘れても、投稿の末尾に自動で付きます。<span class="ok">入っているかどうかを機械的に確認する</span>ので、
+        AIが「書いたつもり」でも見逃しません。
+      </p>
+    </div>
+
+    <div class="card">
+      <p class="note" style="margin:0">
+        <b style="color:var(--ink)">この案件をこのアカウントで扱えるか</b>も、いま確認します。
+        ASPが許可していない国の読者に案件を出すのは、アフィリエイトで最も高くつく間違いです。
+        数か月後に、報酬が全額取り消されることがあります。該当する場合は、設定を読み込む時点で登録できません。
+      </p>
+    </div>
+  </main>
+  <div class="bar">
+    <span class="stepcount">9 / 9</span>
+    <span class="spacer"></span>
+    <button class="ghost">戻る</button>
+    <button class="primary">登録する</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

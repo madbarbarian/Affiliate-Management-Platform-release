@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 > div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  </style>
+</helmet>
+<div class="frame">
+  <header>
+    <div class="crumb">セットアップ ・ ステップ 1 / 9</div>
+    <h1>ボタンを押すと、置き場所ができます</h1>
+    <p class="lede">メールのボタンから来た画面です。ここでの入力は2つだけで、あとは自動で進みます。</p>
+  </header>
+  <main>
+    <div class="card" style="border-color: var(--accent)">
+      <h2 style="color: var(--accent); margin-bottom: 8px">押すと自動でこうなります</h2>
+      <pre><span class="ok">1</span> あなたの GitHub に、このソフトの控えができます
+<span class="ok">2</span> データの保管場所が作られ、つながります
+<span class="ok">3</span> 組み立てて配置されます
+<span class="ok">4</span> あなた専用のアドレスが生まれます
+
+<span class="ok">これ以降、控えを保存するたびに、自動で反映されます。</span></pre>
+    </div>
+
+    <div class="card">
+      <label>名前 <span class="hint">アドレスの一部になります。あとから変えられます</span></label>
+      <div class="field filled">amp-morning-toolroom</div>
+      <p class="note" style="margin:0 0 4px">
+        できあがるアドレス: <code>https://amp-morning-toolroom.<b style="color:var(--ink)">あなた</b>.workers.dev</code>
+      </p>
+      <p class="note" style="margin:0 0 10px">
+        <b style="color:var(--ink)">独自のドメインは要りません。</b>
+        このアドレスは公開されていて、投稿に入るリンクもここを通ります。
+        つまり<b style="color:var(--ink)">初日から数字が記録されます</b>。
+        育ってから自分のドメインに移すこともできます。
+      </p>
+      <p class="note" style="margin:0">
+        同じ画面の<b style="color:var(--ink)">「控えを非公開にする」にチェックを入れてください</b>。
+        既定では入っていません。控えにはあなたの設定 — 何を、誰に、どんな文体で —
+        が入ります。鍵は入りませんが、<b style="color:var(--ink)">やり方は入ります</b>。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>鍵を入れる欄が2つ出ます</h2>
+      <label>承認画面の合言葉 <span class="hint">必須</span></label>
+      <div class="field filled">•••••••••••••••••••••••••</div>
+      <p class="note" style="margin:0 0 12px">
+        画面に「作る」ボタンがあります。押すと勝手に決まります。
+        <b style="color:var(--ink)">これが無いと、アドレスを知っている人が承認画面を開けてしまいます。</b>
+      </p>
+      <label>AIモデルの鍵 <span class="hint">この画面では空のままで進めます</span></label>
+      <div class="field empty">あとから入れられます</div>
+      <p class="note" style="margin:0">
+        <b class="ok">鍵は要りません。承認画面も、鍵なしで開きます。</b>
+        練習用の文章で1日ぶんが一巡するので、費用もかかりません。
+        本物の文章にしたくなったら入れてください（3分・画面にリンクがあります）。
+      </p>
+      <p class="note" style="margin:10px 0 0">
+        このほかに空欄が2つ（Threads の接続用）出ますが、
+        <b style="color:var(--ink)">どちらも空のままで構いません</b>。投稿先は、あとで決めます。
+      </p>
+    </div>
+  </main>
+  <div class="bar">
+    <span class="stepcount">1 / 9</span>
+    <span class="spacer"></span>
+    <span class="note">だいたい5分。待っている間に何もすることはありません</span>
+    <button class="primary">配置する</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

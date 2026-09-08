@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    /* 承認画面 (src/console/ui.ts) と同じトークン。値は写しであって、近似ではない。 */
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: baseline; gap: 8px; }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .step { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .question { margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .item { display: flex; gap: 11px; align-items: flex-start; }
+    .box {
+      width: 19px; height: 19px; flex: none; margin-top: 4px; padding: 0;
+      border: 2px solid var(--accent); border-radius: 5px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .item-body { flex: 1; min-width: 0; }
+    .title { font-weight: 600; line-height: 1.45; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 2px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    .rest { margin-top: 18px; }
+    .rest-toggle {
+      width: 100%; text-align: left; font: inherit; font-size: 14px;
+      color: var(--muted); background: none; border: none; padding: 6px 0; cursor: pointer;
+    }
+    .rest .card { padding: 10px 14px; }
+    .bar {
+      flex: none; padding: 12px 16px 18px; background: var(--bg);
+      border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px;
+    }
+    .primary {
+      font: inherit; font-weight: 600; width: 100%; padding: 13px 16px;
+      border-radius: var(--radius); border: 1px solid transparent;
+      background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    }
+    .quiet {
+      font: inherit; font-size: 14px; width: 100%; padding: 8px;
+      background: none; border: none; color: var(--muted); cursor: pointer;
+    }
+    .done { flex: 1; padding: 40px 24px; text-align: center; }
+    .done h3 { font-size: 16px; margin: 0 0 6px; font-weight: 650; }
+    .done p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
+    .undo {
+      font: inherit; font-size: 14px; margin-top: 18px; background: none;
+      border: none; color: var(--accent); cursor: pointer;
+    }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <div class="head-row">
+      <h1>{{ventureName}}</h1>
+      <span class="muted step">1 / 2</span>
+    </div>
+    <p class="question">今日出す企画を選んでください。<br>上の3件は、昨日までの実績からの推奨です。</p>
+  </header>
+
+  <sc-if value="{{deciding}}" hint-placeholder-val="{{ true }}">
+    <div class="scroll">
+      <h2>推奨</h2>
+      <sc-for list="{{top}}" as="it" hint-placeholder-count="3">
+        <div class="card" style="border-color: {{it.edge}}">
+          <div class="item">
+            <button class="box" onClick="{{it.toggle}}" aria-label="この企画を選ぶ" style="background: {{it.fill}}">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="opacity: {{it.check}}"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            </button>
+            <div class="item-body">
+              <div class="title">{{it.title}}</div>
+              <div class="sub">{{it.sub}}</div>
+              <div class="chips">
+                <span class="chip">{{it.evidence}}</span>
+                <span class="chip warn">{{it.risk}}</span>
+                <span class="chip pr" style="display: {{it.prShown}}">PR</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+
+      <div class="rest">
+        <button class="rest-toggle" onClick="{{toggleRest}}">{{restLabel}}</button>
+        <sc-if value="{{restOpen}}" hint-placeholder-val="{{ true }}">
+          <sc-for list="{{rest}}" as="it" hint-placeholder-count="4">
+            <div class="card" style="border-color: {{it.edge}}">
+              <div class="item">
+                <button class="box" onClick="{{it.toggle}}" aria-label="この企画を選ぶ" style="background: {{it.fill}}">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="opacity: {{it.check}}"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                </button>
+                <div class="item-body">
+                  <div class="title">{{it.title}}</div>
+                  <div class="sub">{{it.sub}}</div>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </sc-if>
+      </div>
+    </div>
+
+    <div class="bar">
+      <button class="primary" onClick="{{approve}}" style="opacity: {{submitOpacity}}">{{submitLabel}}</button>
+      <button class="quiet" onClick="{{skip}}">今日は見送る</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{decided}}" hint-placeholder-val="{{ false }}">
+    <div class="done">
+      <h3>{{doneTitle}}</h3>
+      <p>{{doneNote}}</p>
+      <button class="undo" onClick="{{reset}}">やり直す</button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844},"ventureName":{"editor":"text","default":"朝のツール部屋","section":"企画の承認"},"accent":{"editor":"color","default":"#2f6f4f","options":["#2f6f4f","#1a1a19","#8a5a00"],"section":"企画の承認"}}'>
+class Component extends DCLogic {
+  state = {
+    // 状態は「選ばれているか」だけ。編集はできない。並べ替えもここではしない。
+    // 人間の仕事を2つに保つには、この画面で増やせるものが1つもないことが要る。
+    ideas: [
+      { id: 'i1', top: true, on: true,
+        title: '自動化ツールを3つ捨てた話',
+        sub: '増やすほど遅くなった。残したのは1つだけ。',
+        evidence: '根拠 pat_003 ふだんの1.8倍',
+        risk: 'リスク 比較記事に見える',
+        pr: true },
+      { id: 'i2', top: true, on: true,
+        title: '朝30分の作業をやめた3週間',
+        sub: '何も起きなかった、が正確な結果。',
+        evidence: '根拠 pat_007 保存率2.4倍',
+        risk: 'リスク 主張が弱い',
+        pr: false },
+      { id: 'i3', top: true, on: true,
+        title: '見積もりを2倍にしたら仕事が増えた',
+        sub: '断られた3件と、通った1件の違い。',
+        evidence: '根拠 pat_003 ふだんの1.8倍',
+        risk: 'リスク 再現性が低い',
+        pr: true },
+      { id: 'i4', top: false, on: false, title: 'ツール選びに1週間かけた結果', sub: '根拠 pat_011 ・ 探索枠（まだ試していない型を試す枠）' },
+      { id: 'i5', top: false, on: false, title: '「効率化」で失った半年', sub: '根拠 pat_007 ・ 探索枠' },
+      { id: 'i6', top: false, on: false, title: '単価を上げる前にやめたこと', sub: '根拠 pat_003' },
+      { id: 'i7', top: false, on: false, title: '使わなくなったSaaSの共通点', sub: '根拠 pat_011' },
+      { id: 'i8', top: false, on: false, title: '無料プランで足りた話', sub: '根拠 pat_007' },
+      { id: 'i9', top: false, on: false, title: '外注をやめて戻した理由', sub: '根拠 pat_002 ・ 信頼度 低' },
+      { id: 'i10', top: false, on: false, title: '3ヶ月続いた習慣だけ残す', sub: '根拠 pat_003' },
+    ],
+    restOpen: false,
+    outcome: null,
+  };
+
+  toggle(id) {
+    this.setState((s) => ({
+      ideas: s.ideas.map((idea) => (idea.id === id ? { ...idea, on: !idea.on } : idea)),
+    }));
+  }
+
+  decorate(idea, accent) {
+    return {
+      title: idea.title,
+      sub: idea.sub,
+      evidence: idea.evidence,
+      risk: idea.risk,
+      prShown: idea.pr ? 'inline-block' : 'none',
+      fill: idea.on ? accent : 'transparent',
+      check: idea.on ? 1 : 0,
+      edge: idea.on ? accent : '#e4e4e0',
+      toggle: () => this.toggle(idea.id),
+    };
+  }
+
+  renderVals() {
+    const accent = this.props.accent ?? '#2f6f4f';
+    const chosen = this.state.ideas.filter((idea) => idea.on).length;
+    const rest = this.state.ideas.filter((idea) => !idea.top);
+    const outcome = this.state.outcome;
+
+    return {
+      ventureName: this.props.ventureName ?? '朝のツール部屋',
+      top: this.state.ideas.filter((idea) => idea.top).map((idea) => this.decorate(idea, accent)),
+      rest: rest.map((idea) => this.decorate(idea, accent)),
+      restOpen: this.state.restOpen,
+      restLabel: (this.state.restOpen ? '▾ ' : '▸ ') + '他' + rest.length + '件を見る',
+      toggleRest: () => this.setState((s) => ({ restOpen: !s.restOpen })),
+      submitLabel: chosen === 0 ? '選ばれていません' : chosen + '件を承認して進める',
+      submitOpacity: chosen === 0 ? 0.4 : 1,
+      approve: () => { if (chosen > 0) this.setState({ outcome: 'approved' }); },
+      skip: () => this.setState({ outcome: 'skipped' }),
+      reset: () => this.setState({ outcome: null }),
+      deciding: outcome === null,
+      decided: outcome !== null,
+      doneTitle: outcome === 'skipped' ? '今日は見送りました' : chosen + '件を承認しました',
+      doneNote: outcome === 'skipped'
+        ? '選ばれなかった企画は破棄されます。明日に持ち越しません。'
+        : '執筆と検品が終わったら、夕方にもう一度だけ通知します。',
+    };
+  }
+}
+</script>
+</body>
+</html>

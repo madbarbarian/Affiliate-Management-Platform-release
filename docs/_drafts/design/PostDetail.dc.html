@@ -1,0 +1,163 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .back { font-size: 15px; color: var(--muted); }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .id { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 22px 0 10px; font-weight: 500;
+    }
+    h2.first { margin-top: 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .slot { display: flex; align-items: baseline; gap: 8px; }
+    .rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 999px; flex: none;
+      background: var(--accent); color: var(--accent-ink);
+      font-size: 12px; font-weight: 650;
+    }
+    .time { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .body { white-space: pre-wrap; line-height: 1.75; margin-top: 10px; }
+    .lead { font-weight: 600; }
+    .disclosure { color: var(--accent); }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    .meter { display: flex; align-items: center; gap: 10px; }
+    .meter b { font-variant-numeric: tabular-nums; font-size: 18px; }
+    .track { flex: 1; height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+    .fill { height: 100%; background: var(--accent); }
+    .finding { border-left: 3px solid var(--warn); padding-left: 11px; margin-bottom: 14px; }
+    .finding.kept { border-left-color: var(--line); }
+    .finding b { color: var(--warn); font-weight: 600; font-size: 14px; }
+    .finding.kept b { color: var(--muted); }
+    .finding .sub { color: var(--muted); font-size: 13px; line-height: 1.55; margin-top: 2px; }
+    .comment { font-size: 14px; line-height: 1.65; }
+    .comment.later { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .note { color: var(--muted); font-size: 13px; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <span class="back">←</span>
+    <h1>投稿 #1</h1>
+    <span class="muted id">draft_0831_01</span>
+  </header>
+
+  <div class="scroll">
+    <div class="card">
+      <div class="slot">
+        <span class="rank">1</span>
+        <span class="time">07:30</span>
+        <span class="muted">火曜のこの枠が直近28日で最良</span>
+      </div>
+      <div class="body"><span class="lead">僕が3日で捨てたツールの話。</span>
+
+去年、作業を速くしたくて自動化ツールを5つ入れた。
+3日後、そのうち3つを消した。
+
+理由は単純で、動いているか確認する時間のほうが長くなったから。
+何かが止まったとき、どれが止まったのか分からない。
+
+残したのは1つだけ。
+そのあと半年、増やしていない。
+
+<span class="disclosure">#PR ※本投稿にはアフィリエイトリンクを含みます
+決済は米ドル・サポートは英語のみ・販売元は Notion Labs, Inc. です</span></div>
+      <div class="chips">
+        <span class="chip">248字</span>
+        <span class="chip">AIっぽさ 18</span>
+        <span class="chip warn">指摘 1件</span>
+        <span class="chip pr">PR</span>
+      </div>
+    </div>
+
+    <h2>AIっぽさ</h2>
+    <div class="card">
+      <div class="meter">
+        <b>18</b>
+        <span class="track"><span class="fill" style="width: 18%"></span></span>
+        <span class="muted">上限 35</span>
+      </div>
+      <div class="note" style="margin-top: 8px">直したあとの本文を、検品担当と機械的な確認の両方が採点し、悪いほうの点を採用します。今回は機械的な確認が18、検品担当が12でした。</div>
+    </div>
+
+    <h2>検品担当の指摘</h2>
+    <div class="card">
+      <div class="finding">
+        <b>直しました — 文の長さが揃いすぎていた</b>
+        <div class="sub">「〜ため、〜ました。」が3回続いていたので、2つを短く割りました。読点の位置も1箇所ずらしています。</div>
+      </div>
+      <div class="finding kept">
+        <b>直しませんでした — ツール名が1つだけ</b>
+        <div class="sub">企画のリスク「比較記事に見える」に沿って、捨てた3つの名前は出していません。意図した空白です。</div>
+      </div>
+    </div>
+
+    <h2>コメント下書き</h2>
+    <div class="card">
+      <div class="comment">
+        <span class="when">投稿と同時</span><br>
+        残した1つはこれです。（リンク）<br>
+        <span class="note">リンクを最初のコメントに置くのは、本文にURLを入れると投稿が伸びにくいためです。</span>
+      </div>
+      <div class="comment later">
+        <span class="when">+2時間</span><br>
+        「何を基準に消したのか」と聞かれたので補足します。<br>
+        止まったときに自分で直せるか、だけで判断しました。
+      </div>
+    </div>
+
+    <h2>本文はここでは直せません</h2>
+    <div class="card">
+      <div class="note">運用者の仕事を「企画を選ぶ」「出す順番を決める」の2つに保つためです。直したいときは、この投稿を外して、明日の企画で言い直してください。</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

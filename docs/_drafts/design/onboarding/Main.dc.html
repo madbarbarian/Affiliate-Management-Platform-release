@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    /* 承認画面 (src/console/ui.ts) と同じトークン。写しであって近似ではない。 */
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 900px; height: 1180px; padding: 30px 34px; overflow: hidden; }
+    h1 { font-size: 21px; margin: 0 0 4px; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+    .band {
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--panel); padding: 14px 16px; margin-bottom: 20px;
+    }
+    .band.free { border-color: var(--accent); }
+    .band-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+    .band-title { font-weight: 650; font-size: 15px; }
+    .band.free .band-title { color: var(--accent); }
+    .band-note { color: var(--muted); font-size: 13px; }
+    .step { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
+    .step + .step { border-top: 1px solid var(--line); }
+    .num {
+      width: 22px; height: 22px; border-radius: 999px; flex: none;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 650; background: var(--chip); color: var(--muted);
+    }
+    .band.free .num { background: var(--accent); color: var(--accent-ink); }
+    .what { flex: 1; }
+    .what b { font-weight: 650; }
+    .what .sub { color: var(--muted); font-size: 13px; }
+    .cost { flex: none; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .cost .hard { color: var(--danger); font-weight: 600; }
+    .gate {
+      margin: 22px 0; padding: 12px 16px; border-left: 3px solid var(--accent);
+      background: var(--chip); border-radius: 0 8px 8px 0; font-size: 14px;
+    }
+    .gate b { color: var(--accent); }
+    .foot { margin-top: 22px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+    .foot b { color: var(--ink); }
+  </style>
+</helmet>
+
+<div class="frame">
+  <h1>最初の1時間</h1>
+  <p class="lede">メールのボタンを押すところから、1本目を出すところまでです。ソフトを取ってくる作業も、文字だけの画面もありません。</p>
+
+  <div class="band">
+    <div class="band-head">
+      <span class="band-title">押すと、置き場所ができます</span>
+      <span class="band-note">控えを作るところから配置まで、自動で進みます</span>
+    </div>
+
+    <div class="step">
+      <span class="num">1</span>
+      <span class="what"><b>メールのボタンを押す</b><span class="sub"> — Cloudflare に登録し（無料・カード不要）、名前と合言葉を決めるだけです。あなた専用のアドレスができます</span></span>
+      <span class="cost">5分</span>
+    </div>
+  </div>
+
+  <div class="band free">
+    <div class="band-head">
+      <span class="band-title">鍵なしで、中身を決めます</span>
+      <span class="band-note">AIモデルの鍵はまだ要りません。ここまで費用は1円もかかりません</span>
+    </div>
+
+    <div class="step">
+      <span class="num">2</span>
+      <span class="what"><b>名乗る／運用アカウントを決める</b><span class="sub"> — ニッチ、読者、市場、時間帯です。ここだけは、あなたにしか分からない情報です</span></span>
+      <span class="cost">10分</span>
+    </div>
+    <div class="step">
+      <span class="num">3</span>
+      <span class="what"><b>文体を決める → その場で3行出ます</b><span class="sub"> — 「動いた」と分かる最初の30秒です</span></span>
+      <span class="cost">5分</span>
+    </div>
+    <div class="step">
+      <span class="num">4</span>
+      <span class="what"><b>参考投稿を5つ貼る</b><span class="sub"> — 良いと思う投稿を5つ。初日から手がかりを持って始めるためです</span></span>
+      <span class="cost">10分</span>
+    </div>
+    <div class="step">
+      <span class="num">5</span>
+      <span class="what"><b>1日を通す</b><span class="sub"> — 企画10案 → 承認 → 執筆 → 検品 → 枠決め → 投稿（実際には出ません）</span></span>
+      <span class="cost">2分</span>
+    </div>
+  </div>
+
+  <div class="gate">
+    <b>ここでやめられます。</b> 気に入らなければ、外部サービスの手続きを一度もせずに終えられます。
+  </div>
+
+  <div class="band">
+    <div class="band-head">
+      <span class="band-title">ここから、実際に出すための作業です</span>
+      <span class="band-note">製品が自分に合うと分かってから取りかかります</span>
+    </div>
+
+    <div class="step">
+      <span class="num">6</span>
+      <span class="what"><b>できた設定を、自分の控えに貼る</b><span class="sub"> — コピーして、開いて、貼って、保存。1〜2分で反映されます</span></span>
+      <span class="cost">3分</span>
+    </div>
+    <div class="step">
+      <span class="num">7</span>
+      <span class="what"><b>AIモデルの鍵</b><span class="sub"> — ここで初めて費用が発生します。ステップ5で測った1日分の目安を、先にお見せします</span></span>
+      <span class="cost">3分</span>
+    </div>
+    <div class="step">
+      <span class="num">8</span>
+      <span class="what"><b>投稿先をつなぐ</b><span class="sub"> — Threads の長期トークンを貼ります。貼った瞬間に確認し、うまくいかないときは何が原因かを具体的に示します</span></span>
+      <span class="cost"><span class="hard">20〜40分</span><br>いちばんつまずきやすい</span>
+    </div>
+    <div class="step">
+      <span class="num">9</span>
+      <span class="what"><b>案件を登録する</b><span class="sub"> — 読者の国と商品の国が違うときは、必要になる注意書きとその理由をその場で示します</span></span>
+      <span class="cost">15分</span>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>リンクのドメインを用意する作業は、無くなりました。</b>
+    ステップ1でできるアドレスがそのまま公開されているので、<b>クリックは初日から記録されます</b>。<br>
+    時間はおおよその目安です。8は外部サービス側の手続きが入るので、人によって大きく前後します。
+    途中でやめても、ここまでの入力は無駄になりません。
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":900,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

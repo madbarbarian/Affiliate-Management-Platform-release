@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 > div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  </style>
+</helmet>
+<div class="frame">
+  <header>
+    <div class="crumb">セットアップ ・ 最後の確認</div>
+    <h1>数字が全部返ってくるか、確認します</h1>
+    <p class="lede">投稿・クリック・報酬。この3つがつながっていないと、あとから測り直せません。</p>
+  </header>
+  <main>
+    <div class="card" style="border-color: var(--accent)">
+      <label>リンクのアドレス <span class="hint">読者が実際に開きます</span></label>
+      <div class="field filled">https://amp-morning-toolroom.あなた.workers.dev</div>
+      <p class="note" style="margin:0">
+        <b class="ok">用意する作業はありません。</b>
+        ステップ1でできたアドレスがそのまま使われます。
+        投稿に入るリンクは <code>…/go/&lt;code&gt;</code> の形で、<code>/go</code> は自動で付きます。
+      </p>
+    </div>
+
+    <div class="card" style="border-color: var(--danger)">
+      <h2 style="margin-bottom:8px; color: var(--danger)">合言葉を空にしないでください</h2>
+      <p class="note" style="margin:0">
+        <b style="color:var(--ink)">同じアドレスで、承認画面も開きます。</b>
+        リンクの転送（<code>/go/</code>）と承認画面は、同じところが配っているためです。
+        つまりアドレスを知っている人は、承認画面の入口までは来られます。<br><br>
+        守っているのはステップ1で決めた合言葉ひとつです。空にしたり、人に見せたりしないでください。
+      </p>
+    </div>
+
+    <h2>計測経路 — 投稿・クリック・報酬が全部戻ってくるか</h2>
+    <div class="card">
+      <pre><span class="ok">✓</span> 投稿が Threads に届く         Threads API
+<span class="ok">✓</span> Threads が数字を返す          本物の接続です（模擬データではありません）
+<span class="ok">✓</span> 読者がリンクをたどれる        amp-morning-toolroom.….workers.dev
+<span class="ok">✓</span> ASPが成果を返す               Impact のCSVを45日分
+<span class="ok">✓</span> 成果に金額がつく              売上の30%（revshare）/ USD
+
+<span class="ok">measurement: closed</span>（計測経路はつながっています）— 投稿・クリック・報酬が全部返ってきます</pre>
+      <p class="note" style="margin-top:10px">
+        計測経路が切れたまま1か月運用すると、その1か月分は<b style="color:var(--ink)">あとから測り直せません</b>。
+        クリックは「ゼロだった」のではなく「記録されなかった」ので、取り戻す手段がないからです。
+      </p>
+    </div>
+
+    <div class="card" style="border-color: var(--accent)">
+      <p class="note" style="margin:0">
+        <b class="ok">明日の朝 06:30 に、最初の1日分が動きます。</b>
+        最初の3日は1日1本です（<code>postsPerDay: 1</code>）。<br>
+        止めたくなったら、承認画面のいちばん上にある「止める」を押してください。
+        理由を言葉にできる前でも構いません。あとから書けます。
+      </p>
+    </div>
+  </main>
+  <div class="bar">
+    <span class="stepcount">あと1つ</span>
+    <span class="spacer"></span>
+    <button class="ghost">設定を見る</button>
+    <button class="primary">運用を始める</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

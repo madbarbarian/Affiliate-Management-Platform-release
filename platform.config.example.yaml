@@ -1,0 +1,469 @@
+# =============================================================================
+# Affiliate Management Platform — operating configuration
+#
+# This is the only file you edit to run your own operation. Copy it to
+# `platform.config.yaml`, change what is yours, and run `node src/cli.ts doctor`.
+#
+# Secrets never live here. Config names an environment variable; the value goes
+# in `.env.local` (git-ignored). Non-secret defaults live in `.env`, which is
+# committed. `${VAR}` and `${VAR:-default}` are expanded when the file loads.
+# =============================================================================
+
+version: 2
+
+company:
+  name: "ひとり運用カンパニー"
+  # Whose name goes on approvals in the audit trail.
+  operator: "${AMP_OPERATOR:-owner}"
+
+  # How this company thinks, in your words. Every role in every account reads
+  # these before it does anything, which is how a second and a tenth account
+  # still sound like the same company. Prose, not rules: the rules are `policy`.
+  principles:
+    - "売る前に役に立つ。案件の無い投稿が、案件のある投稿の権利を稼ぐ"
+    - "自分がやったことだけ書く。試していないものは勧めない"
+    - "数字は出す。出せない主張は書かない"
+
+  # What this company never does, whatever an account's numbers say. These
+  # shape what gets proposed; they do not block what gets published — keep
+  # anything that must be blocked in `policy.prohibitedClaims` too.
+  boundaries:
+    - "健康・医療・金融で、結果を断定する表現はどの市場でも書かない"
+    - "読者の不安を煽って売る型は、効いても採用しない"
+
+  # The weekly question: should we try another account? When enabled, the
+  # daemon runs the scout every `everyDays` days; it reads every account's
+  # aggregates and proposes `proposals` new accounts, each with its evidence,
+  # its risk and the signal that would mean stop. You accept or dismiss in the
+  # console or with `amp scout accept <id>`. Accepting prints a ventures[]
+  # block to paste here - this file is never written by the machine.
+  # Off here so a fresh install never makes a model call you did not ask for;
+  # turn it on once your first account has a few weeks of numbers to reason
+  # from. `amp scout` runs it by hand any time, enabled or not.
+  exploration:
+    enabled: false
+    everyDays: 7
+    proposals: 3
+    lookbackDays: 30
+    # When the portfolio flags an account as worth a look: enough posts to
+    # judge, and either not one click on a tracked link, or a median far below
+    # the company's. A flag is a suggestion next to a one-click deactivate in
+    # the console; nothing switches itself off.
+    review:
+      afterPosts: 20
+      belowShareOfMedian: 0.5
+
+  # How much rope the machine gets.
+  #   manual   — both gates wait for you, with nothing pre-selected.
+  #   assisted — both gates wait for you, pre-filled with the platform's
+  #              recommendation, so approving is one click. (default)
+  #   auto     — the machine decides both gates itself. Before a slot you can
+  #              still stop everything with `amp pause`; there is no per-post
+  #              cancel yet.
+  autonomy: assisted
+
+runtime:
+  dataDir: .amp
+  promptsDir: prompts
+  logLevel: info
+  logFormat: pretty
+
+llm:
+  # Starts on the simulated model so the whole day runs, and the console opens,
+  # before you hold any key. Switch to "anthropic" when the proposals are worth
+  # paying for - that is step 4 of the licensee guide, not step 1.
+  provider: mock               # anthropic | mock
+  model: claude-opus-5         # judgement work: research, planning, inspection
+  fastModel: claude-haiku-4-5  # mechanical work: summaries, comment drafts
+  effort: high                 # low | medium | high | xhigh | max
+  fastEffort: medium
+  maxOutputTokens: 8000
+  apiKeyEnv: ANTHROPIC_API_KEY
+  maxRetries: 3
+  requestTimeoutMs: 120000
+
+console:
+  enabled: true
+  host: 127.0.0.1
+  port: 4321
+  tokenEnv: AMP_CONSOLE_TOKEN
+
+# ---------------------------------------------------------------------------
+# Guardrails. These are enforced in code, not by asking a model nicely.
+# ---------------------------------------------------------------------------
+policy:
+  requireDisclosure: true
+  disclosureText: "※PR・アフィリエイトリンクを含みます"
+
+  # A draft scoring above this on the AI-smell scale is blocked and never
+  # reaches you. 0 reads as unmistakably human, 100 as generated.
+  maxAiSmellScore: 35
+  blockOnComplianceFindings: true
+
+  maxPostsPerDay: 3
+  minMinutesBetweenPosts: 180
+  metricsWindowHours: 72
+
+  # 成果レポートを何日さかのぼって取り込むか。エンゲージメントの窓とは
+  # まったく別物で、ASPの確定は月次締めなど「あとから」来る。ここが短いと、
+  # 実際に発生した報酬が一度も取り込まれないまま消える。
+  # 再取り込みは成果IDで重複排除されるので、長めで困らない。
+  conversionLookbackDays: 45
+
+  # Phrases that mark text as machine-written. Add your own as you spot them —
+  # this list is the cheapest quality lever in the whole system.
+  bannedPhrases:
+    - いかがでしたか
+    - まとめると
+    - ぜひ参考にしてみてください
+    - この記事では
+    - 重要なポイントは以下の通りです
+    - 圧倒的な
+    - 革命的な
+
+  # Claims no post may make, whatever the offer pays.
+  prohibitedClaims:
+    - 必ず稼げる
+    - 誰でも100%
+    - リスクゼロ
+    - 元本保証
+    - 医師も推奨
+
+# ---------------------------------------------------------------------------
+# Tracking. The short link in your posts points here, not at the network, so
+# switching networks does not invalidate every post you have ever made.
+# ---------------------------------------------------------------------------
+tracking:
+  baseUrl: "${AMP_TRACKING_BASE_URL:-https://example.invalid}"
+  linkParam: amp
+  extraParams:
+    utm_source: threads
+    utm_medium: social
+
+# ---------------------------------------------------------------------------
+# Markets — where your readers are.
+#
+# This is what makes cross-border promotion safe. Compliance follows the
+# AUDIENCE, not the merchant: a US product promoted to Japanese readers is
+# governed by 景表法 and the ステマ規制, and the disclosure has to be in
+# Japanese. The merchant's own country only decides what extra caveats the
+# reader is owed.
+#
+# ⚠️  The rules below are a starting point, not legal advice. Check them
+#     against the current regulations for every market you operate in, and
+#     against each network's own contract.
+# ---------------------------------------------------------------------------
+markets:
+  - id: jp
+    name: 日本
+    language: ja
+    currency: JPY
+    timezone: Asia/Tokyo
+    # 2023年10月施行のステルスマーケティング規制。広告であることが
+    # 一般消費者にとって明瞭でなければならない。
+    disclosureText: "※PR・アフィリエイトリンクを含みます"
+    regulator: "消費者庁（景品表示法／ステルスマーケティング規制）"
+    prohibitedClaims:
+      - 必ず痩せる
+      - 病気が治る
+      - 絶対に儲かる
+    restrictedCategories:
+      - category: health
+        note: "薬機法：健康食品・化粧品で効能効果を標榜しない"
+        prohibited: false
+      - category: finance
+        note: "金商法：断定的判断の提供にあたる表現を使わない"
+        prohibited: false
+    # 海外事業者を紹介するときに必ず伝えること
+    crossBorderNotice: "海外事業者との直接契約になり、日本の特商法の保護対象外となる場合があります"
+
+  - id: us
+    name: United States
+    language: en
+    currency: USD
+    timezone: America/New_York
+    disclosureText: "#ad — I earn a commission from links in this post."
+    regulator: "FTC Endorsement Guides (16 CFR Part 255)"
+    prohibitedClaims:
+      - guaranteed income
+      - risk-free
+      - FDA approved
+      - cures
+    restrictedCategories:
+      - category: health
+        note: "FTC/FDA: no disease-treatment claims for supplements"
+        prohibited: false
+      - category: finance
+        note: "SEC/FTC: no performance guarantees, disclose material connections"
+        prohibited: false
+    crossBorderNotice: "Sold by an overseas merchant; prices and support may differ."
+
+# ---------------------------------------------------------------------------
+# Channels. `mock` simulates everything and needs no credentials — start here.
+# ---------------------------------------------------------------------------
+channels:
+  - id: threads
+    # mock | threads | webhook   (see docs/3-development/extending.md to add your own)
+    adapter: mock
+    enabled: true
+    credentialEnv:
+      token: AMP_CHANNEL_THREADS_TOKEN
+      userId: AMP_CHANNEL_THREADS_USER_ID
+    research:
+      queries:
+        - 副業
+        - AI 活用
+        - 個人開発
+      minLikes: 300
+      maxItems: 40
+      lookbackHours: 24
+    options:
+      maxCharacters: 500
+      format: thread           # short | thread | longform
+
+  # --- Presets for other channels ------------------------------------------
+  # All of these use `adapter: webhook`: you point them at your own service, or
+  # at a Make / Zapier / n8n scenario you already have. The four endpoints are
+  # documented in docs/3-development/extending.md.
+  #
+  # `format` changes what the writing role produces — a 280-character post and
+  # a note article are genuinely different pieces of work, not the same text at
+  # two lengths.
+  #
+  # ⚠️  maxCharacters below are the limits at the time of writing. Verify them
+  #     against each platform's current documentation before you rely on them.
+
+  # - id: x
+  #   adapter: webhook
+  #   enabled: false
+  #   credentialEnv: { token: AMP_CHANNEL_X_TOKEN }
+  #   research: { queries: [], minLikes: 500, maxItems: 20, lookbackHours: 24 }
+  #   options:
+  #     publishUrl: "https://hooks.example.com/x/publish"
+  #     metricsUrl: "https://hooks.example.com/x/metrics"
+  #     commentUrl: "https://hooks.example.com/x/comment"
+  #     maxCharacters: 280      # 無料アカウント。Premium なら 25000
+  #     format: thread
+  #     threads: true
+
+  # - id: note
+  #   adapter: webhook
+  #   enabled: false
+  #   credentialEnv: { token: AMP_CHANNEL_NOTE_TOKEN }
+  #   research: { queries: [], minLikes: 0, maxItems: 0, lookbackHours: 24 }
+  #   options:
+  #     publishUrl: "https://hooks.example.com/note/publish"
+  #     maxCharacters: 20000
+  #     format: longform        # 記事なので見出し付きの本文になる
+  #     threads: true           # threadParts が節になる
+
+  # - id: youtube
+  #   adapter: webhook
+  #   enabled: false
+  #   credentialEnv: { token: AMP_CHANNEL_YOUTUBE_TOKEN }
+  #   research: { queries: [], minLikes: 0, maxItems: 0, lookbackHours: 24 }
+  #   options:
+  #     publishUrl: "https://hooks.example.com/youtube/description"
+  #     maxCharacters: 5000     # 概要欄
+  #     format: longform
+
+# ---------------------------------------------------------------------------
+# Affiliate networks.
+# ---------------------------------------------------------------------------
+networks:
+  - id: demo
+    adapter: mock              # mock | csv | webhook
+    enabled: true
+    credentialEnv:
+      token: AMP_NETWORK_DEMO_TOKEN
+    options:
+      subIdParam: subid
+      conversionRate: 0.06     # mock only: simulated click-to-sale rate
+      payout: 2500
+      currency: JPY
+
+  # --- A8.net など、成果レポートをCSVで落とすタイプのASP -------------------
+  # 国内ASP（A8.net / もしも / バリューコマース / afb / アクセストレード）も、
+  # 海外（ShareASale / CJ / Impact / Rakuten Advertising / Amazon Associates）
+  # も、ほぼ全部これで入ります。ダウンロードしたCSVを reportsDir に置くだけ。
+  # 同じファイルを何度入れても、成果IDで重複排除されます。
+  #
+  # - id: a8
+  #   adapter: csv
+  #   enabled: false
+  #   credentialEnv: {}
+  #   options:
+  #     reportsDir: ".amp/reports/a8"
+  #     encoding: shift_jis     # 国内ASPはShift_JISが多い。UTF-8なら utf-8
+  #     currency: JPY
+  #     subIdParam: a8mat       # 成果地点URLに付ける自前のパラメータ名
+  #     columns:                # 列名はASPの書き出しに合わせて変える
+  #       at: "発生日時"
+  #       externalId: "注文ID"
+  #       subId: "クリックID"
+  #       amount: "報酬額"
+  #       status: "ステータス"
+  #     statusMap:              # 既定で承認/未確定/キャンセル等は解釈済み
+  #       "支払済": approved
+
+  # - id: impact
+  #   adapter: csv
+  #   enabled: false
+  #   credentialEnv: {}
+  #   options:
+  #     reportsDir: ".amp/reports/impact"
+  #     encoding: utf-8
+  #     currency: USD
+  #     subIdParam: subId1
+  #     columns:
+  #       at: "Action Date"
+  #       externalId: "Action Id"
+  #       subId: "SubId1"
+  #       amount: "Payout"
+  #       status: "Status"
+
+# ---------------------------------------------------------------------------
+# Offers. Declare them here when your network has no catalogue API.
+#
+# `originMarket` is where the merchant is. `targetMarkets` is where you are
+# permitted to promote it — set it from the network's actual terms, not from
+# where you would like to sell. A venture may only carry an offer whose
+# targetMarkets include that venture's market; the platform refuses to start
+# otherwise.
+# ---------------------------------------------------------------------------
+offers:
+  # 日本 → 日本（国内案件）
+  - id: offer_demo_tool
+    network: demo
+    name: "サンプル業務効率化ツール"
+    landingUrl: "https://example.com/lp/demo-tool"
+    payoutModel: cpa           # cpa | cpc | revshare
+    payoutValue: 2500
+    currency: JPY
+    category: productivity
+    originMarket: jp
+    targetMarkets: [jp]
+    crossBorderNote: ""        # 国内案件なので不要
+    complianceNotes:
+      - "無料プランの存在に触れること"
+      - "「必ず時短できる」等の断定表現を使わないこと"
+    active: true
+
+  # アメリカ → 日本（海外案件を日本の読者に紹介する）
+  # crossBorderNote は必須。読者がクリック前に知るべきことを書く。
+  # - id: offer_us_saas
+  #   network: impact
+  #   name: "US SaaS Tool"
+  #   landingUrl: "https://example.com/us/lp"
+  #   payoutModel: revshare
+  #   payoutValue: 0.3
+  #   currency: USD
+  #   category: productivity
+  #   originMarket: us
+  #   targetMarkets: [us, jp]
+  #   crossBorderNote: "米国企業との直接契約です。決済はUSD、日本語サポートはありません。"
+  #   complianceNotes:
+  #     - "無料トライアルの期間と自動更新条件を必ず書くこと"
+  #   active: true
+
+  # 日本 → アメリカ（日本の商材を英語圏に紹介する）
+  # - id: offer_jp_craft
+  #   network: demo
+  #   name: "Japanese Craft Goods"
+  #   landingUrl: "https://example.com/jp/craft"
+  #   payoutModel: cpa
+  #   payoutValue: 15
+  #   currency: USD
+  #   category: lifestyle
+  #   originMarket: jp
+  #   targetMarkets: [jp, us]
+  #   crossBorderNote: "Ships from Japan. Import duties may apply and delivery takes 1–2 weeks."
+  #   active: true
+
+# ---------------------------------------------------------------------------
+# Ventures. One per account you operate. Everything above is shared.
+# ---------------------------------------------------------------------------
+ventures:
+  - id: main
+    name: "メインアカウント"
+    niche: "AIを使った個人の業務効率化"
+    audience: "会社員として働きながら副業を始めたい30代。ツールは好きだが時間がない。"
+    # どの国の読者に向けたアカウントか。ここが広告規制の適用先を決める。
+    market: jp
+    timezone: Asia/Tokyo
+    language: ja
+    active: true
+
+    channels:
+      - threads
+    offers:
+      - offer_demo_tool
+
+    voice:
+      persona: "元編集者。ツールを試しては失敗している当事者。専門家ぶらない。"
+      firstPerson: "僕"
+      tone:
+        - 率直
+        - 自嘲気味
+        - 具体的
+      signaturePhrases:
+        - "結論から言うと"
+        - "ここで詰まった"
+      bannedPhrases:
+        - 皆さん
+        - 〜ではないでしょうか
+
+    cadence:
+      postsPerDay: 2
+      minMinutesBetweenPosts: 240
+      cycleStartsAt: "06:30"
+      ideasPerCycle: 10
+
+  # 英語圏向けの2つ目のアカウント。同じ商材でも、読者が変われば
+  # 開示文・禁止表現・投稿時間はすべて market 側の設定に従う。
+  # - id: us_main
+  #   name: "US account"
+  #   niche: "Solo-operator productivity with AI"
+  #   audience: "US-based freelancers billing hourly who lose evenings to admin."
+  #   market: us
+  #   timezone: America/New_York
+  #   language: en
+  #   active: false
+  #   channels: [threads]
+  #   offers: [offer_us_saas, offer_jp_craft]
+  #   voice:
+  #     persona: "Ex-agency operator who now works alone. Blunt, specific."
+  #     firstPerson: "I"
+  #     tone: [blunt, self-deprecating]
+  #     signaturePhrases: ["Here's the short version"]
+  #     bannedPhrases: ["game-changer", "leverage"]
+  #   cadence:
+  #     postsPerDay: 1
+  #     minMinutesBetweenPosts: 240
+  #     cycleStartsAt: "06:00"
+  #     ideasPerCycle: 8
+
+# ---------------------------------------------------------------------------
+# Licensing — only relevant if you operate this instance on someone else's
+# behalf. Running your own accounts? Leave `model: none` and ignore the rest.
+#
+# `amp statement --days 30` prints the arithmetic per venture, per currency.
+# It is a statement, not an invoice: no tax is applied and no money moves.
+# Whatever you set here must match the terms your tenants actually accepted —
+# see contracts/tenant-terms.template.md.
+# ---------------------------------------------------------------------------
+licensing:
+  model: none                # none | subscription | revshare
+
+  # subscription: 成果が出ていなくても発生する固定額
+  subscriptionAmount: 0
+  subscriptionCurrency: JPY
+
+  # revshare: 「確定した」成果報酬に対する割合（0〜1）。未確定分は課金しない。
+  revshareRate: 0
+
+  # テナントごとに条件が違う場合の上書き
+  # overrides:
+  #   - venture: main
+  #     model: revshare
+  #     revshareRate: 0.15
