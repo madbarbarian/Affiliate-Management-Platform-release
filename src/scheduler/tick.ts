@@ -17,6 +17,7 @@
  */
 
 import { localDate, localMinutesOfDay, parseTimeOfDay } from "../core/clock.ts";
+import { COMPANY_SCOPE } from "../core/types.ts";
 import { describeError } from "../core/result.ts";
 import { isPaused, readPause } from "../kernel/pause.ts";
 import { isVentureActive, readVentureState } from "../kernel/venture-state.ts";
@@ -25,6 +26,16 @@ import type { Runtime } from "../runtime.ts";
 
 /** How long to leave a venture alone after a retryable failure. */
 export const RETRY_BACKOFF_MS = 10 * 60_000;
+
+/**
+ * The lock names the two halves take, where the host has a lock at all.
+ *
+ * Named here rather than at each caller because the console's "run today
+ * again" button has to take *the same* one the cycles cron takes, and two
+ * copies of a string that must match is how they come to differ.
+ */
+export const CYCLES_LOCK = "tick:cycles";
+export const DISPATCH_LOCK = "tick:dispatch";
 
 export type TickMemory = {
   /** Local dates already started, by venture, so a venture starts once per day. */
@@ -168,14 +179,22 @@ async function exploreIfDue(runtime: Runtime, memory: TickMemory, nowMs: number)
   const exploration = runtime.config.company.exploration;
   const { logger } = runtime.services;
   if (!exploration.enabled || nowMs < (memory.scoutRetryAfter ?? 0)) return;
-  memory.lastScout ??= { at: await lastScoutAt(runtime.services.store) };
+  memory.lastScout ??= { at: await lastScoutAt(await runtime.services.stores.for(COMPANY_SCOPE)) };
   if (!scoutDue(memory.lastScout.at, nowMs, exploration.everyDays)) return;
 
   // Not on day one. A scout shown nothing but empty aggregates would still
   // produce three confident proposals, and a fresh install would have paid for
   // a model call it did not ask for. `amp scout` by hand is unaffected.
-  const cycles = await runtime.services.store.cycles.find((cycle) => cycle.status === "completed");
-  if (cycles.length === 0) return;
+  // Any account having finished a day is enough: the scout reads the whole
+  // company, and on a fresh install there is nothing for it to read.
+  let anyCompleted = false;
+  for (const scope of await runtime.services.stores.each()) {
+    if ((await scope.store.cycles.find((cycle) => cycle.status === "completed")).length > 0) {
+      anyCompleted = true;
+      break;
+    }
+  }
+  if (!anyCompleted) return;
 
   logger.info("scout running", { everyDays: exploration.everyDays });
   const result = await runScout(runtime.services, { state: runtime.state });

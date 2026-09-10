@@ -84,6 +84,15 @@ must be in Japanese. `src/domain/market.ts` resolves this once and both
 `policy.ts` and the roles use its answer — never re-derive it somewhere else,
 and never let the merchant's own country decide the rules.
 
+**Anything about a second person reads `docs/3-development/adding-people.md`
+first.** Users, operators, members, tenants, roles, permissions, invitations,
+sign-up, `console.operators` — read it before proposing or writing anything,
+and say what it already decided rather than reasoning from scratch. It settles
+which of two different things is being asked for (the question is *whose
+revenue is it*), why tenants are not being built, why the roles are deferred
+and what would make that judgement wrong, and why the store split comes first.
+The decision can be reopened; re-deriving it by accident cannot.
+
 ## Conventions
 
 - **Comments explain why, not what.** The non-obvious decision, the failure it

@@ -26,7 +26,7 @@ import {
   type VentureState,
 } from "../kernel/venture-state.ts";
 import { totalsByCurrency, type RevenueRollup } from "../affiliate/attribution.ts";
-import type { Store } from "../storage/store.ts";
+import type { Store, StoreRegistry } from "../storage/store.ts";
 import { describeMeasurementChain, type ChainStep } from "./measurement.ts";
 import { computePerformance } from "./performance.ts";
 
@@ -48,7 +48,25 @@ export type PortfolioRow = {
    * to the deactivate button so the operator decides with the reason in view.
    */
   readonly review?: string;
-  readonly lastCycle?: { readonly date: string; readonly status: CycleStatus; readonly nextStep?: CycleStep };
+  readonly lastCycle?: {
+    readonly date: string;
+    readonly status: CycleStatus;
+    readonly nextStep?: CycleStep;
+    /**
+     * Why it stopped, when it stopped badly. Carried here because this table is
+     * the only place a Cloudflare operator sees a cycle at all: there is no
+     * terminal for `cycle status`, and without it a red day says which step
+     * broke and nothing about what to do next.
+     */
+    readonly failure?: string;
+    /**
+     * The failure's code, so a screen can choose its own words for it. The
+     * message is the API's and can be a paragraph of English; the code is a
+     * small closed set, which is what a one-line summary has to come from.
+     */
+    readonly failureCode?: string;
+    readonly failureStep?: CycleStep;
+  };
   /** Posts published inside the window. */
   readonly posts: number;
   readonly medianScore: number;
@@ -88,7 +106,12 @@ export type Portfolio = {
 
 export type PortfolioInput = {
   readonly config: PlatformConfig;
-  readonly store: Store;
+  /**
+   * Every account's store. Comparing accounts is this file's entire job, so
+   * this is the crossing that has a name - and each row is still built from
+   * one account's store and nothing else.
+   */
+  readonly stores: StoreRegistry;
   readonly nowMs: number;
   readonly days: number;
   /**
@@ -101,19 +124,19 @@ export type PortfolioInput = {
 };
 
 export async function buildPortfolio(input: PortfolioInput): Promise<Portfolio> {
-  const { config, store, nowMs, days } = input;
+  const { config, stores, nowMs, days } = input;
   const sinceMs = nowMs - days * 86_400_000;
   const pause: PauseState = input.state ? readPause(input.state) : { ventures: {} };
   const ventureState: VentureState = input.state ? readVentureState(input.state) : { inactive: {} };
 
-  const [decisions, cycles, patterns] = await Promise.all([
-    store.decisions.find((decision) => decision.status === "pending"),
-    store.cycles.all(),
-    store.patterns.all(),
-  ]);
-
   const unreviewed: PortfolioRow[] = [];
   for (const venture of config.ventures) {
+    const store = await stores.for(venture.id);
+    const [decisions, cycles, patterns] = await Promise.all([
+      store.decisions.find((decision) => decision.status === "pending"),
+      store.cycles.all(),
+      store.patterns.all(),
+    ]);
     unreviewed.push(
       await rowFor(venture, { config, store, nowMs, sinceMs, pause, ventureState, decisions, cycles, patterns }),
     );
@@ -163,7 +186,13 @@ async function rowFor(
     pause: PauseState;
     ventureState: VentureState;
     decisions: readonly { ventureId: string }[];
-    cycles: readonly { ventureId: string; date: string; status: CycleStatus; nextStep?: CycleStep }[];
+    cycles: readonly {
+      ventureId: string;
+      date: string;
+      status: CycleStatus;
+      nextStep?: CycleStep;
+      failure?: { message: string; code: string; step: CycleStep };
+    }[];
     patterns: readonly { ventureId: string; name: string; kind: string; confidence: number; status: string }[];
   },
 ): Promise<PortfolioRow> {
@@ -198,6 +227,19 @@ async function rowFor(
             date: lastCycle.date,
             status: lastCycle.status,
             ...(lastCycle.nextStep ? { nextStep: lastCycle.nextStep } : {}),
+            // Only when the day actually ended there. Every screen keys the
+            // failure off this being present rather than off the status, so a
+            // cycle that carried a stale failure forward showed
+            // 実行できませんでした while it was waiting at an approval gate.
+            // The orchestrator clears the failure now; this is the second lock
+            // on the same door, and the one every reader passes through.
+            ...(lastCycle.failure && lastCycle.status === "failed"
+              ? {
+                  failure: lastCycle.failure.message,
+                  failureCode: lastCycle.failure.code,
+                  failureStep: lastCycle.failure.step,
+                }
+              : {}),
           },
         }
       : {}),
@@ -270,6 +312,7 @@ export function renderPortfolio(portfolio: Portfolio): string {
     lines.push(`  niche        ${row.niche}`);
     lines.push(`  market       ${row.market}   measurement ${row.measurementClosed ? "closed" : "INCOMPLETE"}`);
     lines.push(`  last cycle   ${cycle}${row.pendingDecisions > 0 ? `   (${row.pendingDecisions} decision(s) waiting)` : ""}`);
+    if (row.lastCycle?.failure) lines.push(`  FAILED       ${row.lastCycle.failure}`);
     if (row.review) lines.push(`  REVIEW       ${row.review} — amp venture deactivate ${row.ventureId} --reason "…" switches it off, keeping its data`);
     lines.push(`  posts ${row.posts}   median ${row.medianScore}   clicks ${row.clicks}   conversions ${row.conversions}`);
     lines.push(`  approved     ${formatRollups(row.revenue, "approvedRevenue")}   pending ${formatRollups(row.revenue, "pendingRevenue")}`);

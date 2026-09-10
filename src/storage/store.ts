@@ -47,7 +47,13 @@ export type InspectionStore = {
 
 export type AuditLog = {
   append(event: AuditEvent): Promise<void>;
-  /** Most recent first. */
+  /**
+   * Most recent first, and only this account's.
+   *
+   * `ventureId` narrows; it cannot widen. A log belongs to one account, so
+   * asking it for another account's events is answered with none rather than
+   * quietly ignored - the way to read across accounts is `StoreRegistry.each`.
+   */
   recent(limit: number, filter?: { ventureId?: string; cycleId?: string }): Promise<AuditEvent[]>;
 };
 
@@ -70,6 +76,39 @@ export type Store = {
   /** Persists anything buffered. Safe to call repeatedly. */
   flush(): Promise<void>;
   /** Releases any lock or handle. The process should not use the store after. */
+  close(): Promise<void>;
+};
+
+/**
+ * Every account's store, and the only way to get one.
+ *
+ * A `Store` is one account's world: what a role or the orchestrator is handed
+ * holds that account's cycles and nothing else, so no caller has to remember a
+ * `ventureId` filter and no caller can forget one. Accounts do not share a
+ * store, which is what makes "this account learned this by itself" a fact
+ * about where the data is rather than a claim about the code that reads it.
+ *
+ * **Crossing accounts is legitimate, and rare.** Five readers do it - the
+ * accounts list, the scout, the dispatcher, the console's activity feed, and
+ * the tracking redirect - and every one of them says so by calling `each` or
+ * `findLinkByCode`. Anything that does not call these cannot cross.
+ *
+ * See `docs/3-development/store-split.md`.
+ */
+export type StoreRegistry = {
+  /** One account's store. Repeated calls for the same account return the same one. */
+  for(ventureId: string): Promise<Store>;
+  /**
+   * Every account that has data, whether or not the config still names it -
+   * an account removed from the config still has a history to export.
+   */
+  each(): Promise<readonly { readonly ventureId: string; readonly store: Store }[]>;
+  /**
+   * The one lookup that has no account to start from: a reader arrives with a
+   * code and nothing else. The link it finds names its account, so the click
+   * it produces still lands in exactly one.
+   */
+  findLinkByCode(code: string): Promise<TrackedLink | undefined>;
   close(): Promise<void>;
 };
 

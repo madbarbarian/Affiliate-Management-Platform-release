@@ -18,6 +18,7 @@ import { Buffer } from "node:buffer";
 import { fail, ok, type PlatformError, type Result } from "../core/result.ts";
 import type { Runtime } from "../runtime.ts";
 import { handleRequest, MAX_BODY_BYTES } from "./router.ts";
+import { operatorsWithoutTokens, resolveOperators, type Operator } from "./operators.ts";
 
 export type ConsoleHandle = {
   readonly url: string;
@@ -49,6 +50,24 @@ export async function startConsole(runtime: Runtime): Promise<Result<ConsoleHand
   }
 
   const token = configured ?? randomBytes(24).toString("hex");
+  // The owner first, then anyone else `console.operators` names. The generated
+  // token stands in for the owner's when none is set, so a local run is
+  // unchanged - and still records the owner's name rather than "console".
+  const operators: Operator[] = [
+    { name: config.company.operator, token },
+    ...resolveOperators(config, process.env).filter((entry) => entry.name !== config.company.operator),
+  ];
+
+  // A listed operator with no passphrase set cannot get in, and the only
+  // symptom is that theirs "does not work". Named here, once, at startup.
+  const missing = operatorsWithoutTokens(config, process.env);
+  if (missing.length > 0) {
+    runtime.services.logger.warn(
+      `${missing.length} operator(s) in console.operators have no passphrase set, so they cannot open the console. ` +
+        `Set ${missing.map((entry) => entry.tokenEnv).join(", ")} in .env.local.`,
+      { operators: missing.map((entry) => entry.name) },
+    );
+  }
 
   // The documented deployment puts a public domain in front of a loopback bind
   // so `/go/<code>` resolves for readers (docs/2-setup/licensee-guide.md). That
@@ -65,7 +84,7 @@ export async function startConsole(runtime: Runtime): Promise<Result<ConsoleHand
     );
   }
   const server = createServer((request, response) => {
-    serve(runtime, token, request, response).catch((cause) => {
+    serve(runtime, operators, request, response).catch((cause) => {
       runtime.services.logger.error("console request failed", {
         url: request.url,
         error: cause instanceof Error ? cause.message : String(cause),
@@ -107,7 +126,7 @@ export async function startConsole(runtime: Runtime): Promise<Result<ConsoleHand
  * `Response` back out. Everything the console decides lives in `router.ts`;
  * this file only knows how to speak to a socket.
  */
-async function serve(runtime: Runtime, token: string, incoming: IncomingMessage, response: ServerResponse): Promise<void> {
+async function serve(runtime: Runtime, operators: readonly Operator[], incoming: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(incoming.url ?? "/", `http://${incoming.headers.host ?? "localhost"}`);
   const headers = new Headers();
   for (const [name, value] of Object.entries(incoming.headers)) {
@@ -127,7 +146,7 @@ async function serve(runtime: Runtime, token: string, incoming: IncomingMessage,
     body = read.value;
   }
 
-  const result = await handleRequest(runtime, token, new Request(url, { method, headers, ...(body === undefined ? {} : { body }) }));
+  const result = await handleRequest(runtime, operators, new Request(url, { method, headers, ...(body === undefined ? {} : { body }) }));
 
   const out: Record<string, string | string[]> = {};
   for (const [name, value] of result.headers) {

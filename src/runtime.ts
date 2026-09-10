@@ -19,9 +19,9 @@ import { fail, type PlatformError, type Result } from "./core/result.ts";
 import { systemClock, type Clock } from "./core/clock.ts";
 import { loadConfig, loadDotEnv, repoRoot, type LoadedConfig } from "./config/load.ts";
 import { ConfigError } from "./config/schema.ts";
-import { createJsonStore } from "./storage/json-store.ts";
-import { createMemoryStore } from "./storage/memory-store.ts";
-import type { Store } from "./storage/store.ts";
+import { createJsonRegistry } from "./storage/json-store.ts";
+import { createMemoryRegistry } from "./storage/memory-store.ts";
+import type { StoreRegistry } from "./storage/store.ts";
 import { createPromptLibrary } from "./kernel/prompts.ts";
 import { fileState } from "./kernel/state.ts";
 import { assembleRuntime, type Runtime } from "./kernel/assemble.ts";
@@ -66,12 +66,17 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Resul
 
   const dryRun = options.dryRun ?? false;
 
-  const store: Store = dryRun
-    ? createMemoryStore()
-    : await createJsonStore({
+  // One account named means a data directory written before the split can be
+  // moved into its folder; more than one and it refuses rather than guessing.
+  // See docs/3-development/store-split.md.
+  const only = loaded.config.ventures.length === 1 ? loaded.config.ventures[0]!.id : undefined;
+  const stores: StoreRegistry = dryRun
+    ? createMemoryRegistry()
+    : createJsonRegistry({
         dataDir: loaded.dataDir,
         lock: options.lock ?? false,
         ...(options.owner ? { owner: options.owner } : {}),
+        ...(only ? { assignExistingTo: only } : {}),
       });
 
   // The real switches, dry run or not. `--dry-run` swaps storage, the model and
@@ -86,7 +91,7 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Resul
 
   return assembleRuntime({
     loaded,
-    store,
+    stores,
     state,
     prompts: createPromptLibrary(loaded.promptsDir),
     clock: options.clock ?? systemClock,

@@ -21,7 +21,9 @@ import { createAnthropicProvider } from "../llm/anthropic.ts";
 import { createMockProvider } from "../llm/mock.ts";
 import { createDemoHandlers } from "../llm/demo.ts";
 import type { LlmProvider } from "../llm/provider.ts";
-import type { Store } from "../storage/store.ts";
+import type { StoreRegistry } from "../storage/store.ts";
+import type { Decision } from "../core/types.ts";
+import type { Lock } from "../storage/lock.ts";
 import { createChannelRegistry } from "../channels/index.ts";
 import { createNetworkRegistry } from "../networks/index.ts";
 import type { PromptLibrary } from "./prompts.ts";
@@ -39,29 +41,38 @@ export type Runtime = {
   readonly services: Services;
   readonly orchestrator: Orchestrator;
   readonly bus: EventBus;
+  /**
+   * "Only one of these at a time", where the host needs telling. Undefined on a
+   * machine, where the data directory's lock already answers that question.
+   * Here so a request and a cron trigger can take the *same* lock: without it
+   * the console's run button would race the hourly tick, and the two would
+   * draft the same day twice.
+   */
+  readonly lock?: Lock;
   readonly dryRun: boolean;
   close(): Promise<void>;
 };
 
 export type AssembleParts = {
   readonly loaded: LoadedConfig;
-  readonly store: Store;
+  readonly stores: StoreRegistry;
   readonly state: StateStore;
   readonly prompts: PromptLibrary;
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly logger: Logger;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly lock?: Lock;
   readonly dryRun: boolean;
 };
 
 export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runtime, PlatformError>> {
-  const { loaded, store, state, prompts, clock, ids, logger, env, dryRun } = parts;
+  const { loaded, stores, state, prompts, clock, ids, logger, env, dryRun } = parts;
   const { config } = loaded;
 
   const llm = buildLlm(config, env, logger, dryRun);
   if (!llm.ok) {
-    await store.close();
+    await stores.close();
     return llm;
   }
 
@@ -73,7 +84,12 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
   const needsCodes = dryRun || config.networks.some((network) => network.adapter === "mock");
   const refreshCodes = async (): Promise<void> => {
     if (!needsCodes) return;
-    cachedCodes = (await store.links.all()).map((link) => link.code);
+    // Every account's, because the simulator answers for the whole company.
+    const codes: string[] = [];
+    for (const scope of await stores.each()) {
+      codes.push(...(await scope.store.links.all()).map((link) => link.code));
+    }
+    cachedCodes = codes;
   };
   await refreshCodes();
 
@@ -83,7 +99,7 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
     nowMs: () => clock.now(),
   });
   if (!channels.ok) {
-    await store.close();
+    await stores.close();
     return channels;
   }
 
@@ -94,7 +110,7 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
     knownSubIds: () => cachedCodes,
   });
   if (!networks.ok) {
-    await store.close();
+    await stores.close();
     return networks;
   }
 
@@ -109,7 +125,7 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
     ids,
     logger,
     llm: llm.value,
-    store,
+    stores,
     channels: channels.value,
     networks: networks.value,
     prompts,
@@ -130,9 +146,10 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
     // covers all of them.
     orchestrator: dryRun ? orchestrator : guardWithStop(orchestrator, services, state),
     bus,
+    ...(parts.lock ? { lock: parts.lock } : {}),
     dryRun,
     async close() {
-      await store.close();
+      await stores.close();
     },
   });
 }
@@ -176,7 +193,13 @@ export function guardWithStop(inner: Orchestrator, services: Services, state: St
       // Per-venture stops need the decision to know which venture is being
       // approved. An unknown decision falls through to the orchestrator, which
       // reports it as not found - that is its message to give, not ours.
-      const decision = await services.store.decisions.get(decisionId);
+      // Crossing on purpose, and for the same reason resolveGate does: an
+      // approval arrives as an id with no account attached.
+      let decision: Decision | undefined;
+      for (const scope of await services.stores.each()) {
+        decision = await scope.store.decisions.get(decisionId);
+        if (decision) break;
+      }
       const record = decision ? stop.ventures[decision.ventureId] : undefined;
       if (record && decision) return stopped(record, decision.ventureId);
       return inner.resolveGate(decisionId, request);

@@ -47,7 +47,12 @@ exactly what is done and what is not. Then:
 1. Open your copy of the repository on GitHub.
 2. Copy `platform.config.example.yaml` to `platform.config.yaml`.
 3. Edit `company:` and the first entry under `ventures:` — the niche, the
-   audience and the voice do more work than everything else combined.
+   audience and the voice do more work than everything else combined. Give it
+   an `id` and a `name` that say what the account *is* (`beauty`, `美容`), not
+   what position it holds (`main`): the id goes into the console's addresses
+   and into every record kept, so it cannot be changed later without orphaning
+   the history, and the name is what you will be reading in the accounts table
+   on the day there are three of them.
 4. Set `tracking.baseUrl` to the address above. **Until you do, clicks are not
    recorded** and the console's 計測 column says 未完成 with the reason.
 5. Commit. A minute later the setup page has become the approval console.
@@ -139,11 +144,20 @@ llm:
 ```
 
 On Cloudflare, add the key as a secret in the same move — there is no
-`.env.local` there:
+`.env.local` there. In the dashboard, with no terminal:
+
+**Workers & Pages → your Worker → Settings → Variables and Secrets → Add**,
+named `ANTHROPIC_API_KEY`. Or from a terminal, if you have one:
 
 ```bash
 npx wrangler secret put ANTHROPIC_API_KEY
 ```
+
+The deploy screen does not ask for it, and that is deliberate rather than an
+oversight: it treats every field it shows as required, so listing the key there
+would mean nobody could deploy without inventing a value for it. The setup page
+your address serves says the same thing, in case you meet this question before
+you meet this guide.
 
 Run a cycle. Now the proposals are real. Spend the first week in
 `autonomy: manual` — nothing pre-selected — and pay attention to *which* ideas
@@ -206,6 +220,47 @@ restart the daemon; a CLI command run meanwhile uses the new file while the
 daemon still holds the old one.
 
 Then your day is: open the console, approve, order, close the console.
+
+## Reading the console in English
+
+```yaml
+console:
+  locale: en     # ja | en
+```
+
+**Not the disclosure's language.** The disclosure, the prohibited claims and the
+regulator all follow the market your *readers* are in — set per venture, resolved
+in `markets:`. Reading the console in English while publishing to Japanese
+readers still publishes a Japanese disclosure, because that is what 景表法 asks
+for. Nothing about `console.locale` reaches a reader.
+
+## Someone else operating it with you
+
+Give them their own passphrase, not yours. In `platform.config.yaml`:
+
+```yaml
+console:
+  tokenEnv: AMP_CONSOLE_TOKEN     # yours
+  operators:
+    - name: "みどり"
+      tokenEnv: AMP_CONSOLE_TOKEN_MIDORI
+```
+
+and set that variable where your secrets live — `.env.local` on your own
+machine, **Workers & Pages → your Worker → Settings → Variables and Secrets**
+on Cloudflare. `node src/cli.ts doctor` lists everyone who can open the console
+and names anyone who is listed but has no passphrase set.
+
+**There are no roles yet.** Anyone with a passphrase can do everything you can,
+including publishing. What a name buys is the record: every approval, every
+account switched off, every proposal accepted is stored against the name whose
+passphrase was used, and the console header says which name you are holding
+before you press anything.
+
+Do this before a second person starts, not after. **An approval cannot be
+attributed later** — everything approved while one passphrase was shared is
+recorded under your name, whoever actually pressed it, and no amount of work
+afterwards can separate them.
 
 Your week, once the first account has numbers, is one more look at the same
 page: the 全アカウント table says which accounts are earning, which are stuck

@@ -24,11 +24,12 @@ import { randomIds } from "../core/ids.ts";
 import { systemClock } from "../core/clock.ts";
 import { handleRequest, handleRedirect } from "../console/router.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
-import { createTickMemory, runTick } from "../scheduler/tick.ts";
-import { createSqlStore } from "../storage/sql-store.ts";
+import { CYCLES_LOCK, DISPATCH_LOCK, createTickMemory, runTick } from "../scheduler/tick.ts";
+import { createSqlRegistry } from "../storage/sql-store.ts";
 import { createD1Driver } from "../storage/d1-driver.ts";
 import { durableObjectLock, type DurableObjectNamespace } from "./lock-do.ts";
 import { createWorkerRuntime, type WorkerEnv } from "./runtime.ts";
+import { resolveOperators } from "../console/operators.ts";
 import { renderSetup } from "./setup.ts";
 
 /**
@@ -100,14 +101,26 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
       return setupResponse(request, env, url, token, undefined);
     }
 
-    const runtime = await createWorkerRuntime({ env, configText, prompts });
+    // The same lock the cycles cron takes. The console can start a day too, and
+    // a request that ran a cycle beside the hourly tick would draft it twice.
+    const lock = env.LOCK ? durableObjectLock(env.LOCK as DurableObjectNamespace) : undefined;
+    const runtime = await createWorkerRuntime({ env, configText, prompts, ...(lock ? { lock } : {}) });
 
-    if (!runtime.ok || !token) {
+    // Built from the config, not from one binding: the owner's passphrase is
+    // whatever `console.tokenEnv` names, and a second operator is a
+    // `console.operators` entry naming their own. Asking `env.AMP_CONSOLE_TOKEN`
+    // here instead put this gate and the router's on different questions - a
+    // licensee who renamed the variable configured their console correctly and
+    // then met the setup screen forever, because the two never agreed.
+    const operators = runtime.ok ? resolveOperators(runtime.value.config, stringsIn(env)) : [];
+
+    if (!runtime.ok || operators.length === 0) {
       // Whatever is wrong, the links in the posts are not. Serve them from the
       // database directly, with nothing else assembled.
       if (url.pathname.startsWith(REDIRECT_PATH) && env.DB) {
-        const store = await createSqlStore(createD1Driver(env.DB));
-        return handleRedirect({ store, ids: randomIds, clock: systemClock }, url, request);
+        if (runtime.ok) await runtime.value.close();
+        const stores = createSqlRegistry(createD1Driver(env.DB));
+        return handleRedirect({ stores, ids: randomIds, clock: systemClock }, url, request);
       }
       if (!runtime.ok) {
         // A config that was written but does not validate is the same situation
@@ -116,15 +129,17 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
         return setupResponse(request, env, url, token, describeError(runtime.error));
       }
       // The router refuses an empty token on every route, which would leave a
-      // licensee staring at 401 with nothing to act on.
+      // licensee staring at 401 with nothing to act on. Name the variable their
+      // own config asked for, not the one the example ships with.
+      const wanted = runtime.value.config.console.tokenEnv;
       await runtime.value.close();
       return html(
         503,
         renderSetup({
           configured: true,
           problem:
-            "承認画面の合言葉が設定されていません。Cloudflare のダッシュボードで " +
-            "AMP_CONSOLE_TOKEN を設定してください。合言葉が無いと、このアドレスを知っている人が承認画面を開けてしまいます。",
+            `承認画面の合言葉が設定されていません。Cloudflare のダッシュボードで ${wanted} を設定してください。` +
+            "合言葉が無いと、このアドレスを知っている人が承認画面を開けてしまいます。",
           hasDatabase: Boolean(env.DB),
           hasModelKey: hasModelKey(env),
           hasConsoleToken: false,
@@ -134,7 +149,7 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     }
 
     try {
-      return await handleRequest(runtime.value, token, request);
+      return await handleRequest(runtime.value, operators, request);
     } finally {
       await runtime.value.close();
     }
@@ -144,7 +159,7 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     if (configSource !== "licensee") return;
 
     const cycles = event.cron === CYCLE_CRON;
-    const name = cycles ? "tick:cycles" : "tick:dispatch";
+    const name = cycles ? CYCLES_LOCK : DISPATCH_LOCK;
 
     // A cron can fire while the last one is still running, and can be retried.
     // Two ticks publishing the same due post is the failure this prevents; the
@@ -209,6 +224,26 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/**
+ * Only the string entries. The D1 binding and the Durable Object namespace sit
+ * on the same object, and a passphrase lookup must never resolve to one.
+ */
+function stringsIn(env: WorkerEnv): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * The shipped binding name, for the setup screen only.
+ *
+ * That screen exists before there is a config to read `console.tokenEnv` out
+ * of - or when the config does not parse - so the name the deploy button asks
+ * for is the only one it can know. Once a config validates, the gate is
+ * `resolveOperators`, which asks the config. These must not be swapped.
+ */
 function readToken(env: WorkerEnv): string | undefined {
   const value = env["AMP_CONSOLE_TOKEN"];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;

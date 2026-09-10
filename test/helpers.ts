@@ -12,7 +12,7 @@ import { fixedClock, type Clock } from "../src/core/clock.ts";
 import { createEventBus } from "../src/core/events.ts";
 import { sequentialIds } from "../src/core/ids.ts";
 import { silentLogger } from "../src/core/logger.ts";
-import { unwrap } from "../src/core/result.ts";
+import { err, unwrap } from "../src/core/result.ts";
 import { parseConfig, type PlatformConfig } from "../src/config/schema.ts";
 import { repoRoot } from "../src/config/load.ts";
 import { findMarket, resolveCompliance } from "../src/domain/market.ts";
@@ -23,8 +23,9 @@ import { createOrchestrator, type Orchestrator } from "../src/kernel/orchestrato
 import type { Services } from "../src/kernel/role.ts";
 import { createMockProvider, type MockProvider } from "../src/llm/mock.ts";
 import { createDemoHandlers } from "../src/llm/demo.ts";
-import { createMemoryStore } from "../src/storage/memory-store.ts";
+import { createMemoryRegistry } from "../src/storage/memory-store.ts";
 import type { Store } from "../src/storage/store.ts";
+import type { MemoryRegistry } from "../src/storage/memory-store.ts";
 
 export const BASE_CONFIG = {
   version: 2,
@@ -137,9 +138,47 @@ export function testConfig(overrides: Record<string, unknown> = {}): PlatformCon
   return parseConfig({ ...structuredClone(BASE_CONFIG), ...overrides }, "test-config");
 }
 
+/**
+ * A provider that answers everything the mock would, except the purposes it is
+ * told to refuse - as a returned failure, the way the API refuses.
+ *
+ * A scripted handler that throws is a different thing: the exception escapes
+ * the role and takes the whole step with it, so it can never exercise the paths
+ * where the orchestrator has to survive one call failing and say what happened.
+ */
+export function refusingProvider(refusals: Record<string, string>): MockProvider {
+  const base = createMockProvider({ responses: createDemoHandlers() as never });
+  const refusalFor = (purpose: string): string | undefined => {
+    if (refusals[purpose]) return refusals[purpose];
+    const prefix = Object.keys(refusals)
+      .filter((key) => purpose.startsWith(key))
+      .sort((a, b) => b.length - a.length)[0];
+    return prefix ? refusals[prefix] : undefined;
+  };
+  const refuse = (purpose: string) =>
+    err({
+      kind: "llm" as const,
+      code: "llm.api_error",
+      message: `${refusalFor(purpose)} (during ${purpose})`,
+      retryable: false,
+    });
+
+  return {
+    ...base,
+    async completeText(request) {
+      return refusalFor(request.purpose) ? refuse(request.purpose) : base.completeText(request);
+    },
+    async completeJson(request) {
+      return refusalFor(request.purpose) ? refuse(request.purpose) : base.completeJson(request);
+    },
+  };
+}
+
 export type TestCompany = {
   readonly services: Services;
   readonly orchestrator: Orchestrator;
+  readonly stores: MemoryRegistry;
+  /** The first account's store, which is what most tests mean by "the store". */
   readonly store: Store;
   readonly clock: ReturnType<typeof fixedClock>;
   readonly llm: MockProvider;
@@ -151,14 +190,21 @@ export function createTestCompany(
     startIso?: string;
     config?: PlatformConfig;
     responses?: Record<string, (request: never) => unknown>;
+    /** For the cases the mock cannot express, e.g. `refusingProvider`. */
+    llm?: MockProvider;
   } = {},
 ): TestCompany {
   const config = options.config ?? testConfig();
   const clock = fixedClock(options.startIso ?? "2026-04-01T21:00:00Z"); // 06:00 JST
-  const store = createMemoryStore();
-  const llm = createMockProvider({
-    responses: { ...createDemoHandlers(), ...(options.responses ?? {}) } as never,
-  });
+  const stores = createMemoryRegistry();
+  // The store most tests mean: the first account's. Anything about a second
+  // account opens it by name, which is the point of the split.
+  const store = stores.open(config.ventures[0]!.id);
+  const llm =
+    options.llm ??
+    createMockProvider({
+      responses: { ...createDemoHandlers(), ...(options.responses ?? {}) } as never,
+    });
 
   const services: Services = {
     config,
@@ -166,7 +212,7 @@ export function createTestCompany(
     ids: sequentialIds(),
     logger: silentLogger,
     llm,
-    store,
+    stores,
     channels: unwrap(
       createChannelRegistry({ channels: config.channels, env: {}, nowMs: () => clock.now() }),
     ),
@@ -185,12 +231,12 @@ export function createTestCompany(
   // The mock network converts against links the company has actually issued.
   let knownCodes: string[] = [];
   services.bus.on("*", () => {
-    void store.links.all().then((links) => {
-      knownCodes = links.map((link) => link.code);
+    void Promise.all([...config.ventures.map((venture) => stores.open(venture.id).links.all())]).then((lists) => {
+      knownCodes = lists.flat().map((link) => link.code);
     });
   });
 
-  return { services, orchestrator: createOrchestrator(services), store, clock, llm, config };
+  return { services, orchestrator: createOrchestrator(services), stores, store, clock, llm, config };
 }
 
 export const DAY_MS = 86_400_000;

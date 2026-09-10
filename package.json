@@ -32,10 +32,11 @@
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
-    "typescript": "^7.0.0"
+    "typescript": "^7.0.0",
+    "wrangler": "^4.130.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.120.0"
+    "@anthropic-ai/sdk": "^0.124.0"
   },
   "cloudflare": {
     "bindings": {

@@ -6,7 +6,7 @@
 公開版（Claude Design のキャンバス）:
 <https://claude.ai/code/artifact/d1e2d79a-bf60-44c5-a252-73b430bcf6bb>
 
-## 5枚
+## 9枚
 
 | ファイル | 画面 | 状態 |
 |---|---|---|
@@ -15,8 +15,15 @@
 | `PlanDetail.dc.html` | ①の詳細 — 根拠と失敗の仕方 | 静止 |
 | `PostDetail.dc.html` | ②の詳細 — 本文・指摘・コメント下書き | 静止 |
 | `Idle.dc.html` | 判断待ちなし（週の大半はこれ） | 静止 |
-| `Portfolio.dc.html` | 全アカウント — 状態・見直し候補・非アクティブにする／再開する | 静止 |
+| `Portfolio.dc.html` | 全アカウント — 比べるだけ。状態・直近サイクル（失敗は1行の要約）・見直し候補・開く | 静止・提案 |
 | `Proposals.dc.html` | 探索の提案 — 採用／見送り、採用後の追記の案内 | 静止 |
+| `Venture.dc.html` | アカウント — 失敗の理由と再実行、履歴、数字、型、止める | 静止・提案 |
+| `VentureSetup.dc.html` | アカウントの設定 — 読むだけ、各行に出所を添える | 静止・提案 |
+
+**右の2列（アカウント／アカウントの設定）はまだ実装が無い。** 承認画面を「今日／全アカウント／
+アカウント」の3階層に分ける提案で、根拠と順番は
+[承認画面の分け方](../../3-development/console-architecture.md)。全アカウントの画面は、その提案に
+合わせて操作を抜いてある（一覧に残るのは「開く」だけ）——**こちらも実装より先**。
 
 `canvas.json` が配置と付箋を持つ。右の2枚（全アカウント、探索の提案）は日課ではなく週に1回の
 画面で、実装では承認画面の同じページの判断待ちの**下**に節として付く
@@ -53,6 +60,7 @@ node "<design skill>/seed-canvas.mjs" \
   --artboard Main.dc.html --artboard Publish.dc.html \
   --artboard PlanDetail.dc.html --artboard PostDetail.dc.html \
   --artboard Idle.dc.html --artboard Portfolio.dc.html --artboard Proposals.dc.html \
+  --artboard Venture.dc.html --artboard VentureSetup.dc.html \
   --canvas canvas.json
 ```
 

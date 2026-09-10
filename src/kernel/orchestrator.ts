@@ -93,7 +93,7 @@ export type Orchestrator = {
 };
 
 export function createOrchestrator(services: Services): Orchestrator {
-  const { config, store, clock, logger } = services;
+  const { config, stores, clock, logger } = services;
 
   const ventureById = new Map(config.ventures.map((venture) => [venture.id, venture]));
 
@@ -108,6 +108,7 @@ export function createOrchestrator(services: Services): Orchestrator {
    * from the trail and from the console's activity feed.
    */
   async function recordEvent(event: AuditEvent): Promise<void> {
+    const store = await stores.for(event.ventureId);
     await store.audit.append(event);
     await services.bus.emit(event);
   }
@@ -125,10 +126,11 @@ export function createOrchestrator(services: Services): Orchestrator {
 
     const date = options.date ?? localDate(clock.now(), venture.timezone);
     const cycle = await loadOrCreateCycle(venture, date);
-    return advance(venture, cycle, options);
+    return advanceOnce(venture, cycle, options);
   };
 
   async function loadOrCreateCycle(venture: Venture, date: string): Promise<Cycle> {
+    const store = await stores.for(venture.id);
     const id = `cyc_${venture.id}_${date}`;
     const existing = await store.cycles.get(id);
     if (existing) return existing;
@@ -148,18 +150,56 @@ export function createOrchestrator(services: Services): Orchestrator {
     return created;
   }
 
+  /**
+   * The cycles being advanced right now, by id.
+   *
+   * Two callers in one process is not hypothetical: `amp daemon` serves the
+   * console and runs the tick in the same process, so pressing 今日のサイクルを
+   * 動かす at 09:00:30 and the 09:01 tick both reach `runCycle` for the same
+   * `cyc_<venture>_<date>`. Nothing below stopped them - two runs of the write
+   * step is two sets of drafts and, past the second gate, two posts. The
+   * console's lock only exists on the Worker, and the data directory's lock is
+   * between processes, so neither of them was ever going to catch this.
+   *
+   * A second caller joins the first rather than being refused: for the button
+   * that means the operator sees the run that is already happening, which is
+   * what they wanted. In memory on purpose - a crashed process must not leave a
+   * cycle nobody can start again.
+   */
+  const inFlight = new Map<string, Promise<Result<Cycle, PlatformError>>>();
+
+  function advanceOnce(
+    venture: Venture,
+    cycle: Cycle,
+    options: RunCycleOptions,
+  ): Promise<Result<Cycle, PlatformError>> {
+    const already = inFlight.get(cycle.id);
+    if (already) {
+      logger.info("joining the run already in progress", { cycle: cycle.id });
+      return already;
+    }
+    const work = advance(venture, cycle, options).finally(() => inFlight.delete(cycle.id));
+    inFlight.set(cycle.id, work);
+    return work;
+  }
+
   /** Runs steps until a gate, the end, a failure, or the `until` boundary. */
   async function advance(
     venture: Venture,
     start: Cycle,
     options: RunCycleOptions,
   ): Promise<Result<Cycle, PlatformError>> {
+    const store = await stores.for(venture.id);
     let cycle = start;
 
     if (cycle.status === "completed" || cycle.status === "cancelled") return ok(cycle);
     if (cycle.status === "failed") {
-      // A previous run died. Retry the step it died on rather than the whole day.
-      cycle = { ...cycle, status: "running" };
+      // A previous run died. Retry the step it died on rather than the whole day,
+      // and drop the reason it died of: the console shows a failure whenever one
+      // is stored, so a day that recovered on the next hourly retry went on
+      // saying 実行できませんでした next to its own approval gate. The record of
+      // the failure lives in the audit log now, which is where history belongs.
+      cycle = { ...cycle, status: "running", failure: undefined };
     }
 
     while (cycle.nextStep) {
@@ -188,6 +228,37 @@ export function createOrchestrator(services: Services): Orchestrator {
         };
         await store.cycles.put(cycle);
         logger.error(`step ${step} failed`, { error: describeError(outcome.error) });
+
+        // The log line above is the whole record on a host with no terminal,
+        // which is to say nobody's. Two days died on Cloudflare with the audit
+        // log's last entry three days old, so the console's activity feed said
+        // "nothing has happened" while the cycle was failing every hour.
+        //
+        // The summary stays short and the message goes in `data`: a 400 is a
+        // paragraph of JSON, and a feed is not where anyone reads one. The
+        // code is what the console turns into the operator's words.
+        try {
+          await recordEvent({
+            id: services.ids.next("evt"),
+            at: clock.nowIso(),
+            ventureId: venture.id,
+            cycleId: cycle.id,
+            type: "cycle.failed",
+            actor: "orchestrator",
+            summary: `The cycle stopped at ${step} (${outcome.error.code}).`,
+            data: {
+              step,
+              code: outcome.error.code,
+              retryable: outcome.error.retryable,
+              message: truncate(outcome.error.message, 500),
+            },
+          });
+        } catch (cause) {
+          // Never let recording the failure replace the failure. The cycle is
+          // already persisted; losing the trail is bad, losing the reason the
+          // caller is about to act on is worse.
+          logger.error("could not record the failure", { error: errorText(cause) });
+        }
         return outcome;
       }
 
@@ -209,6 +280,7 @@ export function createOrchestrator(services: Services): Orchestrator {
           artifacts,
           pendingDecisionId: outcome.value.decisionId,
           updatedAt: clock.nowIso(),
+          failure: undefined,
         };
         await store.cycles.put(cycle);
         logger.info("waiting for a decision", { decision: outcome.value.decisionId, gate: step });
@@ -224,6 +296,13 @@ export function createOrchestrator(services: Services): Orchestrator {
         artifacts,
         pendingDecisionId: undefined,
         updatedAt: clock.nowIso(),
+        // Every write that is not a failure clears the last one. Doing it only
+        // where a failed cycle resumes was not enough: a cycle that had already
+        // resumed carried its old failure through write, inspect and schedule,
+        // and the account screen read "実行できませんでした" beside a live step
+        // it had long since passed. The cycle record says what is true now; the
+        // audit log is what remembers.
+        failure: undefined,
       };
       await store.cycles.put(cycle);
     }
@@ -244,11 +323,12 @@ export function createOrchestrator(services: Services): Orchestrator {
     cycle: Cycle,
     step: CycleStep,
   ): Promise<Result<StepOutcome, PlatformError>> {
+    const store = await stores.for(venture.id);
     const context = (actor: string) => createRoleContext(services, venture, cycle.id, actor);
 
     switch (step) {
       case "analyze": {
-        const result = await analyst.run(context(analyst.id), {});
+        const result = await analyst.run(await context(analyst.id), {});
         if (!result.ok) return result;
         return ok({
           kind: "advance",
@@ -262,7 +342,7 @@ export function createOrchestrator(services: Services): Orchestrator {
           ...config.channels.map((channel) => channel.research.lookbackHours),
           24,
         );
-        const result = await researcher.run(context(researcher.id), {
+        const result = await researcher.run(await context(researcher.id), {
           sinceMs: clock.now() - lookbackHours * 3_600_000,
         });
         if (!result.ok) return result;
@@ -274,7 +354,7 @@ export function createOrchestrator(services: Services): Orchestrator {
       }
 
       case "plan": {
-        const result = await planner.run(context(planner.id), {});
+        const result = await planner.run(await context(planner.id), {});
         if (!result.ok) return result;
         return ok({
           kind: "advance",
@@ -294,19 +374,32 @@ export function createOrchestrator(services: Services): Orchestrator {
         const ideas = cycle.artifacts.plan?.ideas ?? [];
         const byId = new Map(ideas.map((idea) => [idea.id, idea]));
         const draftIds: string[] = [];
+        const draftFailures: string[] = [];
         for (const ideaId of approved) {
           const idea = byId.get(ideaId) ?? (await store.ideas.get(ideaId));
           if (!idea) continue;
-          const result = await writer.run(context(writer.id), { idea });
+          const result = await writer.run(await context(writer.id), { idea });
           if (!result.ok) {
             // One idea failing should not cost the others their day.
             logger.warn("draft failed", { ideaId, error: result.error.message });
+            draftFailures.push(`${idea.title}: ${result.error.message}`);
             continue;
           }
           draftIds.push(result.value.id);
         }
         if (draftIds.length === 0) {
-          return fail("llm", "write.all_failed", "Every approved idea failed to draft.", { retryable: true });
+          // The reasons used to stop at the logger, and the operator was told
+          // only that everything failed. On Cloudflare there is no terminal to
+          // read a log in: the cause existed for a moment and was thrown away,
+          // leaving a red cycle and no next move.
+          return fail(
+            "llm",
+            "write.all_failed",
+            ["Every approved idea failed to draft.", draftFailures.join(" / ")]
+              .filter((part) => part !== "")
+              .join(" "),
+            { retryable: true, details: { failures: draftFailures } },
+          );
         }
         return ok({ kind: "advance", note: `${draftIds.length} drafts written`, artifacts: { write: { draftIds } } });
       }
@@ -315,13 +408,21 @@ export function createOrchestrator(services: Services): Orchestrator {
         const draftIds = cycle.artifacts.write?.draftIds ?? [];
         const reports = [];
         const rejected: string[] = [];
+        // Kept apart from `rejected` for the note only. A draft the inspector
+        // turned down and a draft it never managed to read are the same
+        // outcome for publishing and opposite ones for the operator: one says
+        // the writing broke a rule, the other says the inspection did not
+        // happen. Reporting the second as the first sends them to rewrite copy
+        // that was never read.
+        const uninspected: string[] = [];
         for (const draftId of draftIds) {
           const draft = await store.drafts.get(draftId);
           if (!draft) continue;
-          const result = await inspector.run(context(inspector.id), { draft });
+          const result = await inspector.run(await context(inspector.id), { draft });
           if (!result.ok) {
             logger.warn("inspection failed", { draftId, error: result.error.message });
             rejected.push(draftId);
+            uninspected.push(`${draftId}: ${result.error.message}`);
             continue;
           }
           reports.push(result.value);
@@ -331,7 +432,11 @@ export function createOrchestrator(services: Services): Orchestrator {
         if (passed === 0) {
           return ok({
             kind: "finish",
-            note: `Every draft was blocked at inspection (${rejected.length}). Nothing publishes today.`,
+            note:
+              uninspected.length > 0
+                ? `Nothing publishes today. ${rejected.length - uninspected.length} blocked at inspection, ` +
+                  `${uninspected.length} could not be inspected — ${uninspected.join(" / ")}`
+                : `Every draft was blocked at inspection (${rejected.length}). Nothing publishes today.`,
             artifacts: { inspect: { reports, rejectedDraftIds: rejected } },
           });
         }
@@ -350,7 +455,7 @@ export function createOrchestrator(services: Services): Orchestrator {
           const draft = await store.drafts.get(draftId);
           if (draft) drafts.push(draft);
         }
-        const result = await publisher.run(context(publisher.id), { drafts });
+        const result = await publisher.run(await context(publisher.id), { drafts });
         if (!result.ok) return result;
         return ok({
           kind: "advance",
@@ -394,6 +499,7 @@ export function createOrchestrator(services: Services): Orchestrator {
     cycle: Cycle,
     which: "proposal_approval" | "publish_approval",
   ): Promise<Result<StepOutcome, PlatformError>> {
+    const store = await stores.for(venture.id);
     const existingId = cycle.pendingDecisionId;
     const existing = existingId ? await store.decisions.get(existingId) : undefined;
 
@@ -457,6 +563,7 @@ export function createOrchestrator(services: Services): Orchestrator {
     decision: Decision,
     cycle: Cycle,
   ): Promise<Result<StepOutcome, PlatformError>> {
+    const store = await stores.for(decision.ventureId);
     const byItemId = new Map(decision.items.map((item) => [item.id, item]));
     const ordered = (decision.resolution?.ordering ?? [])
       .map((itemId) => byItemId.get(itemId)?.refId)
@@ -507,6 +614,7 @@ export function createOrchestrator(services: Services): Orchestrator {
   }
 
   async function buildProposalDecision(venture: Venture, cycle: Cycle): Promise<Result<Decision, PlatformError>> {
+    const store = await stores.for(venture.id);
     const ideas: readonly Idea[] = cycle.artifacts.plan?.ideas ?? [];
     const capacity = Math.min(venture.cadence.postsPerDay, config.policy.maxPostsPerDay);
     const items: DecisionItem[] = ideas.map((idea) => ({
@@ -543,6 +651,7 @@ export function createOrchestrator(services: Services): Orchestrator {
   }
 
   async function buildPublishDecision(venture: Venture, cycle: Cycle): Promise<Result<Decision, PlatformError>> {
+    const store = await stores.for(venture.id);
     const postIds = cycle.artifacts.schedule?.postIds ?? [];
     const items: DecisionItem[] = [];
     for (const postId of postIds) {
@@ -598,6 +707,7 @@ export function createOrchestrator(services: Services): Orchestrator {
    * and hold it; the rest stay `approved` until the daemon's clock catches up.
    */
   async function handOff(post: ScheduledPost): Promise<Result<ScheduledPost, PlatformError>> {
+    const store = await stores.for(post.ventureId);
     const channel = services.channels.get(post.channel);
     if (!channel.ok) {
       await store.posts.put({ ...post, status: "failed", failureReason: channel.error.message });
@@ -630,6 +740,7 @@ export function createOrchestrator(services: Services): Orchestrator {
   }
 
   async function publishNow(post: ScheduledPost): Promise<Result<ScheduledPost, PlatformError>> {
+    const store = await stores.for(post.ventureId);
     const channel = services.channels.get(post.channel);
     if (!channel.ok) return channel;
 
@@ -692,6 +803,7 @@ export function createOrchestrator(services: Services): Orchestrator {
 
   /** Posts the prepared comments under a live post. Failures are not fatal. */
   async function postComments(post: ScheduledPost): Promise<void> {
+    const store = await stores.for(post.ventureId);
     if (!post.externalId || post.commentDrafts.length === 0) return;
     const channel = services.channels.get(post.channel);
     if (!channel.ok || !channel.value.capabilities.comments) return;
@@ -725,16 +837,38 @@ export function createOrchestrator(services: Services): Orchestrator {
 
   // -------------------------------------------------------------------------
   // Public surface
+  /**
+   * The account holding a decision, and its store.
+   *
+   * One of the few reads that legitimately starts without an account: an
+   * approval arrives as an id and nothing else. Decisions are few and short
+   * lived, so a walk is the honest implementation - and it stops at the first
+   * account that has it.
+   */
+  async function findDecision(
+    decisionId: string,
+  ): Promise<{ decision: Decision; store: Awaited<ReturnType<typeof stores.for>> } | undefined> {
+    for (const scope of await stores.each()) {
+      const decision = await scope.store.decisions.get(decisionId);
+      if (decision) return { decision, store: scope.store };
+    }
+    return undefined;
+  }
+
   // -------------------------------------------------------------------------
 
   return {
     runCycle,
 
     async resolveGate(decisionId, request) {
-      const decision = await store.decisions.get(decisionId);
-      if (!decision) {
+      // A decision id arrives from a screen with no account attached to it, so
+      // finding it is a crossing - a named one. Everything after is that one
+      // account's: the decision says which, and nothing else is opened.
+      const found = await findDecision(decisionId);
+      if (!found) {
         return fail("not_found", "decision.not_found", `No decision "${decisionId}".`);
       }
+      const { decision, store } = found;
       const resolved = resolveDecision(decision, request);
       if (!resolved.ok) return resolved;
       await store.decisions.put(resolved.value);
@@ -760,7 +894,7 @@ export function createOrchestrator(services: Services): Orchestrator {
       const venture = ventureById.get(cycle.ventureId);
       if (!venture) return fail("config", "cycle.unknown_venture", `Cycle ${cycle.id} belongs to an unknown venture.`);
 
-      return advance(venture, { ...cycle, status: "running" }, {});
+      return advanceOnce(venture, { ...cycle, status: "running" }, {});
     },
 
     async dispatchDue(nowMs, options) {
@@ -770,10 +904,20 @@ export function createOrchestrator(services: Services): Orchestrator {
       let held = 0;
       let commentsWithheld = 0;
 
+      // The dispatcher's whole job is "whatever is due, whoever it belongs to",
+      // so this crossing is the feature. Each post is then handled through its
+      // own account's store.
+      const scopes = await stores.each();
+      const postsWhere = async (
+        matches: (post: ScheduledPost) => boolean,
+      ): Promise<ScheduledPost[]> => {
+        const found: ScheduledPost[] = [];
+        for (const scope of scopes) found.push(...(await scope.store.posts.find(matches)));
+        return found;
+      };
+
       // Posts we hold ourselves, because the channel cannot schedule.
-      const due = await store.posts.find(
-        (post) => post.status === "approved" && post.scheduledFor <= nowMs,
-      );
+      const due = await postsWhere((post) => post.status === "approved" && post.scheduledFor <= nowMs);
       for (const post of due) {
         if (stopped.has(post.ventureId)) {
           held += 1;
@@ -793,16 +937,14 @@ export function createOrchestrator(services: Services): Orchestrator {
       // record that would leave the operator with a stopped machine and a live
       // post it does not know about. `amp pause` says how many are beyond
       // recall, because cancelling those means opening the channel itself.
-      const landed = await store.posts.find(
-        (post) => post.status === "scheduled" && post.scheduledFor <= nowMs,
-      );
+      const landed = await postsWhere((post) => post.status === "scheduled" && post.scheduledFor <= nowMs);
       for (const post of landed) {
         const wentLive: ScheduledPost = {
           ...post,
           status: "published",
           publishedAt: new Date(post.scheduledFor).toISOString(),
         };
-        await store.posts.put(wentLive);
+        await (await stores.for(post.ventureId)).posts.put(wentLive);
         // The post itself is beyond recall - the channel published it on its
         // own clock. The comments are not: they are writes this platform has
         // not made yet, and one of them carries the affiliate link. A stop that
@@ -823,17 +965,22 @@ export function createOrchestrator(services: Services): Orchestrator {
         });
       }
 
-      const waiting = await store.posts.find(
-        (post) =>
-          (post.status === "approved" || post.status === "scheduled") && post.scheduledFor > nowMs,
+      const waiting = await postsWhere(
+        (post) => (post.status === "approved" || post.status === "scheduled") && post.scheduledFor > nowMs,
       );
       return ok({ published, failed, stillWaiting: waiting.length, held, commentsWithheld });
     },
 
     async pendingDecisions(ventureId) {
-      const decisions = await store.decisions.find(
-        (decision) => decision.status === "pending" && (!ventureId || decision.ventureId === ventureId),
-      );
+      // The console's "what needs you today" is the whole company's, so this
+      // crosses on purpose. Asked for one account, it opens only that one.
+      const scopes = ventureId
+        ? [{ ventureId, store: await stores.for(ventureId) }]
+        : await stores.each();
+      const decisions: Decision[] = [];
+      for (const scope of scopes) {
+        decisions.push(...(await scope.store.decisions.find((decision) => decision.status === "pending")));
+      }
       return decisions.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
   };

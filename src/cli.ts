@@ -41,15 +41,23 @@ import { buildPortfolio, renderPortfolio } from "./domain/portfolio.ts";
 import { roster } from "./roles/index.ts";
 import { createRuntime, type Runtime, type RuntimeOptions } from "./runtime.ts";
 import { startConsole } from "./console/server.ts";
+import { operatorsWithoutTokens, resolveOperators } from "./console/operators.ts";
 import { startDaemon } from "./scheduler/daemon.ts";
-import { createJsonStore, describeDataDir } from "./storage/json-store.ts";
+import { createJsonRegistry, describeDataDir } from "./storage/json-store.ts";
 import { computePerformance } from "./domain/performance.ts";
 import { describeMeasurementChain, stepLabel } from "./domain/measurement.ts";
 import { formatMoney, totalCounts } from "./affiliate/attribution.ts";
 import { REDIRECT_PATH } from "./affiliate/links.ts";
 import { buildStatement, renderStatement } from "./domain/licensing.ts";
 import { formatPostPerformance } from "./roles/format.ts";
-import { CYCLE_STEPS, type CycleStep, type VentureId } from "./core/types.ts";
+import {
+  COMPANY_SCOPE,
+  CYCLE_STEPS,
+  type Cycle,
+  type CycleStep,
+  type ScheduledPost,
+  type VentureId,
+} from "./core/types.ts";
 
 const USAGE = `
 amp — autonomous affiliate operations
@@ -317,6 +325,18 @@ async function commandDoctor(runtime: Runtime, options: Options): Promise<number
     if (!health.ok) problems += 1;
   }
 
+  // Who can open the console, and who is listed but cannot. A listed operator
+  // whose passphrase is unset has no symptom other than "mine does not work",
+  // and every approval the console records is attributed to one of these names.
+  const operators = resolveOperators(runtime.config, process.env);
+  lines.push(
+    `console     ${operators.length} operator(s): ${operators.map((entry) => entry.name).join(", ") || "(none)"}`,
+  );
+  for (const missing of operatorsWithoutTokens(runtime.config, process.env)) {
+    lines.push(`            MISSING ${missing.tokenEnv} — "${missing.name}" cannot open the console`);
+    problems += 1;
+  }
+
   const ventureState = readVentureState(runtime.state);
   if (ventureState.warning) {
     lines.push(`state       ${ventureState.warning}`);
@@ -413,7 +433,10 @@ async function commandCycleRun(runtime: Runtime, options: Options): Promise<numb
 
 async function commandCycleStatus(runtime: Runtime, options: Options): Promise<number> {
   const ventures = selectVentures(runtime, options);
-  const cycles = await runtime.services.store.cycles.find((cycle) => ventures.includes(cycle.ventureId));
+  const cycles: Cycle[] = [];
+  for (const ventureId of ventures) {
+    cycles.push(...(await (await runtime.services.stores.for(ventureId)).cycles.all()));
+  }
   const recent = cycles.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
 
   if (options.json) {
@@ -466,7 +489,9 @@ async function commandApprove(runtime: Runtime, options: Options): Promise<numbe
     process.stderr.write("Which decision? Run `amp pending` to see the ids.\n");
     return 2;
   }
-  const decision = await runtime.services.store.decisions.get(decisionId);
+  // Like the console: an id arrives with no account attached, so this looks
+  // across and then works inside the one it found.
+  const decision = (await runtime.orchestrator.pendingDecisions()).find((entry) => entry.id === decisionId);
   if (!decision) {
     process.stderr.write(`No decision "${decisionId}".\n`);
     return 1;
@@ -652,9 +677,16 @@ async function commandPause(options: Options): Promise<number> {
 }
 
 async function warnAboutPostsBeyondRecall(dataDir: string, ventureId?: VentureId): Promise<void> {
-  let store;
+  // `amp pause` with no account named stops the whole company, so this looks
+  // across; named, it opens one.
+  const stores = createJsonRegistry({ dataDir, lock: false, owner: "pause" });
+  let posts: ScheduledPost[];
   try {
-    store = await createJsonStore({ dataDir, lock: false, owner: "pause" });
+    const scopes = ventureId
+      ? [{ ventureId, store: await stores.for(ventureId) }]
+      : await stores.each();
+    posts = [];
+    for (const scope of scopes) posts.push(...(await scope.store.posts.all()));
   } catch {
     process.stdout.write(
       `\n(Could not read ${dataDir} to check for posts already handed to a channel. ` +
@@ -664,14 +696,9 @@ async function warnAboutPostsBeyondRecall(dataDir: string, ventureId?: VentureId
   }
   try {
     const nowMs = Date.now();
-    const beyondRecall = (
-      await store.posts.find(
-        (post) =>
-          post.status === "scheduled" &&
-          post.scheduledFor > nowMs &&
-          (ventureId === undefined || post.ventureId === ventureId),
-      )
-    ).sort((a, b) => a.scheduledFor - b.scheduledFor);
+    const beyondRecall = posts
+      .filter((post) => post.status === "scheduled" && post.scheduledFor > nowMs)
+      .sort((a, b) => a.scheduledFor - b.scheduledFor);
 
     if (beyondRecall.length === 0) return;
     process.stdout.write(
@@ -685,7 +712,7 @@ async function warnAboutPostsBeyondRecall(dataDir: string, ventureId?: VentureId
       );
     }
   } finally {
-    await store.close();
+    await stores.close();
   }
 }
 
@@ -731,14 +758,14 @@ async function commandReport(runtime: Runtime, options: Options): Promise<number
     const venture = runtime.config.ventures.find((entry) => entry.id === ventureId);
     if (!venture) continue;
     const offers = runtime.config.offers.filter((offer) => venture.offers.includes(offer.id));
-    const performance = await computePerformance(runtime.services.store, {
+    const performance = await computePerformance(await runtime.services.stores.for(ventureId), {
       ventureId,
       nowMs,
       sinceMs: nowMs - days * 86_400_000,
       offers,
       defaultCurrency: offers[0]?.currency ?? "JPY",
     });
-    const patterns = await runtime.services.store.patterns.find((pattern) => pattern.ventureId === ventureId);
+    const patterns = await (await runtime.services.stores.for(ventureId)).patterns.all();
 
     process.stdout.write(`\n=== ${venture.name} — last ${days} days ===\n\n`);
     const counts = totalCounts(performance.totals.values());
@@ -784,7 +811,7 @@ async function commandStatement(runtime: Runtime, options: Options): Promise<num
     const venture = runtime.config.ventures.find((entry) => entry.id === ventureId);
     if (!venture) continue;
     const offers = runtime.config.offers.filter((offer) => venture.offers.includes(offer.id));
-    const performance = await computePerformance(runtime.services.store, {
+    const performance = await computePerformance(await runtime.services.stores.for(ventureId), {
       ventureId,
       nowMs,
       sinceMs: nowMs - days * 86_400_000,
@@ -856,7 +883,7 @@ async function commandScout(runtime: Runtime, options: Options): Promise<number>
 }
 
 async function commandScoutList(runtime: Runtime, options: Options): Promise<number> {
-  const proposals = await listProposals(runtime.services.store, options.all ? undefined : "proposed");
+  const proposals = await listProposals(await runtime.services.stores.for(COMPANY_SCOPE), options.all ? undefined : "proposed");
   if (options.json) {
     process.stdout.write(`${JSON.stringify(proposals, null, 2)}\n`);
     return 0;
@@ -882,7 +909,7 @@ async function commandScoutShow(runtime: Runtime, options: Options): Promise<num
     process.stderr.write("Usage: amp scout show <proposal-id>\n");
     return 2;
   }
-  const proposal = await runtime.services.store.proposals.get(proposalId);
+  const proposal = await (await runtime.services.stores.for(COMPANY_SCOPE)).proposals.get(proposalId);
   if (!proposal) {
     process.stderr.write(`No proposal "${proposalId}". \`amp scout list --all\` shows every one.\n`);
     return 2;
@@ -933,7 +960,7 @@ async function commandScoutResolve(
     const nowIso = runtime.services.clock.nowIso();
     const appended = await appendVentureBlock(runtime.loaded.path, block, join(runtime.loaded.dataDir, "config-backups"), { nowIso });
     if (appended.ok) {
-      await markAppended(runtime.services.store, result.value.id, appended.value, nowIso);
+      await markAppended(await runtime.services.stores.for(COMPANY_SCOPE), result.value.id, appended.value, nowIso);
       process.stdout.write(
         `Accepted "${result.value.niche}" and appended it to ${appended.value.configPath} under \`ventures:\`, ` +
           `as active: false. The previous file is at ${appended.value.backupPath}.\n\n` +
@@ -974,8 +1001,8 @@ async function commandVentureSwitch(runtime: Runtime, options: Options, on: bool
   // The audit log is append-only lines, which is why this is safe without the
   // data lock the daemon holds: nothing is rewritten. The same click in the
   // console leaves the same record, so the trail does not depend on the surface.
-  const audit = (type: string, summary: string): Promise<void> =>
-    runtime.services.store.audit.append({
+  const audit = async (type: string, summary: string): Promise<void> =>
+    (await runtime.services.stores.for(ventureId)).audit.append({
       id: runtime.services.ids.next("evt"),
       at: nowIso,
       ventureId,
@@ -989,7 +1016,7 @@ async function commandVentureSwitch(runtime: Runtime, options: Options, on: bool
     const state = await deactivateVenture(runtime.state, ventureId, { at: nowIso, by: runtime.config.company.operator, reason });
     await audit("venture.deactivated", `Deactivated "${venture.name}"${reason ? `: ${reason}` : ""}.`);
     process.stdout.write(`${describeInactive(venture, state)}\n`);
-    const held = await runtime.services.store.posts.find((post) => post.ventureId === ventureId && post.status === "approved");
+    const held = await (await runtime.services.stores.for(ventureId)).posts.find((post) => post.status === "approved");
     if (held.length > 0) {
       process.stdout.write(`${held.length} approved post(s) are held and will go out if the account is reactivated.\n`);
     }
@@ -1040,7 +1067,7 @@ async function commandVentureList(runtime: Runtime, options: Options): Promise<n
 async function commandPortfolio(runtime: Runtime, options: Options): Promise<number> {
   const portfolio = await buildPortfolio({
     config: runtime.config,
-    store: runtime.services.store,
+    stores: runtime.services.stores,
     nowMs: runtime.services.clock.now(),
     days: options.days ?? 30,
     state: runtime.state,

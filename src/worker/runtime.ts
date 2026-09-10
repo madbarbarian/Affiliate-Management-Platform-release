@@ -17,9 +17,10 @@ import { buildConfig, type LoadedConfig } from "../config/load.ts";
 import { ConfigError } from "../config/schema.ts";
 import { createPromptLibraryFrom } from "../kernel/prompts.ts";
 import { assembleRuntime, type Runtime } from "../kernel/assemble.ts";
-import { createSqlStore } from "../storage/sql-store.ts";
+import { createSqlRegistry, ensureSqlSchema } from "../storage/sql-store.ts";
 import { createSqlState } from "../storage/sql-state.ts";
 import { createD1Driver, type D1Database } from "../storage/d1-driver.ts";
+import type { Lock } from "../storage/lock.ts";
 
 export type WorkerEnv = {
   /** The D1 binding declared in wrangler.jsonc. */
@@ -32,6 +33,8 @@ export type WorkerParts = {
   readonly env: WorkerEnv;
   readonly configText: string;
   readonly prompts: Readonly<Record<string, string>>;
+  /** The Durable Object lock, where the deploy has one bound. */
+  readonly lock?: Lock;
 };
 
 /**
@@ -69,7 +72,16 @@ export async function createWorkerRuntime(parts: WorkerParts): Promise<Result<Ru
   }
 
   const driver = createD1Driver(env.DB);
-  const store = await createSqlStore(driver);
+  // One account named means a database written before the split can be
+  // upgraded; more than one and it refuses rather than guessing. See
+  // docs/3-development/store-split.md.
+  const only = loaded.config.ventures.length === 1 ? loaded.config.ventures[0]!.id : undefined;
+  const stores = createSqlRegistry(driver, only ? { assignExistingTo: only } : {});
+  // Before the state store reads anything: the registry applies the schema
+  // lazily, when an account is first opened, and the stop must never be read
+  // from a database whose `state` table does not exist yet - an unreadable
+  // stop means stopped.
+  await ensureSqlSchema(driver, only ? { assignExistingTo: only } : {});
   const state = createSqlState(driver);
   // Before this, every read of the stop reports "unreadable", which means
   // stopped. Nothing runs on a state store that has not actually been read.
@@ -77,7 +89,7 @@ export async function createWorkerRuntime(parts: WorkerParts): Promise<Result<Ru
 
   return assembleRuntime({
     loaded,
-    store,
+    stores,
     state,
     prompts: createPromptLibraryFrom(parts.prompts),
     clock: systemClock,
@@ -91,6 +103,7 @@ export async function createWorkerRuntime(parts: WorkerParts): Promise<Result<Ru
       sink: jsonConsoleSink(),
     }),
     env: stringEnv,
+    ...(parts.lock ? { lock: parts.lock } : {}),
     dryRun: false,
   });
 }

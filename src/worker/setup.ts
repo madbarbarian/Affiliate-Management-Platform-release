@@ -85,7 +85,17 @@ export function renderSetup(state: SetupState): string {
     <ul>
       ${check(state.hasDatabase, "データの保管場所がつながっています", "データの保管場所が見つかりません。作り直しが要ります")}
       ${check(state.hasConsoleToken, "承認画面の合言葉が設定されています", "合言葉がありません。設定するまで、この画面は誰でも開けます")}
-      ${check(state.hasModelKey, "AIモデルの鍵が入っています", "AIモデルの鍵はまだです。<b>いまはこれで構いません</b> — 練習用の文章で一巡できます")}
+      ${check(
+        state.hasModelKey,
+        "AIモデルの鍵が入っています",
+        "AIモデルの鍵はまだです。<b>いまはこれで構いません</b> — 練習用の文章で一巡できます。" +
+          // Asked for on the deploy screen, this would be a field nobody can
+          // leave empty, so it is not asked for there at all. Which makes this
+          // the only place a licensee is told where it goes - and they are
+          // standing in a browser, not a terminal.
+          "本物の文章にしたくなったら、Cloudflare の <b>Workers &amp; Pages → この Worker → Settings → " +
+          "Variables and Secrets</b> で <code>ANTHROPIC_API_KEY</code> を足してください",
+      )}
       ${check(state.configured, "設定が入っています", "設定がまだです（下の手順）")}
     </ul>
   </section>

@@ -18,6 +18,7 @@ import type {
 } from "../core/types.ts";
 import { createReader, formatIssues, get, type Issue } from "./validate.ts";
 import { parseTimeOfDay } from "../core/clock.ts";
+import { LOCALES, type Locale } from "../console/messages.ts";
 
 /**
  * Bumped to 2 when `markets` became required. An older config now fails
@@ -63,12 +64,37 @@ export type LlmConfig = {
   readonly requestTimeoutMs: number;
 };
 
+/**
+ * One person who may open the console, and the env var holding their
+ * passphrase. The passphrase itself is never in this file.
+ */
+export type ConsoleOperator = {
+  /** What the audit log records when this person approves something. */
+  readonly name: string;
+  readonly tokenEnv: string;
+};
+
 export type ConsoleConfig = {
   readonly enabled: boolean;
   readonly host: string;
   readonly port: number;
   /** Env var holding the bearer token the console requires. */
   readonly tokenEnv: string;
+  /**
+   * The console's own language. **Not the disclosure's** - that follows each
+   * venture's market, and an operator reading English while publishing to
+   * Japanese readers still publishes a Japanese disclosure.
+   */
+  readonly locale: Locale;
+  /**
+   * Anyone beyond the first. `company.operator` plus `tokenEnv` is the first
+   * entry and needs no listing here, so a single-operator config is unchanged.
+   *
+   * This exists so the audit log can name who approved something. An approval
+   * cannot be attributed after the fact: a record written while there is one
+   * shared passphrase says the owner's name forever, whoever pressed it.
+   */
+  readonly operators: readonly ConsoleOperator[];
 };
 
 export type PolicyConfig = {
@@ -366,6 +392,30 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
     host: at("console.host", consoleRaw["host"]).string("127.0.0.1"),
     port: at("console.port", consoleRaw["port"]).number({ min: 1, max: 65_535, integer: true, fallback: 4321 }),
     tokenEnv: at("console.tokenEnv", consoleRaw["tokenEnv"]).string("AMP_CONSOLE_TOKEN"),
+    locale: at("console.locale", consoleRaw["locale"]).oneOf<Locale>([...LOCALES], "ja"),
+    operators: at("console.operators", consoleRaw["operators"]).objectArray().map(({ path, value }) => {
+      // Roles and per-account assignment are deliberately not implemented yet
+      // (docs/3-development/adding-people.md). Reading only `name` and
+      // `tokenEnv` and ignoring the rest is the dangerous way to defer a
+      // feature: someone writes `role: manager`, doctor says nothing, and they
+      // believe they have limited a person who in fact holds every power the
+      // owner does. A deferred feature has to refuse, not shrug.
+      for (const key of Object.keys(value)) {
+        if (key === "name" || key === "tokenEnv") continue;
+        at(`${path}.${key}`, value[key]).reject(
+          key === "role" || key === "ventures"
+            ? "is not implemented yet, and leaving it here would be worse than not writing it: " +
+              "anyone holding a passphrase can do everything you can, on every account. " +
+              "Delete the line. If there is something this person must not see or touch, " +
+              "do not give them a passphrase yet."
+            : "is not a field of console.operators. Only name and tokenEnv are read.",
+        );
+      }
+      return {
+        name: at(`${path}.name`, value["name"]).string(),
+        tokenEnv: at(`${path}.tokenEnv`, value["tokenEnv"]).string(),
+      };
+    }),
   };
 
   const policyRaw = at("policy", get(raw, "policy")).object();
@@ -629,6 +679,27 @@ function checkReferentialIntegrity(config: PlatformConfig, reader: ReturnType<ty
   assertUnique(config.networks.map((n) => n.id), "networks", reader);
   assertUnique(config.offers.map((o) => o.id), "offers", reader);
   assertUnique(config.ventures.map((v) => v.id), "ventures", reader);
+
+  // The whole point of naming operators is that the audit log can tell them
+  // apart. Two people sharing a name, or a second entry reusing the owner's
+  // passphrase, gives a record that looks attributed and is not.
+  const operatorNames = new Set([config.company.operator]);
+  const operatorEnvs = new Set([config.console.tokenEnv]);
+  config.console.operators.forEach((operator, index) => {
+    const path = `console.operators[${index}]`;
+    if (operatorNames.has(operator.name)) {
+      reader.at(`${path}.name`, operator.name).reject(
+        `is already the name of another operator - the audit log could not tell them apart`,
+      );
+    }
+    operatorNames.add(operator.name);
+    if (operatorEnvs.has(operator.tokenEnv)) {
+      reader.at(`${path}.tokenEnv`, operator.tokenEnv).reject(
+        `is already another operator's passphrase - two people holding one secret are one person to the audit log`,
+      );
+    }
+    operatorEnvs.add(operator.tokenEnv);
+  });
 
   const channelIds = new Set(config.channels.map((c) => c.id));
   const networkIds = new Set(config.networks.map((n) => n.id));

@@ -37,18 +37,30 @@ import type {
   TrackedLink,
   VentureProposal,
 } from "../core/types.ts";
-import type { AuditLog, Collection, Identified, InspectionStore, Store, StoredMetric } from "./store.ts";
+import type {
+  AuditLog,
+  Collection,
+  Identified,
+  InspectionStore,
+  Store,
+  StoredMetric,
+  StoreRegistry,
+} from "./store.ts";
 import type { SqlDriver, SqlStatement } from "./sql-driver.ts";
 
 const SCHEMA: readonly string[] = [
+  // `venture` is part of the key, not a filter bolted on: two accounts may hold
+  // a record with the same id, and without it in the key the second write
+  // would silently replace the first account's row.
   `CREATE TABLE IF NOT EXISTS records (
+     venture    TEXT NOT NULL,
      collection TEXT NOT NULL,
      id         TEXT NOT NULL,
      seq        INTEGER NOT NULL,
      json       TEXT NOT NULL,
-     PRIMARY KEY (collection, id)
+     PRIMARY KEY (venture, collection, id)
    )`,
-  `CREATE INDEX IF NOT EXISTS records_order ON records (collection, seq)`,
+  `CREATE INDEX IF NOT EXISTS records_order ON records (venture, collection, seq)`,
   `CREATE TABLE IF NOT EXISTS audit (
      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
      at         TEXT NOT NULL,
@@ -64,8 +76,65 @@ const SCHEMA: readonly string[] = [
    )`,
 ];
 
-/** Applies the schema. Safe to call on every start; every statement is `IF NOT EXISTS`. */
-export async function migrate(driver: SqlDriver): Promise<void> {
+export type MigrateOptions = {
+  /**
+   * Which account the rows of a pre-split database belong to.
+   *
+   * A database written before accounts had their own space has no `venture`
+   * column, and nothing in it says which account its rows are. The caller
+   * knows: it holds the config. **One account named means every row is that
+   * account's; anything else must not be guessed** - a wrong answer here mixes
+   * two accounts' histories permanently, which is the exact thing this split
+   * exists to make impossible.
+   */
+  readonly assignExistingTo?: string;
+};
+
+/**
+ * Applies the schema, and upgrades a database written before the split.
+ *
+ * Safe to call on every start. The schema statements are all `IF NOT EXISTS`;
+ * the upgrade runs only when `records` exists without a `venture` column, and
+ * SQLite cannot add one to a primary key, so it is a rebuild.
+ */
+export async function migrate(driver: SqlDriver, options: MigrateOptions = {}): Promise<void> {
+  const existing = await driver.all<{ name: string }>(`PRAGMA table_info(records)`);
+  const preSplit = existing.length > 0 && !existing.some((column) => column.name === "venture");
+
+  if (preSplit) {
+    const rows = await driver.all<{ n: number }>(`SELECT COUNT(*) AS n FROM records`);
+    const count = rows[0]?.n ?? 0;
+    const venture = options.assignExistingTo;
+    if (count > 0 && venture === undefined) {
+      throw new Error(
+        `This database was written before accounts had their own space, and holds ${count} rows ` +
+          `that do not say which account they belong to. Nothing here can tell them apart, and ` +
+          `guessing would mix two histories permanently. Run this with exactly one account in ` +
+          `ventures:, so every row can be assigned to it, then add the others back.`,
+      );
+    }
+    // One batch, not four statements. On Cloudflare the first request and the
+    // minute cron can reach this in different isolates at the same moment, and
+    // a rebuild half-applied - renamed but not copied - is the operator's
+    // history gone. A D1 batch is atomic; where a driver has no batch it runs
+    // them in order, which is what a single-process host has anyway.
+    await driver.batch([
+      { sql: `ALTER TABLE records RENAME TO records_pre_split` },
+      ...SCHEMA.map((sql) => ({ sql })),
+      ...(count > 0
+        ? [
+            {
+              sql: `INSERT INTO records (venture, collection, id, seq, json)
+                      SELECT ?, collection, id, seq, json FROM records_pre_split`,
+              params: [venture as string],
+            },
+          ]
+        : []),
+      { sql: `DROP TABLE records_pre_split` },
+    ]);
+    return;
+  }
+
   for (const statement of SCHEMA) await driver.run(statement);
 }
 
@@ -80,18 +149,31 @@ export async function migrate(driver: SqlDriver): Promise<void> {
  */
 const migrated = new WeakMap<SqlDriver, Promise<void>>();
 
-export async function createSqlStore(driver: SqlDriver): Promise<Store> {
+async function ensureSchema(driver: SqlDriver, options: MigrateOptions): Promise<void> {
   let applied = migrated.get(driver);
   if (!applied) {
-    applied = migrate(driver);
+    applied = migrate(driver, options);
     migrated.set(driver, applied);
     // A failed migration must not be remembered as done.
     applied.catch(() => migrated.delete(driver));
   }
   await applied;
+}
 
-  const collection = <T extends Identified>(name: string): Collection<T> => new SqlCollection<T>(driver, name);
-  const inspectionRows = new SqlCollection<InspectionReport & Identified>(driver, "inspections");
+export type SqlStoreOptions = MigrateOptions & {
+  /** Whose store this is. Nothing outside this account is reachable through it. */
+  readonly venture: string;
+};
+
+export { ensureSchema as ensureSqlSchema };
+
+export async function createSqlStore(driver: SqlDriver, options: SqlStoreOptions): Promise<Store> {
+  await ensureSchema(driver, options);
+  const venture = options.venture;
+
+  const collection = <T extends Identified>(name: string): Collection<T> =>
+    new SqlCollection<T>(driver, venture, name);
+  const inspectionRows = new SqlCollection<InspectionReport & Identified>(driver, venture, "inspections");
 
   const inspections: InspectionStore = {
     async get(draftId) {
@@ -112,26 +194,35 @@ export async function createSqlStore(driver: SqlDriver): Promise<Store> {
 
   const audit: AuditLog = {
     async append(event) {
+      // The scope wins over the event. An event carrying someone else's
+      // ventureId written into this account's log would be a crossing with no
+      // name, which is the thing the split is for.
+      // The document is stamped too, not just the column: the column is how
+      // the row is found, and the document is what a reader gets back. Two
+      // answers to "whose event is this" is the bug, not a detail.
+      const scoped: AuditEvent = { ...event, ventureId: venture };
       await driver.run(`INSERT INTO audit (at, venture_id, cycle_id, json) VALUES (?, ?, ?, ?)`, [
-        event.at,
-        event.ventureId ?? null,
-        event.cycleId ?? null,
-        JSON.stringify(event),
+        scoped.at,
+        venture,
+        scoped.cycleId ?? null,
+        JSON.stringify(scoped),
       ]);
     },
     async recent(limit, filter) {
       // The contract: a limit of none means none, and the limit counts events
       // that match the filter rather than events looked at.
       if (limit <= 0) return [];
-      const ventureId = filter?.ventureId ?? null;
+      // Narrowing only: this log holds one account's events, so asking for
+      // another account's is answered with none.
+      if (filter?.ventureId !== undefined && filter.ventureId !== venture) return [];
       const cycleId = filter?.cycleId ?? null;
       const rows = await driver.all<{ json: string }>(
         `SELECT json FROM audit
-          WHERE (? IS NULL OR venture_id = ?)
+          WHERE venture_id = ?
             AND (? IS NULL OR cycle_id = ?)
           ORDER BY seq DESC
           LIMIT ?`,
-        [ventureId, ventureId, cycleId, cycleId, limit],
+        [venture, cycleId, cycleId, limit],
       );
       return rows.map((row) => JSON.parse(row.json) as AuditEvent);
     },
@@ -162,46 +253,54 @@ export async function createSqlStore(driver: SqlDriver): Promise<Store> {
   };
 }
 
-/** Keeps an item's original position when it is replaced. */
-const UPSERT = `INSERT INTO records (collection, id, seq, json)
-   VALUES (?, ?, (SELECT IFNULL(MAX(seq), 0) + 1 FROM records), ?)
-   ON CONFLICT (collection, id) DO UPDATE SET json = excluded.json`;
+/**
+ * Keeps an item's original position when it is replaced.
+ *
+ * `seq` counts within the account, not the table: two accounts stored side by
+ * side must each read back in the order they were written, and a counter over
+ * the whole table interleaves them.
+ */
+const UPSERT = `INSERT INTO records (venture, collection, id, seq, json)
+   VALUES (?, ?, ?, (SELECT IFNULL(MAX(seq), 0) + 1 FROM records WHERE venture = ?), ?)
+   ON CONFLICT (venture, collection, id) DO UPDATE SET json = excluded.json`;
 
 class SqlCollection<T extends Identified> implements Collection<T> {
   readonly #driver: SqlDriver;
+  readonly #venture: string;
   readonly #name: string;
 
-  constructor(driver: SqlDriver, name: string) {
+  constructor(driver: SqlDriver, venture: string, name: string) {
     this.#driver = driver;
+    this.#venture = venture;
     this.#name = name;
   }
 
   async get(id: string): Promise<T | undefined> {
     const rows = await this.#driver.all<{ json: string }>(
-      `SELECT json FROM records WHERE collection = ? AND id = ?`,
-      [this.#name, id],
+      `SELECT json FROM records WHERE venture = ? AND collection = ? AND id = ?`,
+      [this.#venture, this.#name, id],
     );
     const row = rows[0];
     return row ? (JSON.parse(row.json) as T) : undefined;
   }
 
   async put(item: T): Promise<void> {
-    await this.#driver.run(UPSERT, [this.#name, item.id, JSON.stringify(item)]);
+    await this.#driver.run(UPSERT, [this.#venture, this.#name, item.id, this.#venture, JSON.stringify(item)]);
   }
 
   async putMany(items: readonly T[]): Promise<void> {
     if (items.length === 0) return;
     const statements: SqlStatement[] = items.map((item) => ({
       sql: UPSERT,
-      params: [this.#name, item.id, JSON.stringify(item)],
+      params: [this.#venture, this.#name, item.id, this.#venture, JSON.stringify(item)],
     }));
     await this.#driver.batch(statements);
   }
 
   async all(): Promise<T[]> {
     const rows = await this.#driver.all<{ json: string }>(
-      `SELECT json FROM records WHERE collection = ? ORDER BY seq`,
-      [this.#name],
+      `SELECT json FROM records WHERE venture = ? AND collection = ? ORDER BY seq`,
+      [this.#venture, this.#name],
     );
     return rows.map((row) => JSON.parse(row.json) as T);
   }
@@ -211,6 +310,70 @@ class SqlCollection<T extends Identified> implements Collection<T> {
   }
 
   async remove(id: string): Promise<void> {
-    await this.#driver.run(`DELETE FROM records WHERE collection = ? AND id = ?`, [this.#name, id]);
+    await this.#driver.run(`DELETE FROM records WHERE venture = ? AND collection = ? AND id = ?`, [
+      this.#venture,
+      this.#name,
+      id,
+    ]);
   }
+}
+
+/**
+ * Every account in one database, and the ways across.
+ *
+ * The driver is shared - it is one D1 binding - but nothing that comes out of
+ * `for()` can see past its own account. See `docs/3-development/store-split.md`.
+ */
+export function createSqlRegistry(driver: SqlDriver, options: MigrateOptions = {}): StoreRegistry {
+  const open = new Map<string, Promise<Store>>();
+
+  const forVenture = (ventureId: string): Promise<Store> => {
+    let store = open.get(ventureId);
+    if (!store) {
+      store = createSqlStore(driver, { ...options, venture: ventureId });
+      open.set(ventureId, store);
+    }
+    return store;
+  };
+
+  return {
+    for: forVenture,
+
+    async each() {
+      await ensureSchema(driver, options);
+      // From the data, not the config: an account dropped from `ventures:`
+      // still has a history, and export is the reason it must stay reachable.
+      const rows = await driver.all<{ venture: string }>(
+        `SELECT venture FROM records
+         UNION
+         SELECT venture_id AS venture FROM audit WHERE venture_id IS NOT NULL
+         ORDER BY venture`,
+      );
+      return Promise.all(
+        rows.map(async (row) => ({ ventureId: row.venture, store: await forVenture(row.venture) })),
+      );
+    },
+
+    async findLinkByCode(code) {
+      await ensureSchema(driver, options);
+      // One query, whatever the number of accounts. A reader is waiting on
+      // this, and walking every account's store would make the wait grow with
+      // the size of the operation.
+      const rows = await driver.all<{ venture: string; json: string }>(
+        `SELECT venture, json FROM records WHERE collection = 'links'`,
+      );
+      for (const row of rows) {
+        const link = JSON.parse(row.json) as TrackedLink;
+        // Where it lives decides whose it is, the way the audit log's scope
+        // decides whose an event is. A document that disagrees with the space
+        // it is in would send the click to an account that never issued it.
+        if (link.code === code) return { ...link, ventureId: row.venture };
+      }
+      return undefined;
+    },
+
+    async close() {
+      await driver.close?.();
+    },
+  };
 }

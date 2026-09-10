@@ -36,18 +36,27 @@ export type MockProviderOptions = {
 };
 
 export type MockProvider = LlmProvider & {
-  /** Every request the provider saw, in order. Useful for assertions. */
-  readonly calls: { purpose: string; system: string; user: string }[];
+  /**
+   * Every request the provider saw, in order. Useful for assertions - the
+   * schema included, because it is the only place a test can get hold of the
+   * schemas the roles actually send without exporting each one.
+   */
+  readonly calls: { purpose: string; system: string; user: string; schema?: JsonSchema }[];
 };
 
 export function createMockProvider(options: MockProviderOptions = {}): MockProvider {
   const responses = options.responses ?? {};
   const model = options.model ?? "mock-model";
-  const calls: { purpose: string; system: string; user: string }[] = [];
+  const calls: { purpose: string; system: string; user: string; schema?: JsonSchema }[] = [];
   let totals: LlmUsage = zeroUsage;
 
-  const record = (request: LlmRequest): LlmUsage => {
-    calls.push({ purpose: request.purpose, system: request.system, user: request.user });
+  const record = (request: LlmRequest | LlmJsonRequest): LlmUsage => {
+    calls.push({
+      purpose: request.purpose,
+      system: request.system,
+      user: request.user,
+      ...("schema" in request ? { schema: request.schema } : {}),
+    });
     const usage: LlmUsage = {
       inputTokens: Math.ceil((request.system.length + request.user.length) / 4),
       outputTokens: 128,

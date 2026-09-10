@@ -16,7 +16,7 @@ import { buildConfig, repoRoot } from "../src/config/load.ts";
 import { parseYaml } from "../src/config/yaml.ts";
 import { COMPANY_SCOPE } from "../src/core/types.ts";
 import { unwrap } from "../src/core/result.ts";
-import { buildPortfolio, reviewReason, type PortfolioRow } from "../src/domain/portfolio.ts";
+import { buildPortfolio, renderPortfolio, reviewReason, type PortfolioRow } from "../src/domain/portfolio.ts";
 import {
   SCOUT_COMPLETED_EVENT,
   appendVentureBlock,
@@ -27,7 +27,7 @@ import {
 } from "../src/kernel/exploration.ts";
 import { deactivateVenture, isVentureActive, readVentureState, reactivateVenture } from "../src/kernel/venture-state.ts";
 import { ventureBrief } from "../src/kernel/role.ts";
-import { BASE_CONFIG, createTestCompany, testConfig } from "./helpers.ts";
+import { BASE_CONFIG, createTestCompany, refusingProvider, testConfig } from "./helpers.ts";
 
 // ---------------------------------------------------------------------------
 // Principles
@@ -117,11 +117,11 @@ test("the scout's proposals are checked in code: market, prohibited category, du
   assert.deepEqual(result.proposals[1]!.offerIds, ["offer_test"]);
   assert.notEqual(result.proposals[1]!.suggestedVentureId, "main");
 
-  const stored = await company.store.proposals.all();
+  const stored = await company.stores.open(COMPANY_SCOPE).proposals.all();
   assert.equal(stored.length, 2, "kept proposals are persisted");
   assert.ok(stored.every((entry) => entry.status === "proposed"));
 
-  const events = await company.store.audit.recent(50, { ventureId: COMPANY_SCOPE });
+  const events = await company.stores.open(COMPANY_SCOPE).audit.recent(50);
   assert.equal(events.filter((event) => event.type === "role.scout.dropped_proposal").length, 4, "each refusal is audited");
   assert.ok(events.some((event) => event.type === SCOUT_COMPLETED_EVENT));
 });
@@ -134,7 +134,7 @@ test("a niche already proposed last week is not proposed again this week", async
   const second = unwrap(await runScout(company.services, { count: 1 }));
   assert.equal(second.proposals.length, 0);
   assert.match(second.dropped[0]?.reason ?? "", /open proposal/);
-  assert.equal((await company.store.proposals.all()).length, 1, "no duplicate stored");
+  assert.equal((await company.stores.open(COMPANY_SCOPE).proposals.all()).length, 1, "no duplicate stored");
 });
 
 test("the block quotes every scalar, so a language code the YAML reader would read as a boolean survives", async () => {
@@ -152,7 +152,7 @@ test("the block quotes every scalar, so a language code the YAML reader would re
 test("a scout run that proposes nothing still counts as a run", async () => {
   const company = createTestCompany({ responses: { "scout.propose": (() => ({ proposals: [] })) as never } });
   unwrap(await runScout(company.services));
-  const events = await company.store.audit.recent(10, { ventureId: COMPANY_SCOPE });
+  const events = await company.stores.open(COMPANY_SCOPE).audit.recent(10);
   assert.ok(events.some((event) => event.type === SCOUT_COMPLETED_EVENT), "otherwise the daemon would run it every minute");
 });
 
@@ -330,7 +330,7 @@ test("the portfolio shows each account's state, waiting decisions and whether it
   const portfolio = await buildPortfolio({
     state: undefined,
     config: company.config,
-    store: company.store,
+    stores: company.stores,
     nowMs: company.clock.now(),
     days: 30,
   });
@@ -342,4 +342,28 @@ test("the portfolio shows each account's state, waiting decisions and whether it
   assert.equal(row.stopped, false);
   assert.equal(row.measurementClosed, false, "mock adapters measure nothing");
   assert.equal(portfolio.totals.posts, 0);
+});
+
+test("a day that failed carries its reason, not only the step it stopped at", async () => {
+  // The row said `2026-04-02 failed → write` and no more, and this table is the
+  // whole of what a hosted operator can see: there is no terminal to run
+  // `cycle status` in. The reason lived in the database and nowhere a person
+  // would look.
+  const company = createTestCompany({
+    config: testConfig({ company: { name: "Auto Co", operator: "auto", autonomy: "auto" } }),
+    llm: refusingProvider({ "write.draft": "your credit balance is too low" }),
+  });
+  assert.equal((await company.orchestrator.runCycle("main")).ok, false);
+
+  const portfolio = await buildPortfolio({
+    state: undefined,
+    config: company.config,
+    stores: company.stores,
+    nowMs: company.clock.now(),
+    days: 30,
+  });
+  const row = portfolio.rows[0]!;
+  assert.equal(row.lastCycle?.status, "failed");
+  assert.match(row.lastCycle?.failure ?? "", /credit balance is too low/);
+  assert.match(renderPortfolio(portfolio), /credit balance is too low/, "and the terminal view says it too");
 });

@@ -37,17 +37,20 @@ export type ScoutRunOptions = {
 };
 
 export async function runScout(services: Services, options: ScoutRunOptions = {}): Promise<Result<ScoutOutput, PlatformError>> {
-  const { config, store, clock } = services;
+  const { config, stores, clock } = services;
+  // The scout works for the company, not for an account: its proposals and its
+  // own history live under COMPANY_SCOPE, which is a store like any other.
+  const store = await stores.for(COMPANY_SCOPE);
   const count = options.count ?? config.company.exploration.proposals;
   const portfolio = await buildPortfolio({
     config,
-    store,
+    stores,
     nowMs: clock.now(),
     days: config.company.exploration.lookbackDays,
     state: options.state,
   });
 
-  const context = createCompanyContext(services, scout.id);
+  const context = await createCompanyContext(services, scout.id);
   const result = await scout.run(context, { count, portfolio });
   if (!result.ok) return result;
 
@@ -96,7 +99,7 @@ export async function resolveProposal(
   services: Services,
   resolution: ProposalResolution,
 ): Promise<Result<VentureProposal, PlatformError>> {
-  const proposal = await services.store.proposals.get(resolution.proposalId);
+  const proposal = await (await services.stores.for(COMPANY_SCOPE)).proposals.get(resolution.proposalId);
   if (!proposal) {
     return fail("not_found", "proposal.not_found", `No proposal "${resolution.proposalId}". \`amp scout list\` shows the open ones.`);
   }
@@ -114,8 +117,8 @@ export async function resolveProposal(
     resolvedBy: resolution.by,
     ...(resolution.note ? { resolutionNote: resolution.note } : {}),
   };
-  await services.store.proposals.put(resolved);
-  await createCompanyContext(services, "operator").note(
+  await (await services.stores.for(COMPANY_SCOPE)).proposals.put(resolved);
+  await (await createCompanyContext(services, "operator")).note(
     `proposal.${resolution.status}`,
     `${resolution.status === "accepted" ? "Accepted" : "Dismissed"} "${proposal.niche}"${resolution.note ? `: ${resolution.note}` : ""}.`,
     { proposalId: proposal.id, suggestedVentureId: proposal.suggestedVentureId },

@@ -41,7 +41,7 @@ offers:
     crossBorderNote: "米国企業との直接契約です。決済はUSD、日本語サポートはありません。"
 
 ventures:
-  - id: main
+  - id: ai-tools
     market: jp                # where this account's readers are
 ```
 

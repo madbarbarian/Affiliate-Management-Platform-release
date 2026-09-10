@@ -20,7 +20,7 @@ import type { PlatformError, Result } from "../core/result.ts";
 import { COMPANY_SCOPE, type AuditEvent, type CycleId, type Venture } from "../core/types.ts";
 import type { PlatformConfig } from "../config/schema.ts";
 import type { LlmProvider } from "../llm/provider.ts";
-import type { Store } from "../storage/store.ts";
+import type { Store, StoreRegistry } from "../storage/store.ts";
 import type { ChannelRegistry } from "../channels/index.ts";
 import { findMarket, resolveCompliance } from "../domain/market.ts";
 import type { NetworkRegistry } from "../networks/index.ts";
@@ -33,7 +33,15 @@ export type Services = {
   readonly ids: IdGenerator;
   readonly logger: Logger;
   readonly llm: LlmProvider;
-  readonly store: Store;
+  /**
+   * Every account's store, and the only way to reach one.
+   *
+   * There is no `store` here on purpose: a service bag shared by six roles and
+   * the orchestrator cannot hold "the" store without one of them reaching into
+   * an account that is not theirs. A `RoleContext` has a `store`, because a
+   * role always knows whose work it is doing.
+   */
+  readonly stores: StoreRegistry;
   readonly channels: ChannelRegistry;
   readonly networks: NetworkRegistry;
   readonly prompts: PromptLibrary;
@@ -43,6 +51,8 @@ export type Services = {
 export type RoleContext = Services & {
   readonly venture: Venture;
   readonly cycleId: CycleId;
+  /** This account's store. Nothing outside it is reachable. */
+  readonly store: Store;
   /** Records something worth auditing. Never throws. */
   note(type: string, summary: string, data?: Record<string, unknown>): Promise<void>;
 };
@@ -54,6 +64,8 @@ export type RoleContext = Services & {
  * events carry `COMPANY_SCOPE` where a venture id would go.
  */
 export type CompanyContext = Services & {
+  /** The company's own store, under COMPANY_SCOPE - no account's. */
+  readonly store: Store;
   note(type: string, summary: string, data?: Record<string, unknown>): Promise<void>;
 };
 
@@ -66,9 +78,11 @@ export type Role<Input, Output, Context = RoleContext> = {
   run(context: Context, input: Input): Promise<Result<Output, PlatformError>>;
 };
 
-export function createCompanyContext(services: Services, actor: string): CompanyContext {
+export async function createCompanyContext(services: Services, actor: string): Promise<CompanyContext> {
+  const store = await services.stores.for(COMPANY_SCOPE);
   return {
     ...services,
+    store,
     logger: services.logger.child({ venture: COMPANY_SCOPE, role: actor }),
     async note(type, summary, data = {}) {
       const event: AuditEvent = {
@@ -80,22 +94,24 @@ export function createCompanyContext(services: Services, actor: string): Company
         summary,
         data,
       };
-      await services.store.audit.append(event);
+      await store.audit.append(event);
       await services.bus.emit(event);
     },
   };
 }
 
-export function createRoleContext(
+export async function createRoleContext(
   services: Services,
   venture: Venture,
   cycleId: CycleId,
   actor: string,
-): RoleContext {
+): Promise<RoleContext> {
+  const store = await services.stores.for(venture.id);
   return {
     ...services,
     venture,
     cycleId,
+    store,
     logger: services.logger.child({ venture: venture.id, cycle: cycleId, role: actor }),
     async note(type, summary, data = {}) {
       const event: AuditEvent = {
@@ -108,7 +124,7 @@ export function createRoleContext(
         summary,
         data,
       };
-      await services.store.audit.append(event);
+      await store.audit.append(event);
       await services.bus.emit(event);
     },
   };

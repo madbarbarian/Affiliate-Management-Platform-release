@@ -18,7 +18,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -46,6 +46,13 @@ async function amp(args: readonly string[], env: NodeJS.ProcessEnv = {}): Promis
     return { code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
   }
 }
+
+/**
+ * The account id in the shipped example. Named once because these tests run the
+ * real binary against the real example file, so the two have to agree - and a
+ * literal repeated in six assertions is six places to miss on a rename.
+ */
+const EXAMPLE_VENTURE = "ai-tools";
 
 /**
  * A working config in a scratch directory, built from the example a licensee
@@ -105,10 +112,60 @@ test("the shipped example config loads and passes doctor", async () => {
   try {
     const outcome = await amp(["doctor", "--config", config]);
     assert.equal(outcome.code, 0, `doctor failed:\n${outcome.stdout}\n${outcome.stderr}`);
-    assert.match(outcome.stdout, /venture\s+main/);
+    assert.match(outcome.stdout, new RegExp("venture\\s+" + EXAMPLE_VENTURE));
     assert.ok(!looksLikeACrash(outcome), outcome.stderr);
   } finally {
     await cleanup();
+  }
+});
+
+test("doctor names who can open the console, and who is listed but cannot", async () => {
+  // A listed operator whose passphrase is unset has exactly one symptom -
+  // "mine does not work" - and the console is the only place they would find
+  // out. `doctor` is where a licensee looks when something is off.
+  const { config, cleanup } = await scratchConfig((yaml) =>
+    yaml.replace(
+      /^(  tokenEnv: .*)$/m,
+      '$1\n  operators:\n    - name: "midori"\n      tokenEnv: AMP_SMOKE_MIDORI',
+    ),
+  );
+  try {
+    const missing = await amp(["doctor", "--config", config], { AMP_CONSOLE_TOKEN: "owners-passphrase" });
+    assert.match(missing.stdout, /console\s+1 operator\(s\): owner/);
+    assert.match(missing.stdout, /MISSING AMP_SMOKE_MIDORI/, "a listed operator with no passphrase is a problem");
+    assert.equal(missing.code, 1, "and doctor has to fail on it, not mention it");
+
+    const both = await amp(["doctor", "--config", config], {
+      AMP_CONSOLE_TOKEN: "owners-passphrase",
+      AMP_SMOKE_MIDORI: "her-own-passphrase",
+    });
+    assert.match(both.stdout, /console\s+2 operator\(s\): owner, midori/);
+    assert.doesNotMatch(both.stdout, /MISSING AMP_SMOKE_MIDORI/);
+    assert.ok(!looksLikeACrash(both), both.stderr);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the shipped example can be read in English without touching src/", async () => {
+  // The console's language used to be a property of the source. `doctor` is the
+  // cheapest way to prove the switch is real end to end: the config parses,
+  // the runtime assembles, and nothing else in the example depends on it.
+  const { config, cleanup } = await scratchConfig((yaml) => yaml.replace(/^  locale: ja$/m, "  locale: en"));
+  try {
+    const outcome = await amp(["doctor", "--config", config]);
+    assert.equal(outcome.code, 0, `${outcome.stdout}\n${outcome.stderr}`);
+    assert.ok(!looksLikeACrash(outcome), outcome.stderr);
+  } finally {
+    await cleanup();
+  }
+
+  const bad = await scratchConfig((yaml) => yaml.replace(/^  locale: ja$/m, "  locale: klingon"));
+  try {
+    const outcome = await amp(["doctor", "--config", bad.config]);
+    assert.match(`${outcome.stdout}${outcome.stderr}`, /console\.locale/, "an unknown language is named, not ignored");
+  } finally {
+    await bad.cleanup();
   }
 });
 
@@ -209,7 +266,7 @@ test("the stop works when the config no longer validates", async () => {
 
     // A partial stop cannot check the venture id, so it refuses rather than
     // stopping a venture that may not exist.
-    const partial = await amp(["pause", "--venture", "main", "--config", config, "--reason", "smoke"]);
+    const partial = await amp(["pause", "--venture", EXAMPLE_VENTURE, "--config", config, "--reason", "smoke"]);
     assert.equal(partial.code, 2);
     assert.match(partial.stderr, /no --venture/);
 
@@ -302,7 +359,7 @@ test("an account can be switched off and on without touching the config, and a c
   const { dir, config, cleanup } = await scratchConfig();
   try {
     const before = await readFile(config, "utf8");
-    const off = await amp(["venture", "deactivate", "main", "--reason", "no clicks", "--config", config]);
+    const off = await amp(["venture", "deactivate", EXAMPLE_VENTURE, "--reason", "no clicks", "--config", config]);
     assert.equal(off.code, 0, off.stderr);
     assert.match(off.stdout, /deactivated by/);
     assert.equal(await readFile(config, "utf8"), before, "the config file is not what changed");
@@ -310,12 +367,12 @@ test("an account can be switched off and on without touching the config, and a c
     const refused = await amp(["cycle", "run", "--config", config]);
     assert.match(`${refused.stdout}${refused.stderr}`, /deactivated|No active venture/);
     const doctor = await amp(["doctor", "--config", config]);
-    assert.match(doctor.stdout, /venture\s+main — deactivated by .*no clicks/);
+    assert.match(doctor.stdout, new RegExp("venture\\s+" + EXAMPLE_VENTURE + " — deactivated by .*no clicks"));
 
     const portfolio = await amp(["portfolio", "--config", config]);
     assert.match(portfolio.stdout, /deactivated by/);
 
-    const on = await amp(["venture", "activate", "main", "--config", config]);
+    const on = await amp(["venture", "activate", EXAMPLE_VENTURE, "--config", config]);
     assert.equal(on.code, 0, on.stderr);
     assert.match(on.stdout, /running again/);
     assert.equal((await amp(["cycle", "run", "--config", config])).code, 0, "and it runs again");
@@ -331,7 +388,7 @@ test("the portfolio runs and lists every account", async () => {
     const outcome = await amp(["portfolio", "--config", config]);
     assert.equal(outcome.code, 0, outcome.stderr);
     assert.match(outcome.stdout, /All accounts/);
-    assert.match(outcome.stdout, /^main\s/m);
+    assert.match(outcome.stdout, new RegExp("^" + EXAMPLE_VENTURE + "\\s", "m"));
     assert.match(outcome.stdout, /never summed across/);
   } finally {
     await cleanup();
@@ -366,5 +423,63 @@ test("a mistyped --until refuses instead of running the whole cycle", async () =
     assert.equal(good.code, 0);
   } finally {
     await cleanup();
+  }
+});
+
+test("a data directory from before the split is carried across by the real binary", async () => {
+  // The band this file exists for. The migration has unit tests, but nothing
+  // there runs the binary against a directory laid out the old way - and an
+  // operator upgrading has exactly one directory, laid out the old way. A
+  // silent miss here is their whole history apparently gone.
+  const scratch = await scratchConfig((yaml) => yaml.replace("dataDir: .amp", "dataDir: ./data"));
+  try {
+    const dataDir = join(scratch.dir, "data");
+    await mkdir(dataDir, { recursive: true });
+    // One cycle, written where the old layout kept it: the top level.
+    await writeFile(
+      join(dataDir, "cycles.json"),
+      JSON.stringify([
+        {
+          id: `cyc_${EXAMPLE_VENTURE}_2026-09-01`,
+          ventureId: EXAMPLE_VENTURE,
+          date: "2026-09-01",
+          createdAt: "2026-09-01T00:00:00Z",
+          updatedAt: "2026-09-01T00:00:00Z",
+          status: "completed",
+          completed: [],
+          artifacts: {},
+        },
+      ]),
+      "utf8",
+    );
+
+    const status = await amp(["cycle", "status", "--config", scratch.config]);
+    assert.equal(status.code, 0, status.stderr);
+    assert.equal(looksLikeACrash(status), false, status.stderr);
+    assert.match(status.stdout, /2026-09-01/, "the day that was already there is not in the output");
+
+    // And it is in the account's folder now, where the new layout looks.
+    const moved = await readFile(join(dataDir, "ventures", EXAMPLE_VENTURE, "cycles.json"), "utf8");
+    assert.match(moved, /2026-09-01/);
+  } finally {
+    await scratch.cleanup();
+  }
+});
+
+test("a fresh run puts an account's files in its own folder", async () => {
+  // What a licensee starting today gets, and the thing that makes handing an
+  // account over a matter of handing over a folder.
+  const scratch = await scratchConfig((yaml) => yaml.replace("dataDir: .amp", "dataDir: ./data"));
+  try {
+    const cycle = await amp(["cycle", "run", "--config", scratch.config]);
+    assert.equal(cycle.code, 0, cycle.stderr);
+
+    const written = await readFile(
+      join(scratch.dir, "data", "ventures", EXAMPLE_VENTURE, "cycles.json"),
+      "utf8",
+    );
+    assert.match(written, new RegExp(EXAMPLE_VENTURE));
+  } finally {
+    await scratch.cleanup();
   }
 });

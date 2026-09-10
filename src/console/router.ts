@@ -15,7 +15,6 @@ import { timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { join } from "node:path";
 
-import { describeGate } from "../kernel/approvals.ts";
 import { readPause } from "../kernel/pause.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
@@ -25,18 +24,34 @@ import { latestMetricByPost } from "../domain/performance.ts";
 import { buildPortfolio } from "../domain/portfolio.ts";
 import { appendVentureBlock, listProposals, markAppended, renderVentureBlock, resolveProposal } from "../kernel/exploration.ts";
 import { deactivateVenture, reactivateVenture } from "../kernel/venture-state.ts";
+import { CYCLES_LOCK } from "../scheduler/tick.ts";
+import type { Operator } from "./operators.ts";
 import type { Runtime } from "../runtime.ts";
 import type { Services } from "../kernel/role.ts";
+import type { Store } from "../storage/store.ts";
+import { COMPANY_SCOPE } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
+import { fill, messagesFor, type Messages } from "./messages.ts";
 
 export const COOKIE_NAME = "amp_console";
 export const MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * How long a run started from the console holds the lock before it is assumed
+ * dead. Shorter than the tick's, because a request has a smaller CPU budget
+ * than a cron trigger and a browser gives up long before this.
+ */
+const RUN_LOCK_TTL_MS = 5 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
 
-export async function handleRequest(runtime: Runtime, token: string, request: Request): Promise<Response> {
+export async function handleRequest(
+  runtime: Runtime,
+  operators: readonly Operator[],
+  request: Request,
+): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -50,7 +65,10 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
   // The redirect is public by design - it is the link in the posts.
   if (path.startsWith(REDIRECT_PATH)) return handleRedirect(runtime.services, url, request);
 
-  if (!authorised(request, url, token)) {
+  // The name, not a yes. Everything this request records is attributed to it,
+  // which is the whole reason a passphrase carries one.
+  const actor = identify(request, url, operators);
+  if (actor === undefined) {
     if (path === "/") {
       return new Response("Unauthorised. Open the URL printed by `amp console`, which carries the token.\n", {
         status: 401,
@@ -63,14 +81,25 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
   if (path === "/" && request.method === "GET") {
     const suppliedToken = url.searchParams.get("token");
     const headers: Record<string, string> = { "content-type": "text/html; charset=utf-8" };
-    if (suppliedToken) {
+    // Only a token that is somebody's. Now that a request is admitted on any
+    // one of its three credentials, a stale `?token=` in a bookmark would
+    // otherwise overwrite the good cookie that just let the holder in, and log
+    // them out on their next click.
+    if (suppliedToken && holderOf(suppliedToken, operators) !== undefined) {
       // Move the token out of the URL so it stops appearing in history.
       headers["set-cookie"] = `${COOKIE_NAME}=${suppliedToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`;
     }
-    return new Response(renderPage({ companyName: runtime.config.company.name }), { status: 200, headers });
+    return new Response(
+      renderPage({ companyName: runtime.config.company.name, locale: runtime.config.console.locale }),
+      { status: 200, headers },
+    );
   }
 
-  if (path === "/api/state" && request.method === "GET") return json(200, await buildState(runtime));
+  if (path === "/api/state" && request.method === "GET") {
+    // `you` so the page can say whose passphrase this is. Everything approved
+    // from here is recorded against that name.
+    return json(200, { ...(await buildState(runtime)), you: actor });
+  }
 
   const resolveMatch = /^\/api\/decisions\/([^/]+)\/resolve$/.exec(path);
   if (resolveMatch && request.method === "POST") {
@@ -78,7 +107,7 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
     if (!body.ok) return json(400, { error: body.error.message });
     const payload = body.value as { selectedIds?: unknown; ordering?: unknown; note?: unknown };
     const result = await runtime.orchestrator.resolveGate(decodeURIComponent(resolveMatch[1] as string), {
-      decidedBy: runtime.config.company.operator,
+      decidedBy: actor,
       selectedIds: toStringArray(payload.selectedIds),
       ordering: toStringArray(payload.ordering),
       ...(typeof payload.note === "string" ? { note: payload.note } : {}),
@@ -104,7 +133,7 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
     const result = await resolveProposal(runtime.services, {
       proposalId: decodeURIComponent(proposalMatch[1] as string),
       status,
-      by: runtime.config.company.operator,
+      by: actor,
       nowIso: runtime.services.clock.nowIso(),
       ...(typeof payload.note === "string" && payload.note.trim() !== "" ? { note: payload.note.trim() } : {}),
     });
@@ -116,7 +145,9 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
     const block = renderVentureBlock(result.value, runtime.config);
     const nowIso = runtime.services.clock.nowIso();
     const appended = await appendVentureBlock(runtime.loaded.path, block, join(runtime.loaded.dataDir, "config-backups"), { nowIso });
-    if (appended.ok) await markAppended(runtime.services.store, result.value.id, appended.value, nowIso);
+    if (appended.ok) {
+      await markAppended(await runtime.services.stores.for(COMPANY_SCOPE), result.value.id, appended.value, nowIso);
+    }
     return json(200, {
       proposal: result.value,
       block,
@@ -140,18 +171,19 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
     if (switchMatch[2] === "deactivate") {
       await deactivateVenture(runtime.state, ventureId, {
         at: runtime.services.clock.nowIso(),
-        by: runtime.config.company.operator,
+        by: actor,
         reason: typeof payload.note === "string" ? payload.note.trim() : "",
       });
     } else {
       await reactivateVenture(runtime.state, ventureId);
     }
-    await runtime.services.store.audit.append({
+    const store = await runtime.services.stores.for(ventureId);
+    await store.audit.append({
       id: runtime.services.ids.next("evt"),
       at: runtime.services.clock.nowIso(),
       ventureId,
       type: switchMatch[2] === "deactivate" ? "venture.deactivated" : "venture.activated",
-      actor: runtime.config.company.operator,
+      actor,
       summary:
         switchMatch[2] === "deactivate"
           ? `Deactivated "${venture.name}"${typeof payload.note === "string" && payload.note.trim() ? `: ${payload.note.trim()}` : ""}.`
@@ -161,7 +193,7 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
     forgetPortfolio(runtime);
     // What deactivating does and does not reach, so the page can say so.
     const nowMs = runtime.services.clock.now();
-    const posts = await runtime.services.store.posts.find((post) => post.ventureId === ventureId);
+    const posts = await store.posts.all();
     return json(200, {
       ventureId,
       active: switchMatch[2] === "activate" && venture.active,
@@ -171,12 +203,38 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
     });
   }
 
+  // One account, in full. The list is for comparing; this is what is behind a
+  // row, and it is where the whole failure, the history and the settings live.
+  const detailMatch = /^\/api\/ventures\/([^/]+)$/.exec(path);
+  if (detailMatch && request.method === "GET") {
+    const detail = await buildVentureDetail(runtime, decodeURIComponent(detailMatch[1] as string));
+    if (!detail) return json(404, { error: "not found" });
+    return json(200, detail);
+  }
+
   const runMatch = /^\/api\/ventures\/([^/]+)\/run$/.exec(path);
   if (runMatch && request.method === "POST") {
-    const result = await runtime.orchestrator.runCycle(decodeURIComponent(runMatch[1] as string));
-    if (!result.ok) return json(400, { error: describeError(result.error) });
-    forgetPortfolio(runtime);
-    return json(200, { cycleId: result.value.id, status: result.value.status, nextStep: result.value.nextStep ?? null });
+    // The same lock the cycles tick takes, so this cannot run beside it and
+    // draft the day twice. `undefined` where the host has no lock - on a
+    // machine the data directory's lock has already answered this.
+    const held = await runtime.lock?.acquire(CYCLES_LOCK, { holder: "console", ttlMs: RUN_LOCK_TTL_MS });
+    if (runtime.lock && !held) {
+      return json(409, {
+        error: messagesFor(runtime.config.console.locale)["run.busy"],
+      });
+    }
+    try {
+      const result = await runtime.orchestrator.runCycle(decodeURIComponent(runMatch[1] as string));
+      if (!result.ok) return json(400, { error: describeError(result.error) });
+      forgetPortfolio(runtime);
+      return json(200, {
+        cycleId: result.value.id,
+        status: result.value.status,
+        nextStep: result.value.nextStep ?? null,
+      });
+    } finally {
+      await held?.release();
+    }
   }
 
   return json(404, { error: "not found" });
@@ -196,19 +254,22 @@ export async function handleRequest(runtime: Runtime, token: string, request: Re
  * counted later. So this asks for the least it can, and an entry point that has
  * only that much can still serve it.
  */
-export type RedirectDeps = Pick<Services, "store" | "ids" | "clock">;
+export type RedirectDeps = Pick<Services, "stores" | "ids" | "clock">;
 
 export async function handleRedirect(deps: RedirectDeps, url: URL, request: Request): Promise<Response> {
   const code = url.pathname.slice(REDIRECT_PATH.length);
-  const links = await deps.store.links.find((link) => link.code === code);
-  const link = links[0];
+  // The reader has a code and nothing else, which is why this lookup is the
+  // one that starts outside any account. The link names its account, so the
+  // click below is recorded in exactly one.
+  const link = await deps.stores.findLinkByCode(code);
   if (!link) {
     return new Response("Unknown link.\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
   }
+  const store = await deps.stores.for(link.ventureId);
 
   const referrer = request.headers.get("referer");
   const country = request.headers.get("cf-ipcountry");
-  await deps.store.clicks.put({
+  await store.clicks.put({
     id: deps.ids.next("clk"),
     linkId: link.id,
     at: deps.clock.nowIso(),
@@ -223,15 +284,31 @@ export async function handleRedirect(deps: RedirectDeps, url: URL, request: Requ
 // State for the page
 // ---------------------------------------------------------------------------
 
-async function buildState(runtime: Runtime): Promise<unknown> {
-  const { store, clock } = runtime.services;
+async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
+  const { stores, clock } = runtime.services;
+  // The same words the page uses, in the language console.locale asked for.
+  // These strings were written straight into this file, so `locale: en` left
+  // the two gates and the day's numbers - the screens an operator actually
+  // works in - entirely Japanese, and the gate's own question English in both.
+  const T = messagesFor(runtime.config.console.locale);
   const ventureName = new Map(runtime.config.ventures.map((venture) => [venture.id, venture.name]));
+
+  // The day's page is the whole company's: what is waiting, what goes out
+  // next, the numbers, what just happened. So this is a named crossing, and
+  // the only one on this page - everything account-shaped goes through
+  // `stores.for()` and reads one account.
+  const scopes = await stores.each();
+  const gather = async <T>(pick: (store: Store) => Promise<T[]>): Promise<T[]> => {
+    const out: T[] = [];
+    for (const scope of scopes) out.push(...(await pick(scope.store)));
+    return out;
+  };
 
   const decisions = await runtime.orchestrator.pendingDecisions();
   const pending = decisions.map((decision) => ({
     id: decision.id,
-    gateLabel: decision.gate === "proposal_approval" ? "企画の承認" : "投稿の承認と順番",
-    question: describeGate(decision.gate),
+    gateLabel: T[decision.gate === "proposal_approval" ? "gate.proposalLabel" : "gate.publishLabel"],
+    question: T[decision.gate === "proposal_approval" ? "gate.questionProposal" : "gate.questionPublish"],
     ventureName: ventureName.get(decision.ventureId) ?? decision.ventureId,
     max: decision.selectionHint.max,
     // In `manual` autonomy nothing is pre-ticked; the operator starts from a
@@ -242,8 +319,8 @@ async function buildState(runtime: Runtime): Promise<unknown> {
       title: item.title,
       summary: item.summary,
       recommended: item.recommended,
-      chips: buildChips(item.detail, runtime.config.policy.maxAiSmellScore),
-      preview: buildPreview(item.detail),
+      chips: buildChips(item.detail, runtime.config.policy.maxAiSmellScore, T),
+      preview: buildPreview(item.detail, T),
       // At the publishing gate the operator is the last thing between a draft
       // and someone else's followers. Collapsing the text they are approving
       // behind "本文を見る" reliably produces approvals of unread posts, so the
@@ -264,8 +341,10 @@ async function buildState(runtime: Runtime): Promise<unknown> {
   }));
 
   const upcoming = (
-    await store.posts.find(
-      (post) => post.status === "approved" || post.status === "scheduled" || post.status === "queued",
+    await gather((store) =>
+      store.posts.find(
+        (post) => post.status === "approved" || post.status === "scheduled" || post.status === "queued",
+      ),
     )
   )
     .sort((a, b) => a.scheduledFor - b.scheduledFor)
@@ -276,12 +355,16 @@ async function buildState(runtime: Runtime): Promise<unknown> {
       hook: post.content.hook.slice(0, 70),
     }));
 
-  const published = await store.posts.find((post) => post.status === "published");
-  const latest = await latestMetricByPost(store, published.map((post) => post.id));
+  const published = await gather((store) => store.posts.find((post) => post.status === "published"));
+  const publishedIds = published.map((post) => post.id);
+  const latest = new Map<string, Awaited<ReturnType<typeof latestMetricByPost>> extends Map<string, infer M> ? M : never>();
+  for (const scope of scopes) {
+    for (const [postId, metric] of await latestMetricByPost(scope.store, publishedIds)) latest.set(postId, metric);
+  }
   const [links, clicks, conversions] = await Promise.all([
-    store.links.all(),
-    store.clicks.all(),
-    store.conversions.all(),
+    gather((store) => store.links.all()),
+    gather((store) => store.clicks.all()),
+    gather((store) => store.conversions.all()),
   ]);
   const revenue = totalsByCurrency(
     revenueByPost({
@@ -299,10 +382,20 @@ async function buildState(runtime: Runtime): Promise<unknown> {
     0,
   );
 
-  const activity = (await store.audit.recent(12)).map((event) => ({
+  // `type` travels with the entry so the page can say a failure in the
+  // operator's words. The summary is the durable English record and stays the
+  // fallback; it is not what a licensee should have to read.
+  const activity = (await gather((store) => store.audit.recent(12)))
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 12)
+    .map((event) => ({
     at: event.at.replace("T", " ").slice(0, 16),
     actor: event.actor,
     summary: event.summary,
+    type: event.type,
+    ...(event.type === "cycle.failed"
+      ? { failureCode: String(event.data["code"] ?? ""), failureStep: String(event.data["step"] ?? "") }
+      : {}),
   }));
 
   // Surfaced so the console cannot show a calm list of scheduled posts while
@@ -328,7 +421,7 @@ async function buildState(runtime: Runtime): Promise<unknown> {
   // proposal that vanished on the next poll took the block with it. Dismissed
   // ones are history; `amp scout list --all` has them.
   const recentlyAcceptedSince = clock.now() - 7 * 86_400_000;
-  const proposals = (await listProposals(store))
+  const proposals = (await listProposals(await stores.for(COMPANY_SCOPE)))
     .filter(
       (proposal) =>
         proposal.status === "proposed" ||
@@ -373,9 +466,10 @@ async function buildState(runtime: Runtime): Promise<unknown> {
         ...(row.deactivated ? { deactivated: row.deactivated } : {}),
         ...(row.review ? { review: row.review } : {}),
         pendingDecisions: row.pendingDecisions,
-        lastCycle: row.lastCycle
-          ? `${row.lastCycle.date} ${row.lastCycle.status}${row.lastCycle.nextStep ? ` → ${row.lastCycle.nextStep}` : ""}`
-          : "—",
+        // Sent in parts, not as a sentence. The page is Japanese and these
+        // three values are the platform's own English vocabulary; the words
+        // the operator reads are chosen there, next to every other label.
+        ...(row.lastCycle ? { lastCycle: row.lastCycle } : {}),
         posts: row.posts,
         medianScore: row.medianScore,
         clicks: row.clicks,
@@ -391,13 +485,94 @@ async function buildState(runtime: Runtime): Promise<unknown> {
     },
     upcoming,
     stats: [
-      { label: "公開済み投稿", value: String(published.length) },
-      { label: "エンゲージ合計", value: String(Math.round(engagementTotal)) },
-      { label: "クリック", value: String(counts.clicks) },
-      { label: "成果", value: String(counts.conversions) },
-      { label: "確定報酬", value: formatMoney(revenue, "approvedRevenue") },
+      { label: T["stats.posts"], value: String(published.length) },
+      { label: T["stats.engagement"], value: String(Math.round(engagementTotal)) },
+      { label: T["stats.clicks"], value: String(counts.clicks) },
+      { label: T["stats.conversions"], value: String(counts.conversions) },
+      { label: T["stats.revenue"], value: formatMoney(revenue, "approvedRevenue") },
     ],
     activity,
+  };
+}
+
+/**
+ * Everything one account is, for the screen behind a row.
+ *
+ * The numbers come from the same `buildPortfolio` the list uses, so the two can
+ * never disagree about an account - a second computation of "clicks" is a
+ * second answer. What is added here is what only makes sense for one account:
+ * the whole failure rather than a summary of it, the last few days, and the
+ * config that is actually in force, each field with where it came from.
+ */
+async function buildVentureDetail(runtime: Runtime, ventureId: string): Promise<Record<string, unknown> | undefined> {
+  const venture = runtime.config.ventures.find((entry) => entry.id === ventureId);
+  if (!venture) return undefined;
+
+  const portfolio = await memoisedPortfolio(runtime);
+  const row = portfolio.rows.find((entry) => entry.ventureId === ventureId);
+  if (!row) return undefined;
+
+  const cycles = (await (await runtime.services.stores.for(ventureId)).cycles.all())
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 7)
+    .map((cycle) => ({
+      date: cycle.date,
+      status: cycle.status,
+      ...(cycle.nextStep ? { nextStep: cycle.nextStep } : {}),
+      // Only for a day that ended there. See the same guard in portfolio.ts.
+      ...(cycle.failure && cycle.status === "failed"
+        ? { failureCode: cycle.failure.code, failureStep: cycle.failure.step }
+        : {}),
+      published: cycle.artifacts.dispatch?.dispatchedPostIds.length ?? 0,
+    }));
+
+  const market = runtime.config.markets.find((entry) => entry.id === venture.market);
+  const offers = runtime.config.offers.filter((offer) => venture.offers.includes(offer.id));
+  const index = runtime.config.ventures.indexOf(venture);
+
+  return {
+    ...row,
+    // Formatted the same way the list formats it, from the same numbers.
+    // Money is never summed across currencies, here or anywhere.
+    approvedRevenue: formatMoney(new Map(row.revenue.map((rollup) => [rollup.currency, rollup])), "approvedRevenue"),
+    pendingRevenue: formatMoney(new Map(row.revenue.map((rollup) => [rollup.currency, rollup])), "pendingRevenue"),
+    recentCycles: cycles,
+    // Read-only, and each line says where it comes from: a screen that cannot
+    // be edited still has to save the operator from opening the YAML to find
+    // out what is in force.
+    setup: {
+      configPath: runtime.loaded.path,
+      niche: venture.niche,
+      audience: venture.audience,
+      voice: venture.voice,
+      cadence: venture.cadence,
+      language: venture.language,
+      timezone: venture.timezone,
+      channels: venture.channels,
+      path: `ventures[${index}]`,
+      ...(market
+        ? {
+            market: {
+              id: market.id,
+              name: market.name,
+              language: market.language,
+              currency: market.currency,
+              timezone: market.timezone,
+              disclosureText: market.disclosureText,
+              regulator: market.regulator,
+            },
+          }
+        : {}),
+      offers: offers.map((offer) => ({
+        id: offer.id,
+        name: offer.name,
+        network: offer.network,
+        payoutModel: offer.payoutModel,
+        payoutValue: offer.payoutValue,
+        currency: offer.currency,
+        crossBorder: offer.originMarket !== venture.market,
+      })),
+    },
   };
 }
 
@@ -410,7 +585,7 @@ async function memoisedPortfolio(runtime: Runtime): Promise<Awaited<ReturnType<t
   if (cached && now - cached.at < PORTFOLIO_MEMO_MS) return cached.value;
   const value = await buildPortfolio({
     config: runtime.config,
-    store: runtime.services.store,
+    stores: runtime.services.stores,
     nowMs: now,
     days: 30,
     state: runtime.state,
@@ -427,26 +602,27 @@ export function forgetPortfolio(runtime: Runtime): void {
 function buildChips(
   detail: Readonly<Record<string, unknown>>,
   maxAiSmellScore: number,
+  T: Messages,
 ): { label: string; tone?: string }[] {
   const chips: { label: string; tone?: string }[] = [];
   if (typeof detail["scheduledFor"] === "string") {
     chips.push({ label: String(detail["scheduledFor"]).replace("T", " ").slice(0, 16) });
   }
   if (typeof detail["expectedEngagement"] === "number") {
-    chips.push({ label: `予測 ${Math.round(detail["expectedEngagement"])}` });
+    chips.push({ label: fill(T, "chip.expected", { n: Math.round(detail["expectedEngagement"]) }) });
   }
   if (typeof detail["aiSmellScore"] === "number") {
     // Amber from 70% of the configured limit: the policy's number, not a second
     // threshold the operator cannot find in any config file.
     const warnFrom = Math.round(maxAiSmellScore * 0.7);
-    chips.push({ label: `AIっぽさ ${detail["aiSmellScore"]}`, tone: detail["aiSmellScore"] > warnFrom ? "warn" : "" });
+    chips.push({ label: fill(T, "chip.aiSmell", { n: detail["aiSmellScore"] }), tone: detail["aiSmellScore"] > warnFrom ? "warn" : "" });
   }
   if (detail["offerId"]) chips.push({ label: "PR", tone: "warn" });
   if (Array.isArray(detail["findings"]) && detail["findings"].length > 0) {
-    chips.push({ label: `指摘 ${detail["findings"].length}`, tone: "danger" });
+    chips.push({ label: fill(T, "chip.findings", { n: detail["findings"].length }), tone: "danger" });
   }
   if (typeof detail["risk"] === "string" && detail["risk"] !== "") {
-    chips.push({ label: `risk: ${String(detail["risk"]).slice(0, 40)}` });
+    chips.push({ label: `${T["preview.risk"]}: ${String(detail["risk"]).slice(0, 40)}` });
   }
   return chips;
 }
@@ -474,7 +650,7 @@ function buildPostText(detail: Readonly<Record<string, unknown>>): string {
     .join("\n\n");
 }
 
-function buildPreview(detail: Readonly<Record<string, unknown>>): string {
+function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): string {
   const lines: string[] = [];
   const push = (label: string, key: string): void => {
     const value = detail[key];
@@ -489,21 +665,21 @@ function buildPreview(detail: Readonly<Record<string, unknown>>): string {
   }
   push("CTA", "cta");
   push("PR", "disclosure");
-  push("狙い", "angle");
-  push("読者の悩み", "targetPain");
-  push("提供する結果", "promisedOutcome");
-  push("根拠", "rationale");
-  push("リスク", "risk");
-  push("枠の理由", "slotReason");
+  push(T["preview.angle"], "angle");
+  push(T["preview.targetPain"], "targetPain");
+  push(T["preview.promisedOutcome"], "promisedOutcome");
+  push(T["preview.rationale"], "rationale");
+  push(T["preview.risk"], "risk");
+  push(T["preview.slotReason"], "slotReason");
 
   if (Array.isArray(detail["comments"])) {
     for (const comment of detail["comments"] as { purpose?: string; text?: string }[]) {
-      lines.push(`コメント(${comment.purpose ?? "?"}): ${comment.text ?? ""}`);
+      lines.push(`${T["preview.comment"]}(${comment.purpose ?? "?"}): ${comment.text ?? ""}`);
     }
   }
   if (Array.isArray(detail["findings"])) {
     for (const finding of detail["findings"] as { severity?: string; message?: string }[]) {
-      lines.push(`指摘[${finding.severity ?? "?"}]: ${finding.message ?? ""}`);
+      lines.push(`${T["preview.finding"]}[${finding.severity ?? "?"}]: ${finding.message ?? ""}`);
     }
   }
   return lines.join("\n\n");
@@ -513,17 +689,41 @@ function buildPreview(detail: Readonly<Record<string, unknown>>): string {
 // Plumbing
 // ---------------------------------------------------------------------------
 
-function authorised(request: Request, url: URL, token: string): boolean {
+/** The name of whoever presented a valid passphrase, or undefined for nobody. */
+function identify(request: Request, url: URL, operators: readonly Operator[]): string | undefined {
+  const header = request.headers.get("authorization");
+  // All three, in order, rather than the first one that happens to be present.
+  // Picking one up front meant a request that carried a useless credential lost
+  // the good one it also carried: `?token=` with nothing after it is "" and not
+  // absent, so a link with an emptied token in it logged the holder out of a
+  // session whose cookie was sitting right there.
+  const presented = [
+    header?.startsWith("Bearer ") ? header.slice(7) : undefined,
+    url.searchParams.get("token") ?? undefined,
+    readCookie(request.headers.get("cookie") ?? undefined, COOKIE_NAME),
+  ];
+
+  for (const credential of presented) {
+    const name = holderOf(credential, operators);
+    if (name !== undefined) return name;
+  }
+  return undefined;
+}
+
+/** Whose passphrase this is, or undefined for nobody's. */
+function holderOf(credential: string | undefined, operators: readonly Operator[]): string | undefined {
   // Defence in depth against the same class of bug: an empty secret must never
   // be satisfiable, and an empty presented credential must never satisfy one.
-  if (token === "") return false;
-
-  const header = request.headers.get("authorization");
-  if (header?.startsWith("Bearer ") && safeEqual(header.slice(7), token)) return true;
-  const query = url.searchParams.get("token");
-  if (query && safeEqual(query, token)) return true;
-  const cookie = readCookie(request.headers.get("cookie") ?? undefined, COOKIE_NAME);
-  return cookie !== undefined && cookie !== "" && safeEqual(cookie, token);
+  // `Cookie: amp_console=` opened every route once, the one that approves and
+  // publishes included.
+  if (credential === undefined || credential === "") return undefined;
+  // Every operator is compared rather than stopping at the first match, so the
+  // time taken says nothing about where in the list the holder is.
+  let found: string | undefined;
+  for (const operator of operators) {
+    if (operator.token !== "" && safeEqual(credential, operator.token)) found = operator.name;
+  }
+  return found;
 }
 
 // `node:crypto` and `node:buffer` are imported by name rather than taken from

@@ -31,7 +31,15 @@ import type {
   TrackedLink,
   VentureProposal,
 } from "../core/types.ts";
-import type { AuditLog, Collection, Identified, InspectionStore, Store, StoredMetric } from "./store.ts";
+import type {
+  AuditLog,
+  Collection,
+  Identified,
+  InspectionStore,
+  Store,
+  StoredMetric,
+  StoreRegistry,
+} from "./store.ts";
 
 const AUDIT_FILE = "audit.jsonl";
 const LOCK_DIR = ".lock";
@@ -40,16 +48,90 @@ const LOCK_STALE_MS = 15 * 60_000;
 
 export type JsonStoreOptions = {
   readonly dataDir: string;
+  /**
+   * Whose store this is. Its files live in `<dataDir>/ventures/<venture>/`,
+   * so an account is a directory: what is not open cannot be read, and handing
+   * one over is handing over a folder.
+   */
+  readonly venture: string;
   /** Acquire the cross-process lock. Off for read-only commands and tests. */
   readonly lock?: boolean;
   /** Identifies the lock holder in error messages. */
   readonly owner?: string;
 };
 
+/** Where one account's files live. Exported because the registry lists them. */
+export function ventureDir(dataDir: string, venture: string): string {
+  return join(dataDir, "ventures", venture);
+}
+
+/** The files a pre-split data directory keeps at its top level. */
+const COLLECTION_FILES: readonly string[] = [
+  "cycles.json",
+  "patterns.json",
+  "swipe.json",
+  "ideas.json",
+  "drafts.json",
+  "inspections.json",
+  "posts.json",
+  "metrics.json",
+  "decisions.json",
+  "links.json",
+  "clicks.json",
+  "conversions.json",
+  "proposals.json",
+  AUDIT_FILE,
+];
+
+/**
+ * Moves a pre-split data directory into its account's folder.
+ *
+ * Before accounts had their own space these files sat at the top level, and
+ * nothing in them says which account they are. Left alone, the new layout
+ * simply would not find them: **the operator's history would appear to be
+ * gone**, with no error, which is the worst way for a migration to fail.
+ *
+ * The same rule as the SQL one, for the same reason: one account named means
+ * every file is that account's, and more than one must not be guessed at.
+ * Returns what it moved, so a caller can say so.
+ */
+export async function migrateDataDir(
+  dataDir: string,
+  options: { readonly assignExistingTo?: string } = {},
+): Promise<readonly string[]> {
+  if (!existsSync(dataDir)) return [];
+  const present = COLLECTION_FILES.filter((file) => existsSync(join(dataDir, file)));
+  if (present.length === 0) return [];
+
+  const venture = options.assignExistingTo;
+  if (venture === undefined) {
+    throw new Error(
+      `${dataDir} holds ${present.length} file(s) written before accounts had their own space, ` +
+        `and nothing in them says which account they belong to. Guessing would mix two histories ` +
+        `permanently. Start once with exactly one account in ventures:, so every file can be ` +
+        `assigned to it, then add the others back.`,
+    );
+  }
+
+  const target = ventureDir(dataDir, venture);
+  await mkdir(target, { recursive: true });
+  for (const file of present) {
+    // Never over an account's existing file: a half-done move re-run must not
+    // replace what the new layout has already written.
+    if (existsSync(join(target, file))) continue;
+    await rename(join(dataDir, file), join(target, file));
+  }
+  return present;
+}
+
 export async function createJsonStore(options: JsonStoreOptions): Promise<Store> {
-  const { dataDir } = options;
+  // The lock is on the whole data directory, not on one account: it exists to
+  // stop two *processes* sharing it, and a second process would collide over
+  // any account.
+  await mkdir(options.dataDir, { recursive: true });
+  const release = options.lock ? await acquireLock(options.dataDir, options.owner ?? "amp") : undefined;
+  const dataDir = ventureDir(options.dataDir, options.venture);
   await mkdir(dataDir, { recursive: true });
-  const release = options.lock ? await acquireLock(dataDir, options.owner ?? "amp") : undefined;
 
   const collections: JsonCollection<Identified>[] = [];
   const make = <T extends Identified>(name: string): Collection<T> => {
@@ -82,7 +164,7 @@ export async function createJsonStore(options: JsonStoreOptions): Promise<Store>
     },
   };
 
-  const audit = createAuditLog(join(dataDir, AUDIT_FILE));
+  const audit = createAuditLog(join(dataDir, AUDIT_FILE), options.venture);
 
   return {
     cycles: make<Cycle>("cycles"),
@@ -107,6 +189,82 @@ export async function createJsonStore(options: JsonStoreOptions): Promise<Store>
     async close() {
       for (const collection of collections) await collection.flush();
       await release?.();
+    },
+  };
+}
+
+export type JsonRegistryOptions = Omit<JsonStoreOptions, "venture"> & {
+  /** Which account a pre-split data directory belongs to. See `migrateDataDir`. */
+  readonly assignExistingTo?: string;
+};
+
+/**
+ * Every account under one data directory, one folder each.
+ *
+ * The lock is taken once, by the first store opened, and released when that
+ * store closes - it guards the directory against a second *process*, which is
+ * not a per-account question.
+ */
+export function createJsonRegistry(options: JsonRegistryOptions): StoreRegistry {
+  const open = new Map<string, Promise<Store>>();
+  let locker: string | undefined;
+
+  // Once per registry, before any account is opened. A store opened over a
+  // directory whose files have not been moved yet would create empty ones
+  // beside them and report an operation with no history.
+  let moved: Promise<unknown> | undefined;
+  const migrated = (): Promise<unknown> => {
+    moved ??= migrateDataDir(options.dataDir, options.assignExistingTo ? { assignExistingTo: options.assignExistingTo } : {});
+    return moved;
+  };
+
+  const forVenture = async (ventureId: string): Promise<Store> => {
+    await migrated();
+    let store = open.get(ventureId);
+    if (!store) {
+      const takesLock = options.lock === true && locker === undefined;
+      if (takesLock) locker = ventureId;
+      store = createJsonStore({ ...options, venture: ventureId, lock: takesLock });
+      open.set(ventureId, store);
+    }
+    return store;
+  };
+
+  const known = async (): Promise<string[]> => {
+    await migrated();
+    // From the directories, not the config: an account dropped from
+    // `ventures:` still has a history, and export is why it must stay
+    // reachable.
+    const root = join(options.dataDir, "ventures");
+    if (!existsSync(root)) return [...open.keys()].sort();
+    const entries = await readdir(root, { withFileTypes: true });
+    const found = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+    for (const id of open.keys()) found.add(id);
+    return [...found].sort();
+  };
+
+  return {
+    for: forVenture,
+
+    async each() {
+      const ids = await known();
+      return Promise.all(ids.map(async (ventureId) => ({ ventureId, store: await forVenture(ventureId) })));
+    },
+
+    async findLinkByCode(code) {
+      for (const ventureId of await known()) {
+        const store = await forVenture(ventureId);
+        const found = (await store.links.find((link) => link.code === code))[0];
+        // Where it lives decides whose it is. See the SQL registry.
+        if (found) return { ...found, ventureId };
+      }
+      return undefined;
+    },
+
+    async close() {
+      for (const store of open.values()) await (await store).close();
+      open.clear();
+      locker = undefined;
     },
   };
 }
@@ -219,14 +377,18 @@ async function writeAtomic(path: string, contents: string): Promise<void> {
 // Audit log
 // ---------------------------------------------------------------------------
 
-function createAuditLog(path: string): AuditLog {
+function createAuditLog(path: string, venture: string): AuditLog {
   let chain: Promise<void> = Promise.resolve();
   return {
     async append(event: AuditEvent) {
-      chain = chain.then(() => appendFile(path, `${JSON.stringify(event)}\n`, "utf8"));
+      // Stamped with the scope. This file is one account's history.
+      const scoped: AuditEvent = { ...event, ventureId: venture };
+      chain = chain.then(() => appendFile(path, `${JSON.stringify(scoped)}\n`, "utf8"));
       await chain;
     },
     async recent(limit, filter) {
+      // Narrowing only. See the port.
+      if (filter?.ventureId !== undefined && filter.ventureId !== venture) return [];
       if (!existsSync(path)) return [];
       const lines = (await readFile(path, "utf8")).split("\n").filter((line) => line.trim() !== "");
       const out: AuditEvent[] = [];
@@ -237,7 +399,6 @@ function createAuditLog(path: string): AuditLog {
         } catch {
           continue; // A torn final line is not worth failing a status command over.
         }
-        if (filter?.ventureId && event.ventureId !== filter.ventureId) continue;
         if (filter?.cycleId && event.cycleId !== filter.cycleId) continue;
         out.push(event);
       }

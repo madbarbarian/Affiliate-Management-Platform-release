@@ -58,6 +58,10 @@
     }
     button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
     .why { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.55; }
+    .cycle { color: var(--muted); font-size: 12px; margin-top: 9px; }
+    /* 一覧が言うのはここまで。理由の全文はアカウントの画面で読む。 */
+    .failure { color: var(--danger); font-size: 13px; line-height: 1.5; margin-top: 3px; }
+    .failure-sub { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 1px; }
     .total { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 4px; }
     .total b { color: var(--ink); font-variant-numeric: tabular-nums; }
   </style>
@@ -70,14 +74,18 @@
   </header>
 
   <div class="scroll">
-    <p class="lede">どのアカウントが成果を出し、どこが止まっていて、どこが計測できていないかを1枚で見ます。非アクティブにしても、学んだこと・履歴・成果は残り、いつでも再開できます。削除ではありません。</p>
+    <p class="lede">アカウントを<b>比べる</b>ための画面です。どれが成果を出し、どこが止まり、どこが計測できていないか。1つを直すのは、開いた先で。</p>
 
     <div class="card">
-      <span class="name">朝のツール部屋</span><span class="id">main</span>
+      <span class="name">朝のツール部屋</span><span class="id">morning-tools</span>
       <div class="chips">
         <span class="chip on">稼働中</span>
-        <span class="chip">判断待ち 1</span>
         <span class="chip">計測 つながっている</span>
+      </div>
+      <div class="cycle">
+        直近サイクル　2026-09-09 失敗（執筆）
+        <div class="failure">実行できませんでした</div>
+        <div class="failure-sub">下書きの生成でモデルの呼び出しが断られました。理由の全文は開いた先に。</div>
       </div>
       <div class="stat-row">
         <span class="stat">投稿<b>41</b></span>
@@ -87,7 +95,7 @@
         <span class="stat">確定報酬<b>¥38,400</b></span>
         <span class="stat">型<b>6 / 11</b></span>
       </div>
-      <div class="row"><button>非アクティブにする</button></div>
+      <div class="row"><button class="primary">開く</button></div>
     </div>
 
     <div class="card">
@@ -97,6 +105,7 @@
         <span class="chip warn">見直し候補</span>
         <span class="chip">計測 つながっている</span>
       </div>
+      <div class="cycle">直近サイクル　2026-09-09 承認待ち（企画の承認）</div>
       <div class="stat-row">
         <span class="stat">投稿<b>24</b></span>
         <span class="stat">中央値<b>61</b></span>
@@ -106,12 +115,11 @@
         <span class="stat">型<b>1 / 7</b></span>
       </div>
       <div class="review"><b>見直し候補。</b>24本出して、追跡リンクに1回もクリックが届いていません。理由はこの数字だけで、勝手に止めることはありません。</div>
-      <div class="row"><button>非アクティブにする</button></div>
-      <div class="why">押すと理由を1行聞かれます。この画面と記録に残ります。</div>
+      <div class="row"><button>開く</button></div>
     </div>
 
     <div class="card">
-      <span class="name">US account</span><span class="id">us_main</span>
+      <span class="name">海外ガジェット</span><span class="id">us-gadgets</span>
       <div class="chips">
         <span class="chip off">非アクティブ</span>
         <span class="chip warn">計測 未完成</span>
@@ -123,9 +131,10 @@
         <span class="stat">確定報酬<b>$0</b></span>
         <span class="stat">型<b>3 / 3</b></span>
       </div>
-      <div class="row"><button class="primary">再開する</button></div>
-      <div class="why">再開すると、次の朝から通常どおり動きます。止めていた間に承認済みだった投稿があれば、そのとき出ます。</div>
+      <div class="row"><button>開く</button></div>
     </div>
+
+    <p class="why" style="margin:14px 0 0">止める・再開する・今日のサイクルを動かすは、アカウントを開いた先にあります。一覧に操作を置くと、行が操作盤になって数字が読めなくなります。</p>
 
     <p class="total">合計　投稿 <b>65</b> ・ クリック <b>318</b> ・ 成果 <b>9</b><br>確定報酬 <b>¥38,400</b> / <b>$0</b>　— 通貨ごとに数えます。円とドルは足しません。</p>
   </div>

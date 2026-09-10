@@ -74,6 +74,74 @@ async function configWantingAKey(): Promise<string> {
   return wanted;
 }
 
+test("a second operator's passphrase is a second Cloudflare variable, and a second name", async () => {
+  // On a host there is no .env.local: another operator is another variable in
+  // the same dashboard. This covers the wiring rather than the rule - the rule
+  // is tested against the daemon in console.test.ts, and this is the band
+  // (bindings, env, adapter) where every elementary bug in this project lived.
+  const text = (await exampleConfig()).replace(
+    /^(console:\n(?:.*\n)*?  tokenEnv: .*\n)/m,
+    '$1  operators:\n    - name: "みどり"\n      tokenEnv: AMP_CONSOLE_TOKEN_MIDORI\n',
+  );
+  assert.match(text, /AMP_CONSOLE_TOKEN_MIDORI/, "the operators block has to reach the bundled config");
+
+  const db = fakeD1();
+  const handlers = createWorker({ configSource: "licensee", configText: text, prompts: {} });
+  const env = {
+    DB: db,
+    AMP_CONSOLE_TOKEN: "the-owners-passphrase",
+    AMP_CONSOLE_TOKEN_MIDORI: "midoris-own-passphrase",
+  };
+
+  const hers = await handlers.fetch(
+    new Request("https://amp.example.workers.dev/api/state", {
+      headers: { authorization: "Bearer midoris-own-passphrase" },
+    }),
+    env,
+  );
+  assert.equal(hers.status, 200, "her own variable opens the console");
+  assert.equal(((await hers.json()) as { you?: string }).you, "みどり");
+
+  const nobody = await handlers.fetch(
+    new Request("https://amp.example.workers.dev/api/state", {
+      headers: { authorization: "Bearer not-anyones-passphrase" },
+    }),
+    env,
+  );
+  assert.equal(nobody.status, 401);
+
+  await db.close();
+});
+
+test("renaming console.tokenEnv renames the passphrase, on Cloudflare too", async () => {
+  // The gate on this host asked `env.AMP_CONSOLE_TOKEN` while the router asked
+  // the config. A licensee who renamed the variable had a correct console and
+  // met the setup screen forever, and the screen told them to set a variable
+  // their own config never mentions. Two gates, two questions, one door.
+  const text = (await exampleConfig()).replace(/^(\s*)tokenEnv: .*$/m, "$1tokenEnv: AMP_MY_OWN_TOKEN");
+  assert.match(text, /AMP_MY_OWN_TOKEN/, "the rename has to reach the bundled config");
+
+  const db = fakeD1();
+  const handlers = createWorker({ configSource: "licensee", configText: text, prompts: {} });
+
+  const open = await handlers.fetch(
+    new Request("https://amp.example.workers.dev/api/state", {
+      headers: { authorization: "Bearer the-renamed-passphrase" },
+    }),
+    { DB: db, AMP_MY_OWN_TOKEN: "the-renamed-passphrase" },
+  );
+  assert.equal(open.status, 200, "the variable the config names is the one that opens it");
+
+  // And with nothing set, the screen names the variable this config asked for.
+  const setup = await handlers.fetch(new Request("https://amp.example.workers.dev/"), { DB: db });
+  assert.equal(setup.status, 503);
+  const body = await setup.text();
+  assert.match(body, /AMP_MY_OWN_TOKEN/, "it named a variable the licensee does not have");
+  assert.doesNotMatch(body, /AMP_CONSOLE_TOKEN/, "and told them to set one their config never mentions");
+
+  await db.close();
+});
+
 test("the worker builds the whole company from a D1 binding and bundled text", async () => {
   const db = fakeD1();
   const runtime = await createWorkerRuntime({
@@ -86,8 +154,8 @@ test("the worker builds the whole company from a D1 binding and bundled text", a
   assert.ok(runtime.ok, runtime.ok ? "" : runtime.error.message);
 
   // The store is a real one: the schema applied itself, and a write survives.
-  await runtime.value.services.store.patterns.put({ id: "pat_1", ventureId: "main" } as never);
-  const stored = await runtime.value.services.store.patterns.get("pat_1");
+  await (await runtime.value.services.stores.for("ai-tools")).patterns.put({ id: "pat_1", ventureId: "ai-tools" } as never);
+  const stored = await (await runtime.value.services.stores.for("ai-tools")).patterns.get("pat_1");
   assert.equal(stored?.id, "pat_1");
 
   // The switches came back from the same database, and nothing is stopped.
@@ -213,7 +281,7 @@ test("a link in a published post keeps redirecting when the rest cannot start", 
     prompts: {},
   });
   assert.ok(runtime.ok, runtime.ok ? "" : runtime.error.message);
-  await runtime.value.services.store.links.put({
+  await (await runtime.value.services.stores.for("ai-tools")).links.put({
     id: "lnk_1",
     code: "abc123",
     ventureId: "main",
@@ -241,7 +309,7 @@ test("a link in a published post keeps redirecting when the rest cannot start", 
     prompts: {},
   });
   assert.ok(after.ok);
-  assert.equal((await after.value.services.store.clicks.all()).length, 1, "and the click must be recorded");
+  assert.equal((await (await after.value.services.stores.for("ai-tools")).clicks.all()).length, 1, "and the click must be recorded");
   await after.value.close();
   await db.close();
 });
@@ -290,6 +358,21 @@ test("a cron that fires while the last one is still running does nothing", async
   await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 8, 4, 0, 31) }, env);
   assert.ok(queries > 0, "and must run once the first one is done");
   assert.equal(held.size, 0, "the lock is released afterwards");
+
+  // The console's run button is the other way into the same work, so it takes
+  // the same lock. The request path only gets one because `fetch` passes it
+  // down; before it did, the button could run a day beside the hourly cron and
+  // draft it twice.
+  held.add("tick:cycles");
+  const refused = await worker.fetch(
+    new Request("https://amp.example.workers.dev/api/ventures/main/run", {
+      method: "POST",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: "{}",
+    }),
+    env,
+  );
+  assert.equal(refused.status, 409);
 
   await db.close();
 });

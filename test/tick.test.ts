@@ -1,4 +1,7 @@
 import test from "node:test";
+
+/** The account these tests drive. Stores are per-account now. */
+const VENTURE = "main";
 import assert from "node:assert/strict";
 
 import { createTestCompany, testConfig, BASE_CONFIG } from "./helpers.ts";
@@ -43,14 +46,14 @@ test("a tick starts the day's cycle once, and a caller that remembers nothing do
   const nowMs = runtime.services.clock.now();
 
   await runTick(runtime, createTickMemory(), nowMs);
-  const afterFirst = await runtime.services.store.cycles.all();
+  const afterFirst = await (await runtime.services.stores.for(VENTURE)).cycles.all();
   assert.equal(afterFirst.length, 1, "one cycle for the day");
 
   // A cron trigger gets a fresh isolate every time it fires: no `startedToday`,
   // no `retryAfter`. The guard against repeating the day is the orchestrator's
   // cycle id, not the memory, and this is the test that says so.
   await runTick(runtime, createTickMemory(), nowMs + 60_000);
-  const afterSecond = await runtime.services.store.cycles.all();
+  const afterSecond = await (await runtime.services.stores.for(VENTURE)).cycles.all();
   assert.equal(afterSecond.length, 1, "a second tick with no memory must not open a second cycle");
   assert.equal(afterSecond[0]?.id, afterFirst[0]?.id);
 });
@@ -61,7 +64,7 @@ test("a stopped platform starts nothing, whoever is calling the tick", async () 
 
   const runtime = testRuntime(state);
   await runTick(runtime, createTickMemory(), runtime.services.clock.now());
-  assert.deepEqual(await runtime.services.store.cycles.all(), []);
+  assert.deepEqual(await (await runtime.services.stores.for(VENTURE)).cycles.all(), []);
 });
 
 test("a deactivated account starts nothing", async () => {
@@ -72,7 +75,7 @@ test("a deactivated account starts nothing", async () => {
   }
 
   await runTick(runtime, createTickMemory(), runtime.services.clock.now());
-  assert.deepEqual(await runtime.services.store.cycles.all(), []);
+  assert.deepEqual(await (await runtime.services.stores.for(VENTURE)).cycles.all(), []);
 });
 
 test("cycles and dispatch can be asked for separately", async () => {
@@ -80,8 +83,8 @@ test("cycles and dispatch can be asked for separately", async () => {
   // budget than the half that has to hit a slot to the minute.
   const runtime = testRuntime(memoryState());
   await runTick(runtime, createTickMemory(), runtime.services.clock.now(), { dispatch: true, cycles: false });
-  assert.deepEqual(await runtime.services.store.cycles.all(), [], "cycles: false means no cycle was started");
+  assert.deepEqual(await (await runtime.services.stores.for(VENTURE)).cycles.all(), [], "cycles: false means no cycle was started");
 
   await runTick(runtime, createTickMemory(), runtime.services.clock.now(), { cycles: true, dispatch: false });
-  assert.equal((await runtime.services.store.cycles.all()).length, 1);
+  assert.equal((await (await runtime.services.stores.for(VENTURE)).cycles.all()).length, 1);
 });

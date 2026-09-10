@@ -15,8 +15,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { AuditEvent, Cycle, InspectionReport } from "../src/core/types.ts";
-import type { Store } from "../src/storage/store.ts";
+import type { AuditEvent, Cycle, InspectionReport, TrackedLink } from "../src/core/types.ts";
+import type { Store, StoreRegistry } from "../src/storage/store.ts";
 
 export type StoreFactory = {
   /** A fresh, empty store. */
@@ -54,6 +54,17 @@ function report(draftId: string, passed = true): InspectionReport {
       disclosure: "#PR",
       hashtags: [],
     },
+  };
+}
+
+function link(id: string, ventureId: string, code: string): TrackedLink {
+  return {
+    id,
+    ventureId,
+    offerId: "off_1",
+    code,
+    destinationUrl: "https://example.test/offer",
+    createdAt: "2026-04-01T00:00:00Z",
   };
 }
 
@@ -195,23 +206,38 @@ export function describeStoreContract(label: string, factory: StoreFactory): voi
 
   test(`${label}: the audit limit counts events that match the filter`, async () => {
     await withStore(async (store) => {
-      // Ten events from another account in between: a limit applied before the
-      // filter would return nothing for `main`.
-      await store.audit.append(event({ ventureId: "main", type: "cycle.started" }));
+      // Ten events from another cycle in between: a limit applied before the
+      // filter would return nothing for cyc_9.
+      await store.audit.append(event({ cycleId: "cyc_9", type: "cycle.started" }));
       for (let i = 0; i < 10; i += 1) {
-        await store.audit.append(event({ ventureId: "other", type: "cycle.started" }));
+        await store.audit.append(event({ cycleId: "cyc_other", type: "cycle.started" }));
       }
-      await store.audit.append(event({ ventureId: "main", cycleId: "cyc_9", type: "cycle.completed" }));
+      await store.audit.append(event({ cycleId: "cyc_9", type: "cycle.completed" }));
 
-      const mine = await store.audit.recent(5, { ventureId: "main" });
+      const mine = await store.audit.recent(5, { cycleId: "cyc_9" });
       assert.deepEqual(
         mine.map((item) => item.type),
         ["cycle.completed", "cycle.started"],
       );
+      assert.deepEqual(await store.audit.recent(5, { cycleId: "no-such-cycle" }), []);
+    });
+  });
 
-      const byCycle = await store.audit.recent(5, { cycleId: "cyc_9" });
-      assert.equal(byCycle.length, 1);
-      assert.deepEqual(await store.audit.recent(5, { ventureId: "nobody" }), []);
+  test(`${label}: an account's log holds that account's events and no others`, async () => {
+    // A store belongs to one account, so an event claiming to be another
+    // account's cannot get in - it is stamped with the scope on the way. And
+    // asking this log for another account's events answers with none rather
+    // than quietly handing back its own: the ventureId filter narrows, it
+    // cannot widen. Reading across accounts is StoreRegistry.each.
+    await withStore(async (store) => {
+      await store.audit.append(event({ ventureId: "somebody-else", type: "cycle.started" }));
+
+      const all = await store.audit.recent(5);
+      assert.equal(all.length, 1);
+      assert.equal(all[0]?.ventureId, "main", "the event kept an account id that is not this store's");
+
+      assert.deepEqual(await store.audit.recent(5, { ventureId: "somebody-else" }), []);
+      assert.equal((await store.audit.recent(5, { ventureId: "main" })).length, 1);
     });
   });
 
@@ -219,6 +245,111 @@ export function describeStoreContract(label: string, factory: StoreFactory): voi
     await withStore(async (store) => {
       await store.flush();
       await store.flush();
+    });
+  });
+}
+
+/**
+ * What a `StoreRegistry` owes its callers, whichever backend it is over.
+ *
+ * The point of the split is one sentence: **an account's store cannot reach
+ * another account's data.** That is a property of every implementation or it
+ * is a property of none, and "the code that reads it is careful" is exactly
+ * the assurance this replaces.
+ */
+export function describeRegistryContract(label: string, create: () => Promise<StoreRegistry>): void {
+  const withRegistry = async (body: (registry: StoreRegistry) => Promise<void>): Promise<void> => {
+    const registry = await create();
+    try {
+      await body(registry);
+    } finally {
+      await registry.close();
+    }
+  };
+
+  test(`${label}: two accounts do not see each other`, async () => {
+    await withRegistry(async (registry) => {
+      const beauty = await registry.for("beauty");
+      const zakka = await registry.for("zakka");
+
+      await beauty.cycles.put(cycle("cyc_shared_id", { ventureId: "beauty" }));
+      await zakka.cycles.put(cycle("cyc_shared_id", { ventureId: "zakka" }));
+
+      // The same id in two accounts is two records, not one overwriting the
+      // other. Ids are ours to generate, so this is not hypothetical for a
+      // date-derived one like cyc_<venture>_<date>.
+      assert.equal((await beauty.cycles.get("cyc_shared_id"))?.ventureId, "beauty");
+      assert.equal((await zakka.cycles.get("cyc_shared_id"))?.ventureId, "zakka");
+
+      assert.deepEqual((await beauty.cycles.all()).map((item) => item.ventureId), ["beauty"]);
+      assert.deepEqual((await zakka.cycles.all()).map((item) => item.ventureId), ["zakka"]);
+
+      // find() is a predicate over this account's items, so a predicate that
+      // matches everything still cannot reach past the account.
+      assert.equal((await beauty.cycles.find(() => true)).length, 1);
+    });
+  });
+
+  test(`${label}: an account's history is its own`, async () => {
+    await withRegistry(async (registry) => {
+      const beauty = await registry.for("beauty");
+      const zakka = await registry.for("zakka");
+      await beauty.audit.append(event({ ventureId: "beauty", type: "role.write.completed" }));
+      await zakka.audit.append(event({ ventureId: "zakka", type: "post.published" }));
+
+      assert.deepEqual((await beauty.audit.recent(10)).map((item) => item.type), ["role.write.completed"]);
+      assert.deepEqual((await zakka.audit.recent(10)).map((item) => item.type), ["post.published"]);
+    });
+  });
+
+  test(`${label}: removing from one account leaves the other alone`, async () => {
+    await withRegistry(async (registry) => {
+      const beauty = await registry.for("beauty");
+      const zakka = await registry.for("zakka");
+      await beauty.cycles.put(cycle("cyc_1", { ventureId: "beauty" }));
+      await zakka.cycles.put(cycle("cyc_1", { ventureId: "zakka" }));
+
+      await beauty.cycles.remove("cyc_1");
+      assert.equal(await beauty.cycles.get("cyc_1"), undefined);
+      assert.equal((await zakka.cycles.get("cyc_1"))?.ventureId, "zakka", "a delete crossed accounts");
+    });
+  });
+
+  test(`${label}: each() lists every account that has data`, async () => {
+    await withRegistry(async (registry) => {
+      await (await registry.for("beauty")).cycles.put(cycle("cyc_1", { ventureId: "beauty" }));
+      await (await registry.for("zakka")).cycles.put(cycle("cyc_2", { ventureId: "zakka" }));
+
+      const found = await registry.each();
+      assert.deepEqual(found.map((entry) => entry.ventureId).sort(), ["beauty", "zakka"]);
+      // And the store handed back is that account's, not a fresh one.
+      const beauty = found.find((entry) => entry.ventureId === "beauty");
+      assert.equal((await beauty!.store.cycles.all()).length, 1);
+    });
+  });
+
+  test(`${label}: a code finds its link, and the link names its account`, async () => {
+    // The reader arrives with a code and nothing else. This is the one lookup
+    // that legitimately starts outside any account - and it still lands in
+    // exactly one, because the link says which.
+    await withRegistry(async (registry) => {
+      const zakka = await registry.for("zakka");
+      await (await registry.for("beauty")).links.put(link("lnk_b", "beauty", "aaa"));
+      await zakka.links.put(link("lnk_z", "zakka", "bbb"));
+
+      const found = await registry.findLinkByCode("bbb");
+      assert.equal(found?.id, "lnk_z");
+      assert.equal(found?.ventureId, "zakka", "the click would be recorded against the wrong account");
+      assert.equal(await registry.findLinkByCode("not-a-code"), undefined);
+    });
+  });
+
+  test(`${label}: the same account asked for twice is the same store`, async () => {
+    await withRegistry(async (registry) => {
+      const first = await registry.for("beauty");
+      await first.cycles.put(cycle("cyc_1", { ventureId: "beauty" }));
+      const second = await registry.for("beauty");
+      assert.equal((await second.cycles.get("cyc_1"))?.ventureId, "beauty");
     });
   });
 }

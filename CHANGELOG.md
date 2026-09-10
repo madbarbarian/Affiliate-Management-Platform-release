@@ -12,6 +12,21 @@ seen from a licensee's config: a **major** release is one where an existing
 
 ### Added
 
+- **Each account's data is its own, and every read across accounts has a name.**
+  A `Store` was one shared space that every reader filtered by `ventureId`, so
+  "this account learned this by itself" was a claim about the code doing the
+  filtering. It is now a fact about where the data is: `Services` holds a
+  `StoreRegistry` and no store, a role is handed its own account's, and the
+  eight readers that legitimately compare accounts — the accounts list, the
+  scout, the dispatcher, the day's page, the tracking redirect, resolving a
+  gate, listing what is pending, and `amp pause` — say so by calling `each()`.
+  Nothing else can cross. On SQL this is one database with `venture` in the
+  primary key; on files it is a directory per account, which is what makes
+  handing an account over a matter of handing over a folder. A contract test
+  runs against all three implementations. **Your data is migrated on first
+  start**, and a licensee running more than one account is asked rather than
+  guessed at — see [the design](docs/3-development/store-split.md).
+
 - **A `Store` contract test**, run against all three implementations (memory,
   JSON files, SQL). It found two divergences the suite could not: the
   file-backed `forCycle` ignored the order its caller asked for, and the
@@ -117,6 +132,127 @@ seen from a licensee's config: a **major** release is one where an existing
   storage, the model and the adapters, but reads the operator's real stop and
   deactivations. A dry run that disagreed with the live one was worse than
   useless, since checking is why anyone runs it.
+- **A failed day says why on the console.** The 全アカウント table's 直近サイクル
+  cell used to read `2026-09-09 failed → write` and stop there; the reason the
+  step failed went to a log, and on a host there is no terminal to read one in.
+  The reason now travels with the cycle, into that cell and into
+  `amp portfolio`. Two failures were carrying nothing to report in the first
+  place: a write step where every idea failed said only that they had, and a
+  draft the inspector could not *read* was reported as one it had turned
+  down — opposite instructions to the operator, since one asks for a rewrite
+  and the other for a retry.
+- **「今日のサイクルを動かす」** on each active account in the 全アカウント table. The route
+  existed and nothing on the page pressed it, so a hosted operator's only way to
+  start or retry a day was to wait for the next hourly cron — there is no
+  terminal to run `cycle run` in. It takes the same lock the cycles tick takes,
+  so a run and the schedule cannot draft the same day twice; where the host has
+  no lock (a machine, whose data directory already holds one) it runs as before.
+- **The example account is named for what it is, not for its rank**
+  (`main` / メインアカウント → `ai-tools` / AI仕事術). The id goes into the
+  console's addresses and every record kept, so it cannot be changed later
+  without orphaning the history — the file now says so where it is set. Existing
+  configs are untouched: this is the example a new licensee copies.
+- **The 直近サイクル cell speaks Japanese.** It read `2026-09-09 failed → write`
+  on a page that is otherwise entirely Japanese, to an operator with no
+  terminal to look "write" up in. The status and the step have words of their
+  own now (`2026-09-09 失敗（執筆）`), kept in `src/console/labels.ts` rather
+  than inside the page, so a step added to `CycleStep` without one fails a test
+  instead of reaching a screen.
+- **The accounts table gives every column a width of its own, and lets you
+  change them.** One long value in 直近サイクル took the whole table: the other
+  nine columns were squeezed to a character wide and their headers rendered one
+  letter per line. Fixed layout with declared widths, the table scrolling inside
+  its own container rather than being compressed, numbers right-aligned, and a
+  drag handle on every header border (remembered in the browser, with 列の幅を
+  もとに戻す to undo).
+
+- **A second operator gets their own passphrase, and their own name in the
+  record.** `console.operators` lists anyone beyond the owner, each naming their
+  own env var; the console header says whose passphrase you are holding, and
+  every approval, deactivation and accepted proposal is stored against that
+  name instead of `company.operator`. `doctor` lists who can open the console
+  and fails on anyone listed without a passphrase. No roles: everyone named can
+  still do everything. The point is only that the audit trail is true — an
+  approval recorded while one passphrase was shared can never be attributed
+  afterwards, so this is worth doing before a second person starts rather than
+  after. A single-operator config is unchanged.
+
+- **The console splits into three levels: today, all accounts, one account.**
+  Everything used to be one scroll written from the all-accounts point of view,
+  with no place to be inside a single account — so account-shaped things got
+  pushed into the comparison row, which is how one API error took a whole table
+  with it. `#/ventures/<id>` opens the account: the failure in full with 今日の
+  サイクルを動かす directly under it, the last few days, its numbers and
+  patterns, what is in force from the config with each field's source, and the
+  switch. The list keeps one control, 開く. Reasoning and the screens are in
+  [console-architecture.md](docs/3-development/console-architecture.md).
+- **A failed day on the list reads 実行できませんでした**, with one smaller line
+  under it — **chosen by the failure's code, never by truncating the message.**
+  Truncation gives an English fragment or a sentence cut before the word that
+  carried the meaning. A code with no words of its own prints the code and fails
+  a test.
+- **`console.locale`: ja or en.** Every word the console says now lives in
+  `src/console/messages.ts`, typed so `en` must answer every key `ja` does — a
+  half-translated screen is a compile error. **The screen's language is never
+  the disclosure's**: that follows the reader's market, so an operator reading
+  English while publishing to Japanese readers still publishes a Japanese
+  disclosure. A test holds both halves of that.
+
+### Fixed
+
+- **The console did nothing at all.** Its whole script is one inline module,
+  and `(s) => {"running":"動作中"}[s]` parses that brace as a block — so the
+  module died at the first colon, and with it every line of the page's
+  behaviour. The page served its headings and sat on 読み込み中… forever. Two
+  more escapes had been eaten by the template literal the page is written in
+  (`\w` reaches the browser as `w`): `fmt`'s placeholder pattern, so no `{n}`
+  was ever filled in, and the hash router's, which is what made the syntax
+  error fatal rather than local. Every other test reads the page as text; two
+  new ones parse the program the browser actually receives, and refuse a lone
+  backslash anywhere in `ui.ts` that is not escaping a backtick or a `${`.
+- **A day that failed left no trace in the audit log.** The orchestrator wrote
+  the reason onto the cycle and into a logger, and the console's 最近の動き
+  reads the audit log — so the feed said nothing had happened while the cycle
+  was failing every hour. Two days ended that way on Cloudflare, under a
+  heading that claims to be the record of what the company did, and finding out
+  took a query against the database. A failed step now records a
+  `cycle.failed` event carrying the step, the code, whether it is retryable
+  and the message; the feed renders it in the operator's language from the same
+  code the accounts table uses, in bold, and the API's own sentence stays in
+  `data` where the account screen reads it. Recording the failure can never
+  replace the failure: if the audit write itself fails, the caller still gets
+  the original error.
+- **A cycle that recovered on a retry went on calling itself failed.** The
+  console shows a failure whenever one is stored, and a resumed cycle kept the
+  one it had already got past — so an account that recovered on the next hourly
+  retry sat there saying 実行できませんでした directly above its own approval
+  gate. The reason is dropped when the day resumes; the failure that did happen
+  is in the audit log, which is where history belongs.
+- **`effort` was sent to models that refuse it**, which ended the cycle at its
+  first call with `400 "This model does not support the effort parameter."`
+  The cheap tier ships as `claude-haiku-4-5`, and Haiku 4.5 rejects both
+  `output_config.effort` and `thinking: adaptive`. The adapter now decides
+  per model, and **a model it does not recognise is sent neither** — losing
+  effort costs some quality on that call, sending it wrongly costs the day.
+  If you name a newer model than your copy of the adapter knows about, that is
+  the direction it will err in; the table is at the bottom of
+  `src/llm/anthropic.ts`. An effort level a model does not have is lowered to
+  its highest rather than sent — `effort: max` on Opus 4.5, which stops at
+  `high`, was the same lost cycle from a setting the config invites you to set.
+  A test stands a real HTTP server in front of the real
+  SDK and reads the body it sends, which is the only way this class of bug is
+  visible at all — the mock provider never sees a request.
+- **No role's structured output could ever have worked.** The first real model
+  call this platform made came back
+  `400 output_config.format.schema: For 'array' type, property 'maxItems' is
+  not supported`, and every role's schema used at least one keyword from that
+  list — `maxItems`, `minItems`, `maxLength`, `minimum`, `maximum`. The whole
+  suite passed because it runs on the mock, which accepts anything. The bounds
+  are now written into the field's description, where the model reads them,
+  and `stripUnsupported` runs on every schema in the adapter so a hand-written
+  one cannot 400 either. A test walks the schemas the roles really send.
+  **Nothing enforces those bounds any more** — the API never did — so a role
+  that needs one honoured has to check it itself.
 
 ## [0.2.0] - 2026-08-27
 

@@ -145,3 +145,58 @@ test("an offer with no landing URL is a config error, not a surprise at write ti
     /landingUrl.*is required/s,
   );
 });
+
+test("two operators cannot share a name or a passphrase", () => {
+  // Both mistakes produce a record that looks attributed and is not: one name
+  // for two people, or one secret two people hold. The audit trail is the only
+  // thing this feature buys, so neither may validate.
+  const withOperators = (operators: unknown) => ({
+    ...BASE_CONFIG,
+    console: { ...BASE_CONFIG.console, operators },
+  });
+
+  assert.throws(
+    () => parseConfig(withOperators([{ name: "tester", tokenEnv: "AMP_OTHER" }]), "test"),
+    /already the name of another operator/s,
+    "the owner's own name is taken",
+  );
+  assert.throws(
+    () =>
+      parseConfig(
+        withOperators([
+          { name: "a", tokenEnv: "AMP_ONE" },
+          { name: "a", tokenEnv: "AMP_TWO" },
+        ]),
+        "test",
+      ),
+    /already the name of another operator/s,
+  );
+  assert.throws(
+    () => parseConfig(withOperators([{ name: "a", tokenEnv: BASE_CONFIG.console.tokenEnv }]), "test"),
+    /already another operator's passphrase/s,
+    "sharing the owner's secret is sharing the owner's identity",
+  );
+
+  // Roles are deferred, so the config has to say so out loud. Reading only the
+  // two fields it knows and ignoring the rest is how a deferred feature turns
+  // into a false belief: this reads like the person was limited to one account,
+  // and a passphrase is a passphrase.
+  assert.throws(
+    () => parseConfig(withOperators([{ name: "a", tokenEnv: "AMP_ONE", role: "manager" }]), "test"),
+    /role.*not implemented yet.*do everything you can/s,
+  );
+  assert.throws(
+    () => parseConfig(withOperators([{ name: "a", tokenEnv: "AMP_ONE", ventures: ["zakka"] }]), "test"),
+    /ventures.*not implemented yet/s,
+  );
+  assert.throws(
+    () => parseConfig(withOperators([{ name: "a", tokenEnv: "AMP_ONE", tokenEnvv: "typo" }]), "test"),
+    /tokenEnvv.*not a field of console\.operators/s,
+    "a misspelt field is the same silence with a worse cause",
+  );
+
+  const fine = parseConfig(withOperators([{ name: "みどり", tokenEnv: "AMP_MIDORI" }]), "test");
+  assert.deepEqual(fine.console.operators, [{ name: "みどり", tokenEnv: "AMP_MIDORI" }]);
+  // And a config that names nobody is still a config.
+  assert.deepEqual(parseConfig(BASE_CONFIG, "test").console.operators, []);
+});
