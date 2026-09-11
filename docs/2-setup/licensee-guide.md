@@ -30,7 +30,7 @@ The single secret is:
 
 | | |
 |---|---|
-| `AMP_CONSOLE_TOKEN` | The passphrase for your approval console. Press "generate". Without it, anyone who knows your address can open the console — the tracking redirect and the console answer on the same address. |
+| `AMP_CONSOLE_TOKEN` | The passphrase for your approval console. **There is no generate button** — decide 20 characters or more that nobody would guess, type them in, and keep a copy; your password manager's generator is the reliable way. Without it, anyone who knows your address can open the console — the tracking redirect and the console answer on the same address. |
 
 **No model key is asked for, and that is deliberate.** The config ships on the
 simulated model, so the console opens and a whole day runs before you hold a

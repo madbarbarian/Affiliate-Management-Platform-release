@@ -69,8 +69,8 @@
     },
     {
       "path": "docs/_drafts/design/onboarding/canvas.json",
-      "bytes": 5537,
-      "sha256": "1105026a87de7073e310e24f14bbe4412cc567a6a0520b174cf2649bbeb7a4b6"
+      "bytes": 6013,
+      "sha256": "0f9f3feeac370c0f8098d0303afa585e2f549c013000799b23f7a9d85f42f4ea"
     },
     {
       "path": "docs/_drafts/design/onboarding/Connect.dc.html",
@@ -79,8 +79,8 @@
     },
     {
       "path": "docs/_drafts/design/onboarding/Deploy.dc.html",
-      "bytes": 7576,
-      "sha256": "6854c3abee0b976f4e5091091ae2e125e55c6ba42997e6bba9c3c7edec2beea1"
+      "bytes": 7467,
+      "sha256": "94819e20b3e369eb49e03f921ab245449b203bfcac78d8c138e8d92f87cd520d"
     },
     {
       "path": "docs/_drafts/design/onboarding/Dryrun.dc.html",
@@ -184,8 +184,8 @@
     },
     {
       "path": "docs/2-setup/licensee-guide.md",
-      "bytes": 15048,
-      "sha256": "4092e43ad84e9eba5d91974acdade0335d1b753fafff6640c61cb7e2cdb1d32a"
+      "bytes": 15206,
+      "sha256": "dbdbfe8878e44d93453028f1ef75032507acfb3ead790fa623a956db8595110b"
     },
     {
       "path": "docs/2-setup/onboarding.md",
@@ -289,8 +289,8 @@
     },
     {
       "path": "package.json",
-      "bytes": 1709,
-      "sha256": "abda40eb0fa64f8338515991f2fcc14a03150b268f7e115902e49a5c95aedecd"
+      "bytes": 1902,
+      "sha256": "dbabf0c1dabfef12e2274ab654493e2d560c19cac60bc267ad7de4b5ce75d682"
     },
     {
       "path": "platform.config.example.yaml",
