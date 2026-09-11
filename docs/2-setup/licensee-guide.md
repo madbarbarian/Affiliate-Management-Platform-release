@@ -275,16 +275,38 @@ proposals for the next account wait for 採用 or 見送り; 採用 appends an i
 
 ## Taking updates from upstream
 
-Your fork is set up so upstream changes never collide with your operation.
+Your copy is set up so upstream changes never collide with your operation.
 The things you edit are either kept out of the way (`.env.local`, `.amp/`) or
 isolated (`prompts/`).
 
-**`platform.config.yaml` is committed in your fork, and that is deliberate.**
+**`platform.config.yaml` is committed in your copy, and that is deliberate.**
 On Cloudflare the build bundles it into the Worker, which has no filesystem to
 read it from — a config you have not committed is one your deploy never sees.
 It carries no secrets by design: it names environment variables, and the values
 live in Cloudflare's dashboard or in `.env.local`. Upstream never touches that
 file, so it does not conflict.
+
+### If you came through the Deploy button — no terminal
+
+The button **copies** this repository into your account. A copy is not a GitHub
+fork, so there is no "Sync fork" button and nothing for `git merge upstream` to
+merge. Your copy carries its own way instead:
+
+**Actions → "Take updates from the platform" → Run workflow.**
+
+A minute later there is a pull request showing exactly what changed. Read it,
+merge it, and Cloudflare redeploys the way it does for any push. It also runs
+itself on the first of each month, so a copy nobody touches still hears about a
+fix — it opens a pull request, it never merges one.
+
+`platform.config.yaml` is not in that pull request: your niche, your audience,
+your voice and your accounts are yours. Your secrets are in Cloudflare's
+dashboard, not in the repository, so there is nothing there to disturb either.
+
+**Read `CHANGELOG.md` in the diff before merging.** It is written for exactly
+that moment.
+
+### If you cloned it yourself
 
 ```bash
 git remote add upstream https://github.com/<owner>/<release-repo>.git

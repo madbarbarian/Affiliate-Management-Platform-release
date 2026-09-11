@@ -18,6 +18,11 @@
       "sha256": "0aa76fceeccfeedcbf2f33b2507530b9fcc1abaab31024fe34484e415a5b1513"
     },
     {
+      "path": ".github/workflows/take-updates.yml",
+      "bytes": 5568,
+      "sha256": "f4b23a1057077c3be988e6a85f7bf63b050fa8e3d85dd05a26a25bc8ac9624f4"
+    },
+    {
       "path": ".gitignore",
       "bytes": 1496,
       "sha256": "e59f7a21a38c9e91c5fca54c14f6f2dfe84e701d8d4795591d7db17deda9b573"
@@ -179,8 +184,8 @@
     },
     {
       "path": "docs/2-setup/licensee-guide.md",
-      "bytes": 14068,
-      "sha256": "2ec02a225dcfc0c30ca4097d0bf79cc9ceacb07403d4a03cd219ae3f81be4bcc"
+      "bytes": 15048,
+      "sha256": "4092e43ad84e9eba5d91974acdade0335d1b753fafff6640c61cb7e2cdb1d32a"
     },
     {
       "path": "docs/2-setup/onboarding.md",

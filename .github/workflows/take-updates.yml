@@ -1,0 +1,133 @@
+# Brings the platform's updates into your copy, as a pull request.
+#
+# **You do not need a terminal for this, and that is the point.** If you
+# arrived here by pressing "Deploy to Cloudflare", your copy of this
+# repository is exactly that - a copy, not a GitHub fork - so the "Sync fork"
+# button does not appear and the usual `git merge upstream/main` needs a
+# checkout you may never have made. This does the same job from the browser.
+#
+# **How to use it.** Actions → "Take updates from the platform" → Run
+# workflow. A minute later there is a pull request in this repository showing
+# exactly what changed. Read it, then merge it. Cloudflare redeploys on the
+# merge, the way it does for every push here.
+#
+# It also runs itself on the first of each month, so a copy nobody touches
+# still hears about a fix. It opens a pull request; it never merges one.
+#
+# **Two things it deliberately leaves alone:**
+#
+#   - `platform.config.yaml` is yours. Your niche, your audience, your voice,
+#     your accounts. Upstream never has an opinion about it.
+#   - Secrets are not in this repository at all - they are in Cloudflare's
+#     dashboard - so there is nothing here for an update to disturb.
+#
+# **If you have edited anything in `prompts/`**, the pull request will show
+# your edits being replaced by the shipped ones. That is visible before you
+# merge, which is why this is a pull request. To stop it happening at all,
+# point `runtime.promptsDir` at a directory of your own and copy your prompts
+# there; upstream then never touches them.
+
+name: Take updates from the platform
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:00 UTC on the first of the month. Nothing here is urgent enough to
+    # interrupt a day, and a monthly pull request is one a person still reads.
+    - cron: "0 3 1 * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  # Where this platform is published. A copy of this file inside the platform's
+  # own release repository would be asking it to update itself, so the job
+  # below stops when it finds it is already there.
+  UPSTREAM: madbarbarian/Affiliate-Management-Platform-release
+  BRANCH: platform-update
+
+jobs:
+  take:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop if this is the platform itself
+        run: |
+          if [ "${GITHUB_REPOSITORY}" = "${UPSTREAM}" ]; then
+            echo "This is the release repository. There is nothing upstream of it."
+            echo "SKIP=yes" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/checkout@v4
+        if: env.SKIP != 'yes'
+        with:
+          fetch-depth: 0
+
+      - name: Fetch what the platform has now
+        if: env.SKIP != 'yes'
+        run: |
+          rm -rf /tmp/upstream
+          git clone --depth 1 "https://github.com/${UPSTREAM}.git" /tmp/upstream
+          echo "UPSTREAM_SHA=$(git -C /tmp/upstream rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      # Copied rather than merged, on purpose. A copy made by the Deploy button
+      # shares no history with the platform, so `git merge` would refuse it as
+      # unrelated - and forcing that through produces a first merge nobody can
+      # read. Replacing the files and showing the diff is the same information
+      # without the ceremony.
+      - name: Take the new files
+        if: env.SKIP != 'yes'
+        run: |
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git checkout -B "${BRANCH}"
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='platform.config.yaml' \
+            /tmp/upstream/ ./
+          git add -A
+
+      - name: Open a pull request, or say there was nothing to take
+        if: env.SKIP != 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --staged --quiet; then
+            echo "Already up to date with ${UPSTREAM}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git commit -m "Take updates from the platform (${UPSTREAM_SHA})"
+          git push --force-with-lease origin "${BRANCH}"
+
+          # One open pull request at a time: a second one for the same branch
+          # would be a duplicate, and the branch already carries the newest.
+          if gh pr view "${BRANCH}" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            echo "Updated the open pull request." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          gh pr create \
+            --base "${GITHUB_REF_NAME}" \
+            --head "${BRANCH}" \
+            --title "Take updates from the platform" \
+            --body "$(cat <<'BODY'
+The platform has changed since your copy was made. Everything in this pull
+request is what changed — read it, then merge it. Cloudflare redeploys on the
+merge, as it does for any push here.
+
+**`platform.config.yaml` is not in here.** Your niche, your audience, your
+voice and your accounts are yours, and nothing upstream has an opinion about
+them. Your secrets are in Cloudflare's dashboard, not in this repository, so
+there is nothing here for this to disturb either.
+
+**If you see your own edits to `prompts/` being replaced**, that is this
+pull request replacing them with the shipped versions. Close it, point
+`runtime.promptsDir` at a directory of your own, copy your prompts there, and
+run this again — upstream will never touch them after that.
+
+**Read `CHANGELOG.md` in the diff first.** It is written for exactly this
+moment: someone with a running operation and one question, *will merging this
+break my morning?*
+BODY
+)"
