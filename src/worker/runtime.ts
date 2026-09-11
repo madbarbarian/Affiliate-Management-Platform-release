@@ -13,6 +13,7 @@ import { randomIds } from "../core/ids.ts";
 import { createLogger, jsonConsoleSink } from "../core/logger.ts";
 import { fail, type PlatformError, type Result } from "../core/result.ts";
 import { systemClock } from "../core/clock.ts";
+import type { ReleaseStamp } from "../core/release.ts";
 import { buildConfig, type LoadedConfig } from "../config/load.ts";
 import { ConfigError } from "../config/schema.ts";
 import { createPromptLibraryFrom } from "../kernel/prompts.ts";
@@ -35,6 +36,8 @@ export type WorkerParts = {
   readonly prompts: Readonly<Record<string, string>>;
   /** The Durable Object lock, where the deploy has one bound. */
   readonly lock?: Lock;
+  /** Which release this Worker was built from, when it was built from one. */
+  readonly release?: ReleaseStamp;
 };
 
 /**
@@ -104,6 +107,7 @@ export async function createWorkerRuntime(parts: WorkerParts): Promise<Result<Ru
     }),
     env: stringEnv,
     ...(parts.lock ? { lock: parts.lock } : {}),
+    ...(parts.release ? { release: parts.release } : {}),
     dryRun: false,
   });
 }

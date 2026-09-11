@@ -22,6 +22,7 @@ import type {
   CycleStep,
   CycleStepRecord,
   Decision,
+  DecisionId,
   DecisionItem,
   Draft,
   Idea,
@@ -90,6 +91,14 @@ export type Orchestrator = {
   /** Publishes anything whose slot has arrived. Called by the daemon. */
   dispatchDue(nowMs: number, options?: DispatchOptions): Promise<Result<DispatchSummary, PlatformError>>;
   pendingDecisions(ventureId?: VentureId): Promise<Decision[]>;
+  /**
+   * Closes gates whose day has gone, in each account's own timezone.
+   *
+   * A day nobody answered is a day the company does not run - see
+   * `requirements.md` 4, "答えないことも答えである". The decision and its ideas
+   * are kept; only the invitation to act on them is withdrawn.
+   */
+  expireStaleGates(): Promise<Result<{ readonly expired: readonly DecisionId[] }, PlatformError>>;
 };
 
 export function createOrchestrator(services: Services): Orchestrator {
@@ -869,6 +878,32 @@ export function createOrchestrator(services: Services): Orchestrator {
         return fail("not_found", "decision.not_found", `No decision "${decisionId}".`);
       }
       const { decision, store } = found;
+
+      // Whether the day has gone is decided here, not only by the sweep that
+      // marks gates expired.
+      //
+      // That sweep runs hourly, so between midnight and the next tick an old
+      // gate is still `pending` - and approving it then writes the day's posts
+      // onto slots that have all passed, which the dispatcher publishes at
+      // once. A guard that only runs on a schedule is not a guard during the
+      // hour it has not run. Same reason the policy checks run after the
+      // rewrite and not only before it.
+      const gateVenture = ventureById.get(decision.ventureId);
+      const gateCycle = await store.cycles.get(decision.cycleId);
+      if (gateVenture && gateCycle && gateCycle.date < localDate(clock.now(), gateVenture.timezone)) {
+        // Left true rather than merely refused: the answer and the stored state
+        // have to agree, or the console keeps offering a gate the code will
+        // never accept.
+        if (decision.status === "pending") await store.decisions.put({ ...decision, status: "expired" });
+        return fail(
+          "conflict",
+          "decision.expired",
+          `Decision ${decision.id} was for ${gateCycle.date}, which has passed, so it closed unanswered. ` +
+            `Today's cycle is the one to approve; nothing from that day will be published.`,
+          { retryable: false, details: { day: gateCycle.date } },
+        );
+      }
+
       const resolved = resolveDecision(decision, request);
       if (!resolved.ok) return resolved;
       await store.decisions.put(resolved.value);
@@ -969,6 +1004,57 @@ export function createOrchestrator(services: Services): Orchestrator {
         (post) => (post.status === "approved" || post.status === "scheduled") && post.scheduledFor > nowMs,
       );
       return ok({ published, failed, stillWaiting: waiting.length, held, commentsWithheld });
+    },
+
+    async expireStaleGates() {
+      const expired: DecisionId[] = [];
+      // Every account: the dispatcher's neighbour, and for the same reason -
+      // whose gate it is does not change whether the day is over.
+      for (const scope of await stores.each()) {
+        const venture = ventureById.get(scope.ventureId);
+        // COMPANY_SCOPE holds the scout's own records and has no timezone of
+        // its own; it also has no cycles, so there is no gate to expire.
+        if (!venture) continue;
+        const today = localDate(clock.now(), venture.timezone);
+
+        for (const decision of await scope.store.decisions.find((entry) => entry.status === "pending")) {
+          const cycle = await scope.store.cycles.get(decision.cycleId);
+          // A gate without its cycle cannot be dated, and guessing the date
+          // from the id is what this deliberately does not do.
+          if (!cycle || cycle.date >= today) continue;
+
+          await scope.store.decisions.put({ ...decision, status: "expired" });
+          // The cycle stops waiting for an answer that is no longer possible.
+          // `pendingDecisionId` is dropped so nothing goes looking for a gate
+          // that will not open.
+          const { pendingDecisionId: _dropped, ...rest } = cycle;
+          await scope.store.cycles.put({
+            ...rest,
+            status: "cancelled",
+            updatedAt: clock.nowIso(),
+          });
+
+          // Loudly, in the record. A day that vanished quietly is the same
+          // problem as a day that piled up quietly: nobody finds out that the
+          // thirty seconds a day the product promises have stopped happening.
+          await recordEvent({
+            id: services.ids.next("evt"),
+            at: clock.nowIso(),
+            ventureId: decision.ventureId,
+            cycleId: decision.cycleId,
+            type: "decision.expired",
+            actor: "scheduler",
+            // English, like every other stored summary: the record is durable
+            // and the screen's language is a setting. The console says this one
+            // in the operator's language from `activityText`, because it is a
+            // line they have to act on.
+            summary: `The gate for ${cycle.date} lapsed unanswered`,
+            data: { decisionId: decision.id, gate: decision.gate, day: cycle.date, items: decision.items.length },
+          });
+          expired.push(decision.id);
+        }
+      }
+      return ok({ expired });
     },
 
     async pendingDecisions(ventureId) {

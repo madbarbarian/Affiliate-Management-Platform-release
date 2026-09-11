@@ -10,7 +10,31 @@ seen from a licensee's config: a **major** release is one where an existing
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-11
+
 ### Added
+
+
+- **The console tells you when a fix exists.** One quiet line above the day's
+  work, with what changed folded underneath it, and nothing at all when you are
+  current. Someone who does not know an update is out keeps hitting a bug that
+  is already fixed and has no occasion to find out — worse off than someone who
+  knows and has to click three times. It needs no credential and no git: the
+  copy carries its own identity in `RELEASE.json`, and the check reads what the
+  release repository publishes. If GitHub is unreachable, or this copy was never
+  released, you see nothing rather than an error.
+
+- **A day nobody answered closes when the day is over.** The gate is marked
+  `expired`, its cycle ends `cancelled`, and "最近の動き" says which day lapsed.
+  Nothing is deleted — the ideas and the record stay readable.
+
+  **This changes what an unattended day does.** Before, the gate stayed open and
+  could be approved later; doing so wrote that day's posts onto slots that had
+  all passed, so the whole day published at once, with the minimum spacing
+  between posts observed by nothing. If you were relying on approving yesterday
+  today, you no longer can; the reasoning is in `docs/1-requirements/requirements.md`
+  section 4.
+
 
 - **Each account's data is its own, and every read across accounts has a name.**
   A `Store` was one shared space that every reader filtered by `ventureId`, so
@@ -117,6 +141,7 @@ seen from a licensee's config: a **major** release is one where an existing
 
 ### Changed
 
+
 - The inspector's AI-smell verdict compares the model's score of its **rewrite**
   with the heuristic's score of the same rewrite. It used to compare the score
   of the original against the rewrite's heuristic and blocked nearly everything
@@ -199,6 +224,30 @@ seen from a licensee's config: a **major** release is one where an existing
   disclosure. A test holds both halves of that.
 
 ### Fixed
+
+- **A control you could not use looked exactly like one you could.** Both the
+  cap on a gate ("最大2件") and a gate whose day has passed were already
+  enforced, and neither was visible: the checkbox went dead with no change in
+  appearance, so the cap read as advice the screen was ignoring. The two closed
+  states are now drawn differently, because the way out of them differs — a
+  card closed by the cap recedes but keeps its text readable, since unticking
+  something else brings it back, while a lapsed day dims as a whole and keeps
+  only its heading and its date legible, since nothing there is coming back.
+
+- **Two gates open on different days looked like one gate drawn twice.** The
+  card said the gate and the account and nothing else, so an unapproved day
+  standing next to today's read as a repeated row. It now says which day it is
+  for, and says so when that day has passed — decided in the account's own
+  timezone, not the browser's.
+
+- **The update workflow was broken three ways and none of them showed.** It
+  never reached a copy made by the Deploy button (GitHub does not let an app
+  write under `.github/workflows/`), it could not have pushed if it had (the
+  same rule binds `GITHUB_TOKEN`), and it was not valid YAML, so GitHub would
+  have refused to load it. The same file now also ships as `update-workflow.yml`
+  in the repository root, which a copy does receive; installing it is one paste
+  in the browser, once. See the licensee guide.
+
 
 - **The console did nothing at all.** Its whole script is one inline module,
   and `(s) => {"running":"動作中"}[s]` parses that brace as a block — so the

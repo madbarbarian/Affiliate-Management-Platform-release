@@ -288,9 +288,30 @@ file, so it does not conflict.
 
 ### If you came through the Deploy button — no terminal
 
+**Your console tells you when there is one.** One quiet line above the day's
+work, with what changed folded underneath it — the changelog is written for the
+only question that matters here, *will merging this break my morning?* Nothing
+appears when you are current. You do not have to go and look.
+
+Taking it is the part that needs a step, once.
+
 The button **copies** this repository into your account. A copy is not a GitHub
 fork, so there is no "Sync fork" button and nothing for `git merge upstream` to
-merge. Your copy carries its own way instead:
+merge. And GitHub does not let Cloudflare's app write under
+`.github/workflows/`, so the copy arrived with **no workflows at all** — open
+the **Actions** tab and you will find it empty.
+
+**Install the updater once.** The file is already in your repository, at
+`update-workflow.yml` in the root; it just is not in the place that runs it.
+From the browser:
+
+1. Open `update-workflow.yml` and copy all of it.
+2. **Add file → Create new file.**
+3. Name it exactly `.github/workflows/take-updates.yml`.
+4. Paste, then **Commit changes**.
+
+That is the only manual step in this guide, and it is the only time you do it.
+After that:
 
 **Actions → "Take updates from the platform" → Run workflow.**
 
@@ -305,6 +326,11 @@ dashboard, not in the repository, so there is nothing there to disturb either.
 
 **Read `CHANGELOG.md` in the diff before merging.** It is written for exactly
 that moment.
+
+**One thing that pull request cannot do.** It never touches `.github/` — for
+the same reason the button could not — so when the updater itself changes, the
+pull request says so and points you back at `update-workflow.yml`. That is the
+four steps above again, and it is rare.
 
 ### If you cloned it yourself
 

@@ -120,6 +120,36 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
   .pr-ok { color: var(--accent); font-size: 12px; margin-top: 6px; }
   .pr-missing { color: var(--danger); font-size: 13px; font-weight: 600; margin-top: 6px; }
   .pr-none { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  /* A line, not an alarm. The operator's two decisions own this screen; an
+     update is the licensee's business and can wait for them to finish. */
+  .update { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+  .update b { color: var(--ink); font-weight: 600; }
+  .update pre {
+    white-space: pre-wrap; word-break: break-word; font-size: 12px;
+    background: var(--chip); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0 0;
+    max-height: 40vh; overflow: auto;
+  }
+  /*
+   * Two ways a choice is closed, drawn differently on purpose.
+   *
+   * The disabled attribute alone changes almost nothing an operator notices: the
+   * browser greys a tick, and an unticked box that cannot be ticked looks just
+   * like one that can. It shipped that way and read as a screen that had
+   * stopped responding.
+   *
+   * Closed *for now* - the cap is reached. Still worth reading, because the
+   * way out is to untick something else and pick this instead. So the card
+   * recedes rather than fades, and the text stays at full contrast.
+   */
+  .card.shut { background: var(--bg); border-style: dashed; }
+  .item input[type=checkbox]:disabled { opacity: .3; cursor: not-allowed; }
+  /*
+   * Closed *for good* - the day has gone and the orchestrator will refuse it.
+   * Nothing here can be acted on, so the cards fade. The heading and the line
+   * saying which day it was do not: that is the one thing left to read.
+   */
+  section.locked .card { opacity: .5; }
+  .gate-stale { color: var(--warn); font-weight: 600; }
   .stopped { border-color: var(--danger); border-left-width: 3px; margin-bottom: 22px; }
   .stopped b { color: var(--danger); }
   .stopped code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
@@ -156,6 +186,10 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
 </header>
 <main>
   <div id="stopped"></div>
+  <!-- Below the stop banner on purpose: stopping is an emergency, an update
+       never is. Empty until the check answers, so a licensee who is current -
+       or offline - sees nothing at all rather than a box that says nothing. -->
+  <div id="update"></div>
 
 <div id="view-today">
   <section id="decisions">
@@ -242,6 +276,27 @@ async function api(path, options) {
     throw new Error(body || ("HTTP " + response.status));
   }
   return response.status === 204 ? null : response.json();
+}
+
+/**
+ * Which day an open gate belongs to, and whether that day has gone.
+ *
+ * Two gates can stand open at once: nobody approved yesterday, so its gate is
+ * still there when today's opens beside it. Without the day they are the same
+ * sentence twice, and the operator's reasonable reading is that the page has
+ * repeated itself. It did that in production.
+ *
+ * The stale line is not decoration. Approving a day that has passed writes its
+ * posts and then hands them to a dispatcher that publishes anything whose slot
+ * is in the past - so every one of them goes out at once, now. The screen has
+ * to say the day is old before the button is pressed, not after.
+ *
+ * Whether it *is* old is decided on the server, in the account's own timezone.
+ * The browser's midnight is the viewer's, and an operator reading this from
+ * another country would be told the wrong thing about somebody else's day.
+ */
+function gateDay(decision) {
+  return fmt(decision.stale ? "gate.dayStale" : "gate.day", { day: decision.day });
 }
 
 function esc(value) {
@@ -396,15 +451,25 @@ function renderDecision(decision) {
     .map((id) => decision.items.find((i) => i.id === id))
     .filter(Boolean);
 
+  // Two reasons a control is dead here, and they are not the same reason.
+  //
+  // A day that has gone cannot be approved at all - the server refuses it, and
+  // a button that can be pressed but never works is worse than one that
+  // cannot. The selection cap is different: the boxes already ticked stay live
+  // so a choice can be swapped, and only the untouched ones close.
+  const locked = Boolean(decision.stale);
+  const atMax = entry.selected.size >= decision.max;
+
   const items = ordered.map((item, index) => {
     const checked = entry.selected.has(item.id);
+    const shut = locked || (atMax && !checked);
     const rank = checked ? [...entry.order.filter((id) => entry.selected.has(id))].indexOf(item.id) + 1 : "";
     const chips = (item.chips ?? []).map((chip) =>
       '<span class="chip ' + esc(chip.tone ?? "") + '">' + esc(chip.label) + "</span>").join("");
     return \`
-      <div class="card">
+      <div class="card\${shut && !locked ? " shut" : ""}">
         <div class="item">
-          <input type="checkbox" data-act="toggle" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${checked ? "checked" : ""}>
+          <input type="checkbox" data-act="toggle" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${checked ? "checked" : ""} \${shut ? "disabled" : ""}>
           <div class="item-body">
             <div class="title">\${esc(item.title)}</div>
             <div class="muted">\${esc(item.summary)}</div>
@@ -419,8 +484,8 @@ function renderDecision(decision) {
           </div>
           <div class="order">
             <span class="rank">\${rank}</span>
-            <button data-act="up" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${index === 0 ? "disabled" : ""}>↑</button>
-            <button data-act="down" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${index === ordered.length - 1 ? "disabled" : ""}>↓</button>
+            <button data-act="up" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${locked || index === 0 ? "disabled" : ""}>↑</button>
+            <button data-act="down" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${locked || index === ordered.length - 1 ? "disabled" : ""}>↓</button>
           </div>
         </div>
       </div>\`;
@@ -428,16 +493,17 @@ function renderDecision(decision) {
 
   const count = entry.selected.size;
   return \`
-    <section>
+    <section\${locked ? ' class="locked"' : ""}>
       <h2>\${esc(fmt("gate.heading", { gate: decision.gateLabel, venture: decision.ventureName }))}</h2>
-      <p class="muted">\${esc(fmt("gate.question", { question: decision.question, max: decision.max }))}</p>
+      \${decision.day ? '<p class="' + (locked ? "gate-stale" : "muted") + '">' + esc(gateDay(decision)) + "</p>" : ""}
+      <p class="muted">\${esc(fmt("gate.question", { question: decision.question, max: decision.max }))}\${atMax && !locked ? " " + esc(fmt("gate.atMax", { max: decision.max })) : ""}</p>
       \${items}
       <div class="row">
-        <button class="primary" data-act="submit" data-decision="\${esc(decision.id)}" \${count === 0 ? "disabled" : ""}>
+        <button class="primary" data-act="submit" data-decision="\${esc(decision.id)}" \${locked || count === 0 ? "disabled" : ""}>
           \${esc(fmt("gate.approve", { n: count }))}
         </button>
-        <button data-act="all" data-decision="\${esc(decision.id)}">\${esc(T["gate.selectRecommended"])}</button>
-        <button data-act="none" data-decision="\${esc(decision.id)}">\${esc(T["gate.rejectAll"])}</button>
+        <button data-act="all" data-decision="\${esc(decision.id)}" \${locked ? "disabled" : ""}>\${esc(T["gate.selectRecommended"])}</button>
+        <button data-act="none" data-decision="\${esc(decision.id)}" \${locked ? "disabled" : ""}>\${esc(T["gate.rejectAll"])}</button>
       </div>
       <div class="err" id="err-\${esc(decision.id)}"></div>
     </section>\`;
@@ -563,6 +629,12 @@ function render() {
  * from the same code the accounts table reads. Everything else falls through.
  */
 function activityText(entry) {
+  // A day that lapsed is the other entry an operator has to act on: it means
+  // the thirty seconds a day this product is built around stopped happening,
+  // and nothing else on the screen says so once the gate is gone.
+  if (entry.type === "decision.expired") {
+    return "<b>" + esc(fmt("today.activityExpired", { day: entry.day ?? "" })) + "</b>";
+  }
   if (entry.type !== "cycle.failed") return esc(entry.summary);
   const failure = failureSummary(entry.failureCode);
   return '<b>' + esc(fmt("today.activityFailed", {
@@ -946,6 +1018,44 @@ async function load() {
   }
 }
 
+/**
+ * Asked once, on load - never on the 30-second poll.
+ *
+ * The poll exists so the day's state stays fresh; hanging someone else's
+ * server off it would put the operator's screen behind github.com's uptime
+ * thirty times a minute for a fact that changes once a month.
+ *
+ * Everything it can return except "behind" renders nothing. A licensee who is
+ * current, offline, or running an unreleased checkout should see the screen
+ * they came for, not a box explaining that there is nothing to explain.
+ */
+async function loadUpdate() {
+  let status;
+  try {
+    status = await api("/api/updates");
+  } catch {
+    return;
+  }
+  if (!status || status.kind !== "behind") return;
+
+  // Every value here came off the network, so every one is escaped - the notes
+  // included: they are markdown from a repository whose address is whatever
+  // this copy's stamp says, rendered on a page that is already authenticated.
+  const parts = [
+    '<div class="update">',
+    "<b>" + esc(fmt("update.available", { version: status.upstreamVersion })) + "</b>",
+    " " + esc(fmt("update.since", { version: status.version })),
+    "<div>" + esc(T["update.how"]) + "</div>",
+  ];
+  if (status.notes) {
+    parts.push(
+      "<details><summary>" + esc(T["update.what"]) + "</summary><pre>" + esc(status.notes) + "</pre></details>",
+    );
+  }
+  parts.push("</div>");
+  $("update").innerHTML = parts.join("");
+}
+
 window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
   load();
@@ -953,6 +1063,9 @@ window.addEventListener("hashchange", () => {
 $("refresh").addEventListener("click", load);
 load();
 setInterval(load, 30000);
+// Not awaited and not inside load(): a slow answer must never delay the
+// screen the operator opened, and a failure must never take it down with it.
+loadUpdate();
 </script>
 </body>
 </html>`;

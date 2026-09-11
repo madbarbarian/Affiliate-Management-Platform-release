@@ -29,6 +29,7 @@ import { CYCLE_STEPS } from "../src/core/types.ts";
 import { unwrap } from "../src/core/result.ts";
 import { runScout } from "../src/kernel/exploration.ts";
 import type { Runtime } from "../src/runtime.ts";
+import type { ReleaseStamp } from "../src/core/release.ts";
 import { fileState } from "../src/kernel/state.ts";
 import { openPage } from "./page-harness.ts";
 
@@ -39,7 +40,13 @@ import { openPage } from "./page-harness.ts";
 async function withConsole(
   env: Record<string, string | undefined>,
   body: (base: string, handle: ConsoleHandle, company: TestCompany) => Promise<void>,
-  options: { llm?: MockProvider; lock?: Lock; operators?: { name: string; tokenEnv: string }[]; locale?: "ja" | "en" } = {},
+  options: {
+    llm?: MockProvider;
+    lock?: Lock;
+    operators?: { name: string; tokenEnv: string }[];
+    locale?: "ja" | "en";
+    release?: ReleaseStamp;
+  } = {},
 ): Promise<void> {
   const dataDir = await mkdtemp(join(tmpdir(), "amp-console-"));
   const previous = new Map<string, string | undefined>();
@@ -72,6 +79,7 @@ async function withConsole(
     orchestrator: company.orchestrator,
     bus: company.services.bus,
     ...(options.lock ? { lock: options.lock } : {}),
+    ...(options.release ? { release: options.release } : {}),
     dryRun: false,
     close: async () => {},
   } as unknown as Runtime;
@@ -302,6 +310,31 @@ test("the page the browser gets is a program it can parse", () => {
   for (const locale of ["ja", "en"] as const) {
     assert.doesNotThrow(() => new Function(pageScript(locale)), `the ${locale} page does not parse`);
   }
+});
+
+test("exactly two backticks in ui.ts are not escaped: the ones holding the page", () => {
+  // Three times now, a backtick written inside a *comment* has closed the
+  // literal the whole page lives in. Twice the typechecker caught it; the
+  // third time it would not have, because backticks come in pairs — a pair
+  // inside a comment closes the literal and opens a new one, which can still
+  // typecheck while splicing source code into the HTML a browser receives.
+  //
+  // So: the file is one template literal, and only its own two ends may be
+  // bare. Everything else — including prose about template literals — is
+  // escaped or rewritten.
+  const source = readFileSync(join(repoRoot(), "src/console/ui.ts"), "utf8");
+  const bare: number[] = [];
+  for (let i = 0; i < source.length; i += 1) {
+    if (source[i] !== "`") continue;
+    let slashes = 0;
+    for (let j = i - 1; j >= 0 && source[j] === "\\"; j -= 1) slashes += 1;
+    if (slashes % 2 === 0) bare.push(source.slice(0, i).split("\n").length);
+  }
+  assert.deepEqual(
+    bare.length,
+    2,
+    `expected the opening and closing backtick only, found ${bare.length} on lines ${bare.join(", ")}`,
+  );
 });
 
 test("no escape on the page was eaten by the template literal it lives in", () => {
@@ -850,5 +883,228 @@ test("a path that walks out of /go/ does not reach an authenticated route", asyn
   await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base) => {
     const response = await fetch(`${base}/go/../api/state`, { redirect: "manual" });
     assert.notEqual(response.status, 200, "traversal must not hand out state without a token");
+  });
+});
+
+/**
+ * Answers the platform's own published files, and passes everything else
+ * through to the console under test.
+ *
+ * The router reaches for the global `fetch`, which is right in production and
+ * awkward here, because the page harness uses the same global to talk to the
+ * console. Routing by host keeps both honest without an injection point that
+ * exists only for tests.
+ */
+function withUpstream<T>(pages: Readonly<Record<string, string>>, body: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch;
+  type FetchInput = Parameters<typeof fetch>[0];
+  globalThis.fetch = (async (input: FetchInput, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith("https://raw.githubusercontent.com/")) return real(input, init);
+    const page = pages[url];
+    return page === undefined ? new Response("not found", { status: 404 }) : new Response(page, { status: 200 });
+  }) as typeof fetch;
+  return body().finally(() => {
+    globalThis.fetch = real;
+  });
+}
+
+const MINE: ReleaseStamp = {
+  version: "0.2.0",
+  commit: "aaaaaaa",
+  builtAt: "2026-09-01T00:00:00.000Z",
+  upstream: "owner/release",
+};
+const UP_STAMP = "https://raw.githubusercontent.com/owner/release/main/RELEASE.json";
+const UP_LOG = "https://raw.githubusercontent.com/owner/release/main/CHANGELOG.md";
+
+test("a licensee running a copy with a fix outstanding is told so, on the page they already open", async () => {
+  // The requirement is that fixed things reach a person (requirements.md 6).
+  // Everything before this commit satisfied it in the API and nowhere a human
+  // looks, which is the same as not satisfying it.
+  await withUpstream(
+    {
+      [UP_STAMP]: JSON.stringify({ ...MINE, commit: "bbbbbbb", version: "0.3.0" }),
+      [UP_LOG]: "# Changelog\n\n## [0.3.0] - 2026-09-11\n\n### Fixed\n\n- 予約が1件だけ取り消せなかった\n",
+    },
+    async () => {
+      await withConsole(
+        { AMP_TEST_TOKEN: "a-real-token-value" },
+        async (base, handle) => {
+          const page = await openPage({ base, token: handle.token, until: "update" });
+          const html = page.html("update");
+          assert.match(html, /0\.3\.0/, "which release is waiting");
+          assert.match(html, /0\.2\.0/, "and which one they are on");
+          assert.match(html, /予約が1件だけ取り消せなかった/, "and what is actually in it");
+          assert.match(html, /<details>/, "the notes are folded away, not competing with today's two decisions");
+        },
+        { release: MINE },
+      );
+    },
+  );
+});
+
+test("the update notice renders what it fetched as text, never as markup", async () => {
+  // The notes are whatever is published at the address this copy's stamp
+  // names, and they land on a page that is already authenticated. A fork
+  // pointing `upstream` somewhere hostile must get escaped text, not a script.
+  await withUpstream(
+    {
+      [UP_STAMP]: JSON.stringify({ ...MINE, commit: "bbbbbbb", version: "0.3.0" }),
+      [UP_LOG]: '# Changelog\n\n## [0.3.0]\n\n- <img src=x onerror="alert(1)"> and <script>alert(2)</script>\n',
+    },
+    async () => {
+      await withConsole(
+        { AMP_TEST_TOKEN: "a-real-token-value" },
+        async (base, handle) => {
+          const page = await openPage({ base, token: handle.token, until: "update" });
+          const html = page.html("update");
+          assert.doesNotMatch(html, /<img/, "an img tag must not survive into the page");
+          assert.doesNotMatch(html, /<script>/, "nor a script tag");
+          assert.match(html, /&lt;img/, "it is shown, escaped, so the licensee can still read the entry");
+        },
+        { release: MINE },
+      );
+    },
+  );
+});
+
+test("a copy that is current, or cannot reach github, shows nothing at all", async () => {
+  // A box that says "no news" is a third thing on a screen whose whole promise
+  // is two decisions in thirty seconds.
+  for (const pages of [
+    { [UP_STAMP]: JSON.stringify(MINE) },
+    {} as Record<string, string>,
+  ]) {
+    await withUpstream(pages, async () => {
+      await withConsole(
+        { AMP_TEST_TOKEN: "a-real-token-value" },
+        async (base, handle) => {
+          const page = await openPage({ base, token: handle.token, until: "decision-list" });
+          assert.equal(page.html("update"), "", "nothing to say means nothing on the screen");
+        },
+        { release: MINE },
+      );
+    });
+  }
+});
+
+test("two gates left open on different days are told apart, and the older one says so", async () => {
+  // Reported from a running operation: "企画の承認 — メインアカウント" appeared
+  // twice, stacked. It was not a repeated row. Nobody approved one day, so its
+  // gate stayed open — which is the documented behaviour, the cycle is
+  // supposed to survive a human who does not come — and the next day's opened
+  // beside it. The card carried the gate and the account and nothing else, so
+  // the two were the same sentence twice.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const first = unwrap(await company.orchestrator.runCycle("main"));
+    assert.equal(first.status, "awaiting_approval");
+
+    // The next local day, with the first gate deliberately left standing.
+    company.clock.advance(24 * 60 * 60 * 1000);
+    const second = unwrap(await company.orchestrator.runCycle("main"));
+    assert.notEqual(second.id, first.id, "a new day is a new cycle");
+
+    const headers = { authorization: `Bearer ${handle.token}` };
+    const state = (await (await fetch(`${base}/api/state`, { headers })).json()) as {
+      pending: { id: string; day?: string; stale: boolean }[];
+    };
+    assert.equal(state.pending.length, 2, "both gates are still waiting");
+
+    const days = state.pending.map((entry) => entry.day);
+    assert.ok(days.every(Boolean), "every open gate has to say which day it is");
+    assert.equal(new Set(days).size, 2, "and the two days have to differ, or the screen repeats itself");
+
+    // The old one is not merely older. Approving it writes its posts, and the
+    // dispatcher publishes anything whose slot is in the past — so the whole
+    // day goes out at once, immediately. That has to be on the card before the
+    // button is pressed.
+    const older = state.pending.find((entry) => entry.day === days.slice().sort()[0]);
+    assert.equal(older?.stale, true, "a day that has passed must be marked as passed");
+    assert.equal(state.pending.find((entry) => entry !== older)?.stale, false, "and today's must not be");
+
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const html = page.html("decision-list");
+    for (const day of days) assert.ok(html.includes(day as string), `${day} has to be on the screen`);
+    assert.match(html, /もう過ぎています/, "and the operator has to be told which one is stale");
+  });
+});
+
+test("a gate for a day that has passed cannot be touched, only read", async () => {
+  // Labelling it was not enough. Reported from the running operation: the
+  // checkboxes still toggled and the button still looked pressable. Pressing
+  // it is refused by the orchestrator, but a control that can be operated and
+  // never works is worse than one that cannot — and before the hourly sweep
+  // has run the gate is still `pending`, which is the window where pressing it
+  // would have published a whole day at once.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    company.clock.advance(24 * 60 * 60 * 1000);
+    unwrap(await company.orchestrator.runCycle("main"));
+
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const html = page.html("decision-list");
+    // Split on the open tag, not "<section>": a locked one carries a class now.
+    const sections = html.split("<section").slice(1);
+    assert.equal(sections.length, 2, "both gates are drawn");
+
+    const stale = sections.find((section) => section.includes("もう過ぎています"));
+    const today = sections.find((section) => !section.includes("もう過ぎています"));
+    assert.ok(stale && today);
+
+    for (const fragment of (stale as string).match(/<input[^>]*>/g) ?? []) {
+      assert.match(fragment, /disabled/, "every box on a day that has gone is shut");
+    }
+    assert.match(stale as string, /data-act="submit"[^>]*disabled/, "and so is approving it");
+
+    // And it has to *look* shut. `disabled` on its own greys a tick and
+    // nothing else, so a card nobody can act on was indistinguishable from one
+    // they could - which is how this was reported: "it is not greyed out".
+    assert.match(html, /<section class="locked">/, "the whole gate is drawn as closed");
+    assert.match(stale as string, /class="gate-stale"/, "and the day it was for is the line that stays readable");
+
+    // Today's is untouched: the point is the day, not a blanket lockdown.
+    assert.doesNotMatch(today as string, /data-act="submit"[^>]*disabled/);
+  });
+});
+
+test("the cap on a gate is a thing you cannot exceed, not a thing you are told about afterwards", async () => {
+  // The screen said "最大 3 件" and let four be ticked; the server then refused
+  // the submission. The operator builds an invalid choice and finds out at the
+  // end — on a screen whose whole promise is thirty seconds.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const cycle = unwrap(await company.orchestrator.runCycle("main"));
+    const gate = (await company.store.decisions.get(cycle.pendingDecisionId as string))!;
+    assert.ok(gate.items.length > gate.selectionHint.max, "this test needs more ideas than the cap");
+
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const html = page.html("decision-list");
+
+    // `assisted` preselects the recommendations, and the fixture recommends up
+    // to the cap — so the page opens already full, which is exactly the state
+    // where the untouched boxes have to be closed.
+    const boxes = html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? [];
+    assert.equal(boxes.length, gate.items.length);
+    const checked = boxes.filter((box) => box.includes("checked"));
+    assert.equal(checked.length, gate.selectionHint.max, "opens at the cap");
+
+    for (const box of boxes) {
+      if (box.includes("checked")) {
+        assert.doesNotMatch(box, /disabled/, "a chosen one stays live, so a choice can be swapped");
+      } else {
+        assert.match(box, /disabled/, "an unchosen one closes while the cap is reached");
+      }
+    }
+
+    assert.match(html, /件選びました/, "and the screen says why, or it just looks broken");
+
+    // Recessed, not faded: at the cap the way out is to untick something and
+    // pick this one instead, so it still has to be readable.
+    const shutCards = html.match(/<div class="card shut">/g) ?? [];
+    assert.equal(
+      shutCards.length,
+      gate.items.length - gate.selectionHint.max,
+      "every box that closed is on a card drawn as closed",
+    );
   });
 });

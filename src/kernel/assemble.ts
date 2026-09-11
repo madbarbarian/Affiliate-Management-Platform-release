@@ -15,6 +15,7 @@ import type { Logger } from "../core/logger.ts";
 import { fail, ok, type Err, type PlatformError, type Result } from "../core/result.ts";
 import type { VentureId } from "../core/types.ts";
 import type { Clock } from "../core/clock.ts";
+import type { ReleaseStamp } from "../core/release.ts";
 import type { LoadedConfig } from "../config/load.ts";
 import type { PlatformConfig } from "../config/schema.ts";
 import { createAnthropicProvider } from "../llm/anthropic.ts";
@@ -50,6 +51,12 @@ export type Runtime = {
    */
   readonly lock?: Lock;
   readonly dryRun: boolean;
+  /**
+   * Which copy of the platform this is, when it is a released one. Undefined in
+   * a development checkout, and then the update notice has nothing to compare
+   * and stays quiet. See `src/core/release.ts`.
+   */
+  readonly release?: ReleaseStamp;
   close(): Promise<void>;
 };
 
@@ -64,6 +71,7 @@ export type AssembleParts = {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly lock?: Lock;
   readonly dryRun: boolean;
+  readonly release?: ReleaseStamp;
 };
 
 export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runtime, PlatformError>> {
@@ -147,6 +155,7 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
     orchestrator: dryRun ? orchestrator : guardWithStop(orchestrator, services, state),
     bus,
     ...(parts.lock ? { lock: parts.lock } : {}),
+    ...(parts.release ? { release: parts.release } : {}),
     dryRun,
     async close() {
       await stores.close();
@@ -219,6 +228,14 @@ export function guardWithStop(inner: Orchestrator, services: Services, state: St
 
     pendingDecisions(ventureId) {
       return inner.pendingDecisions(ventureId);
+    },
+
+    // Not gated on the stop. Expiring a gate publishes nothing and runs no
+    // role; it records that a day went by unanswered, which is as true while
+    // stopped as it is while running. Suppressing it would hand the operator a
+    // pile of gates on resume and no way to see when each one lapsed.
+    expireStaleGates() {
+      return inner.expireStaleGates();
     },
   };
 }

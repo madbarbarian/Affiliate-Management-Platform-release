@@ -504,3 +504,107 @@ test("a draft the inspector could not read is not reported as one it turned down
     "an inspection that never ran is not a rejection",
   );
 });
+
+test("a day nobody answered is closed when the day is over, not left to be approved late", async () => {
+  // The screen used to stack two identical-looking gates because a day nobody
+  // approved kept its gate. Showing the day told them apart; this is the part
+  // that stops the older one from being pressed at all.
+  //
+  // Pressing it was not merely late. Approving a past day writes its posts,
+  // and the dispatcher publishes anything whose slot is behind — so the whole
+  // day would go out at once, with the minimum spacing between posts observed
+  // by nothing. That is an accident a warning on a card does not prevent.
+  const company = createTestCompany();
+  const first = unwrap(await company.orchestrator.runCycle("main"));
+  assert.equal(first.status, "awaiting_approval");
+  const gateId = first.pendingDecisionId as string;
+  assert.ok(gateId);
+
+  // Still the same local day: nothing lapses just because time passed.
+  company.clock.advance(60 * 60 * 1000);
+  assert.deepEqual(unwrap(await company.orchestrator.expireStaleGates()).expired, []);
+  assert.equal((await company.store.decisions.get(gateId))?.status, "pending");
+
+  // The next local day.
+  company.clock.advance(24 * 60 * 60 * 1000);
+  assert.deepEqual(unwrap(await company.orchestrator.expireStaleGates()).expired, [gateId]);
+
+  const gate = await company.store.decisions.get(gateId);
+  assert.equal(gate?.status, "expired");
+  assert.ok((gate?.items.length ?? 0) > 0, "the ideas it carried are kept, not deleted with it");
+
+  const cycle = await company.store.cycles.get(first.id);
+  assert.equal(cycle?.status, "cancelled", "the cycle stops waiting for an answer that can no longer come");
+  assert.equal(cycle?.pendingDecisionId, undefined, "and nothing goes looking for a gate that will not open");
+
+  assert.equal((await company.orchestrator.pendingDecisions()).length, 0, "it is off the operator's list");
+
+  // Loudly. A day that vanishes quietly is the same failure as a day that
+  // piles up quietly: nobody finds out the two clicks a day stopped happening.
+  const audit = await company.store.audit.recent(20);
+  const lapsed = audit.find((event) => event.type === "decision.expired");
+  assert.ok(lapsed, "the record has to say the day went unanswered");
+  assert.equal(lapsed?.data["day"], first.date);
+  assert.match(lapsed?.summary ?? "", /lapsed/, "stored in English, like every other summary");
+
+  // Idempotent: the tick calls this every hour.
+  assert.deepEqual(unwrap(await company.orchestrator.expireStaleGates()).expired, []);
+});
+
+test("an expired gate cannot be approved after the fact", async () => {
+  const company = createTestCompany();
+  const cycle = unwrap(await company.orchestrator.runCycle("main"));
+  const gateId = cycle.pendingDecisionId as string;
+  const gate = (await company.store.decisions.get(gateId))!;
+
+  company.clock.advance(24 * 60 * 60 * 1000);
+  unwrap(await company.orchestrator.expireStaleGates());
+
+  const late = await company.orchestrator.resolveGate(gateId, {
+    decidedBy: "someone who came back a day later",
+    selectedIds: gate.items.slice(0, 1).map((item) => item.id),
+    nowIso: company.clock.nowIso(),
+  });
+  assert.equal(late.ok, false, "a gate that lapsed must not still publish a whole day at once");
+  // "already expired" would read as though somebody had answered it. Nobody
+  // did, the operator did nothing wrong, and the message has to say what to do
+  // instead of implying there is something to look up.
+  assert.equal(late.ok ? "" : late.error.code, "decision.expired");
+  // Names the day, so the operator can tell which gate this was about when two
+  // were open.
+  assert.match(late.ok ? "" : late.error.message, new RegExp(cycle.date));
+  assert.match(late.ok ? "" : late.error.message, /has passed/);
+});
+
+test("a gate for a past day is refused even before the sweep has marked it", async () => {
+  // The sweep runs hourly. Between midnight and the next tick an old gate is
+  // still `pending` — and approving it then writes the day's posts onto slots
+  // that have all gone, which the dispatcher publishes at once. A guard that
+  // only runs on a schedule is not a guard during the hour it has not run.
+  //
+  // The screen disables the card, and the screen is not the guard.
+  const company = createTestCompany();
+  const cycle = unwrap(await company.orchestrator.runCycle("main"));
+  const gateId = cycle.pendingDecisionId as string;
+  const gate = (await company.store.decisions.get(gateId))!;
+
+  company.clock.advance(24 * 60 * 60 * 1000);
+  // Deliberately no expireStaleGates() — this is the window before it runs.
+  assert.equal((await company.store.decisions.get(gateId))?.status, "pending");
+
+  const late = await company.orchestrator.resolveGate(gateId, {
+    decidedBy: "someone who opened yesterday's tab",
+    selectedIds: gate.items.slice(0, 1).map((item) => item.id),
+    nowIso: company.clock.nowIso(),
+  });
+  assert.equal(late.ok, false, "the whole day would have published at once");
+  assert.equal(late.ok ? "" : late.error.code, "decision.expired");
+
+  // And the stored state now agrees with the answer, rather than leaving a
+  // gate the console keeps offering and the code will never accept.
+  assert.equal((await company.store.decisions.get(gateId))?.status, "expired");
+
+  // Nothing was written on the way to refusing.
+  const drafts = await company.store.drafts.all();
+  assert.equal(drafts.length, 0, "refusing must not have started the day's work");
+});

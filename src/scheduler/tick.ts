@@ -110,6 +110,16 @@ export async function runTick(
   // from the console takes effect on the next tick, no restart.
   const ventureState = readVentureState(runtime.state);
   if (parts.cycles !== false) {
+    // Before the day's cycles, so a new day never opens beside a gate from the
+    // old one. Not gated on the stop: a day passed whether or not the platform
+    // was running, and a resume that hands back a week of gates is the pile-up
+    // this prevents. See `requirements.md` 4.
+    const lapsed = await runtime.orchestrator.expireStaleGates();
+    if (!lapsed.ok) logger.error("could not close the gates that lapsed", { error: describeError(lapsed.error) });
+    else if (lapsed.value.expired.length > 0) {
+      logger.info("gates closed unanswered", { count: lapsed.value.expired.length });
+    }
+
     for (const venture of runtime.config.ventures) {
       if (stoppedEntirely || isPaused(stop, venture.id)) continue;
       if (!isVentureActive(venture, ventureState)) continue;

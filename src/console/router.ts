@@ -15,6 +15,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { join } from "node:path";
 
+import { localDate } from "../core/clock.ts";
 import { readPause } from "../kernel/pause.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
@@ -32,6 +33,7 @@ import type { Store } from "../storage/store.ts";
 import { COMPANY_SCOPE } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
 import { fill, messagesFor, type Messages } from "./messages.ts";
+import { checkForUpdate } from "./updates.ts";
 
 export const COOKIE_NAME = "amp_console";
 export const MAX_BODY_BYTES = 256 * 1024;
@@ -93,6 +95,14 @@ export async function handleRequest(
       renderPage({ companyName: runtime.config.company.name, locale: runtime.config.console.locale }),
       { status: 200, headers },
     );
+  }
+
+  // Deliberately not part of `/api/state`: that payload is what the operator
+  // came for, it is re-fetched every 30 seconds, and it must never wait on
+  // github.com being up. This is asked for once per page load instead, and a
+  // slow or failed answer costs the notice and nothing else.
+  if (path === "/api/updates" && request.method === "GET") {
+    return json(200, await checkForUpdate(runtime.release, fetch));
   }
 
   if (path === "/api/state" && request.method === "GET") {
@@ -305,8 +315,35 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   };
 
   const decisions = await runtime.orchestrator.pendingDecisions();
+
+  // Which day each one belongs to.
+  //
+  // Two gates can be open at once and look identical: a day nobody approved
+  // leaves its gate standing, the next cycle opens its own, and both render as
+  // "企画の承認 — メインアカウント" with nothing between them. It happened in
+  // production, and the operator's reasonable read was that the page had
+  // duplicated a row.
+  //
+  // The cycle is asked rather than the id parsed. `cyc_<venture>_<date>` looks
+  // splittable until a venture id has an underscore in it, and a date is not a
+  // thing to guess at on the screen where the day is the difference.
+  // Staleness is decided here, in the account's own timezone, and never in the
+  // page: the browser's midnight belongs to whoever is reading, and an operator
+  // in another country would be told the wrong thing about somebody else's day.
+  const dayOf = new Map<string, { day: string; stale: boolean }>();
+  for (const decision of decisions) {
+    const store = await stores.for(decision.ventureId);
+    const cycle = await store.cycles.get(decision.cycleId);
+    if (!cycle) continue;
+    const zone = runtime.config.ventures.find((entry) => entry.id === decision.ventureId)?.timezone;
+    const today = localDate(runtime.services.clock.now(), zone ?? "UTC");
+    dayOf.set(decision.id, { day: cycle.date, stale: cycle.date < today });
+  }
+
   const pending = decisions.map((decision) => ({
     id: decision.id,
+    day: dayOf.get(decision.id)?.day,
+    stale: dayOf.get(decision.id)?.stale ?? false,
     gateLabel: T[decision.gate === "proposal_approval" ? "gate.proposalLabel" : "gate.publishLabel"],
     question: T[decision.gate === "proposal_approval" ? "gate.questionProposal" : "gate.questionPublish"],
     ventureName: ventureName.get(decision.ventureId) ?? decision.ventureId,
@@ -396,6 +433,10 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     ...(event.type === "cycle.failed"
       ? { failureCode: String(event.data["code"] ?? ""), failureStep: String(event.data["step"] ?? "") }
       : {}),
+    // The day, so the page can say it in the operator's language rather than
+    // showing the stored English. Which day lapsed is the whole content of
+    // this entry.
+    ...(event.type === "decision.expired" ? { day: String(event.data["day"] ?? "") } : {}),
   }));
 
   // Surfaced so the console cannot show a calm list of scheduled posts while

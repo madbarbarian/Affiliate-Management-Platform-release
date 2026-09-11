@@ -7,8 +7,8 @@
  */
 
 import { createWorker } from "./handler.ts";
-import { configSource, configText, prompts } from "./bundled.generated.ts";
+import { configSource, configText, prompts, release } from "./bundled.generated.ts";
 
 export { TickLock } from "./lock-do.ts";
 
-export default createWorker({ configSource, configText, prompts });
+export default createWorker({ configSource, configText, prompts, ...(release ? { release } : {}) });

@@ -84,6 +84,24 @@ must be in Japanese. `src/domain/market.ts` resolves this once and both
 `policy.ts` and the roles use its answer — never re-derive it somewhere else,
 and never let the merchant's own country decide the rules.
 
+**The licensee has no terminal.** `docs/1-requirements/requirements.md` §3.1 is
+the capability table — who each user is *able* to be, not what they do — and it
+says so as a decision, with what follows from it. Never design a licensee-facing
+step around a shell, `git clone`, `openssl`, or `doctor`. **And a change to how
+the product is delivered or where it runs is a change to that table**: if the
+table is not rewritten, the change is not finished. That rule exists because
+this repository already learned it expensively — a delivery change made as an
+onboarding improvement left the requirements describing a person who no longer
+existed, and four defects came out of the gap.
+
+**Anything about distribution, updates or releases reads
+`docs/3-development/taking-updates.md` first.** Which update mechanisms are
+structurally unavailable and why, what was rejected (a GitHub App holding write
+access to every licensee's repository) and on what grounds, what was decided,
+and the conditions that reopen it. Say what it already decided rather than
+reasoning from scratch — the decision can be reopened; re-deriving it by
+accident cannot.
+
 **Anything about a second person reads `docs/3-development/adding-people.md`
 first.** Users, operators, members, tenants, roles, permissions, invitations,
 sign-up, `console.operators` — read it before proposing or writing anything,
@@ -129,6 +147,19 @@ The decision can be reopened; re-deriving it by accident cannot.
   reasoning behind a change lives, and where anything needing the operator's
   judgement (a legal review, an unverified integration, a placeholder) is
   stated plainly rather than left in a commit message nobody re-reads.
+
+  **One finished thing per pull request, merged as it lands.** Open it, check
+  it is green, merge it with a **merge commit** (never squash), and say it is
+  ready to deploy. Waiting to be asked each time is what produced a branch of
+  41 commits whose title still described its first one, and left `main` behind
+  the public release repository — so a sync from `main` would have rolled
+  licensees *backwards*. A pull request nobody can hold in their head is not
+  a review, and every commit inside it is a record of what was broken and why
+  it was fixed that way; a squash throws that away.
+
+  Merging does not deploy and does not reach licensees. Deploying is
+  `npm run deploy` from a person's own machine; licensees are reached only by
+  a push to `release` or a manual run of the sync workflow.
 
 ## Working on the Claude integration
 

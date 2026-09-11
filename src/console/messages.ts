@@ -38,6 +38,15 @@ const ja = {
   "page.waitingNone": "判断待ちはありません",
   "page.asOperator": " ・ {name} として",
 
+  // The update notice. One muted line, never an alarm: the operator came here
+  // to spend thirty seconds on two decisions, and this is the licensee's
+  // business, not theirs. It is still at the top, because a notice nobody
+  // scrolls to is the silence this exists to end.
+  "update.available": "プラットフォームに更新があります（{version}）",
+  "update.since": "いまお使いなのは {version} です",
+  "update.what": "何が変わったか",
+  "update.how": "取り込み方は、リポジトリの README に書いてあります。設定ファイルは上書きされません。",
+
   // The day's own page
   "today.decisions": "あなたの判断待ち",
   "today.decisionsEmpty": "今のところ何もありません。次のサイクルが回るとここに出ます。",
@@ -50,6 +59,7 @@ const ja = {
   "today.activity": "最近の動き",
   "today.activityEmpty": "まだ記録がありません。",
   "today.activityFailed": "{step}で止まりました — {reason}",
+  "today.activityExpired": "{day} の判断は、答えのないまま日が変わりました",
   // Words the server renders. The router runs in the same process as this file
   // and reads it directly rather than shipping a second vocabulary: what a
   // screen says has to have one source, or console.locale becomes a promise
@@ -84,7 +94,15 @@ const ja = {
 
   // The two gates
   "gate.heading": "{gate} — {venture}",
+  // The day is what tells two open gates apart. A day nobody approved leaves
+  // its gate standing while the next one opens beside it, and without this the
+  // two are the same sentence twice.
+  "gate.day": "{day} の分",
+  "gate.dayStale": "{day} の分 ・ この日はもう過ぎています",
   "gate.question": "{question} 最大 {max} 件。上から順に投稿されます。",
+  // Shown when the cap is reached, beside the boxes that just closed. Without
+  // it the screen looks broken rather than full.
+  "gate.atMax": "{max} 件選びました。別のものにするには、どれかのチェックを外してください。",
   "gate.approve": "{n} 件を承認して進める",
   "gate.selectRecommended": "推奨をすべて選ぶ",
   "gate.rejectAll": "今日は全部見送る",
@@ -218,6 +236,11 @@ const en: Messages = {
   "page.waitingNone": "Nothing waiting on you",
   "page.asOperator": " · as {name}",
 
+  "update.available": "The platform has an update ({version})",
+  "update.since": "You are running {version}",
+  "update.what": "What changed",
+  "update.how": "Your repository's README says how to take it. Your config file is never overwritten.",
+
   "today.decisions": "Waiting on you",
   "today.decisionsEmpty": "Nothing right now. The next cycle will put something here.",
   "today.upcoming": "Scheduled posts",
@@ -229,6 +252,7 @@ const en: Messages = {
   "today.activity": "Recently",
   "today.activityEmpty": "Nothing recorded yet.",
   "today.activityFailed": "Stopped at {step} — {reason}",
+  "today.activityExpired": "The gate for {day} lapsed unanswered",
   "gate.proposalLabel": "Proposals",
   "gate.publishLabel": "Posts and their order",
   "gate.questionProposal": "Which of today's proposed posts should be written?",
@@ -257,7 +281,10 @@ const en: Messages = {
   "stop.howToResume": "Run {command} to start again.",
 
   "gate.heading": "{gate} — {venture}",
+  "gate.day": "For {day}",
+  "gate.dayStale": "For {day} · that day has already passed",
   "gate.question": "{question} At most {max}. They publish in this order.",
+  "gate.atMax": "{max} selected. Untick one to choose something else.",
   "gate.approve": "Approve {n} and continue",
   "gate.selectRecommended": "Select all recommended",
   "gate.rejectAll": "Reject everything today",

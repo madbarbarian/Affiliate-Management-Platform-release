@@ -22,6 +22,7 @@
 import { describeError } from "../core/result.ts";
 import { randomIds } from "../core/ids.ts";
 import { systemClock } from "../core/clock.ts";
+import type { ReleaseStamp } from "../core/release.ts";
 import { handleRequest, handleRedirect } from "../console/router.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { CYCLES_LOCK, DISPATCH_LOCK, createTickMemory, runTick } from "../scheduler/tick.ts";
@@ -41,6 +42,13 @@ export type Bundle = {
   readonly configSource: "licensee" | "example";
   readonly configText: string;
   readonly prompts: Readonly<Record<string, string>>;
+  /**
+   * Which release this Worker was built from. Undefined in a development
+   * checkout, and then the update notice has nothing to compare and says
+   * nothing - the Worker has no filesystem, so if the build did not carry this
+   * in, nothing at runtime can recover it.
+   */
+  readonly release?: ReleaseStamp;
 };
 
 export type WorkerHandlers = {
@@ -59,7 +67,7 @@ const CYCLE_CRON = "0 * * * *";
 const TICK_LOCK_TTL_MS = 20 * 60_000;
 
 export function createWorker(bundle: Bundle): WorkerHandlers {
-  const { configSource, configText, prompts } = bundle;
+  const { configSource, configText, prompts, release } = bundle;
 
   const setupResponse = (
     request: Request,
@@ -104,7 +112,7 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     // The same lock the cycles cron takes. The console can start a day too, and
     // a request that ran a cycle beside the hourly tick would draft it twice.
     const lock = env.LOCK ? durableObjectLock(env.LOCK as DurableObjectNamespace) : undefined;
-    const runtime = await createWorkerRuntime({ env, configText, prompts, ...(lock ? { lock } : {}) });
+    const runtime = await createWorkerRuntime({ env, configText, prompts, ...(lock ? { lock } : {}), ...(release ? { release } : {}) });
 
     // Built from the config, not from one binding: the owner's passphrase is
     // whatever `console.tokenEnv` names, and a second operator is a
@@ -171,7 +179,7 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
       return;
     }
 
-    const runtime = await createWorkerRuntime({ env, configText, prompts });
+    const runtime = await createWorkerRuntime({ env, configText, prompts, ...(release ? { release } : {}) });
     if (!runtime.ok) {
       console.error(JSON.stringify({ level: "error", msg: "config", error: describeError(runtime.error) }));
       await held?.release();

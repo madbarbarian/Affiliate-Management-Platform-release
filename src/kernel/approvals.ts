@@ -68,6 +68,20 @@ export function resolveDecision(
   decision: Decision,
   request: ResolutionRequest,
 ): Result<Decision, PlatformError> {
+  // Lapsed, not answered. Told apart from "somebody already decided this"
+  // because the operator did nothing wrong and there is nothing to look up:
+  // the day went by, and approving it now would publish a whole day at once
+  // on slots that are all behind. See `requirements.md` 4.
+  if (decision.status === "expired") {
+    return fail(
+      "conflict",
+      "decision.expired",
+      `Decision ${decision.id} was for a day that has passed, so it closed unanswered. ` +
+        `Today's cycle is the one to approve; nothing from that day will be published.`,
+      { retryable: false },
+    );
+  }
+
   if (decision.status !== "pending") {
     return fail("conflict", "decision.already_resolved", `Decision ${decision.id} was already ${decision.status}.`, {
       details: { decidedBy: decision.resolution?.decidedBy, decidedAt: decision.resolution?.decidedAt },

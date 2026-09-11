@@ -88,3 +88,32 @@ test("cycles and dispatch can be asked for separately", async () => {
   await runTick(runtime, createTickMemory(), runtime.services.clock.now(), { cycles: true, dispatch: false });
   assert.equal((await (await runtime.services.stores.for(VENTURE)).cycles.all()).length, 1);
 });
+
+test("the tick closes yesterday's gate before it opens today's", async () => {
+  // Everything about expiring a gate is inert unless something calls it, and
+  // in a running operation the only thing that ever does is the tick. Removing
+  // the call left every other test on this behaviour green.
+  const runtime = testRuntime(memoryState());
+  const clock = runtime.company.clock;
+  const store = await runtime.services.stores.for(VENTURE);
+
+  await runTick(runtime, createTickMemory(), clock.now());
+  const first = (await store.cycles.all())[0];
+  assert.equal(first?.status, "awaiting_approval", "nobody approved it");
+
+  // The next day, its cycle due. The gate from yesterday is still standing.
+  clock.advance(24 * 60 * 60 * 1000);
+  await runTick(runtime, createTickMemory(), clock.now());
+
+  const cycles = await store.cycles.all();
+  assert.equal(cycles.length, 2, "today opened its own cycle");
+  assert.equal(
+    cycles.find((cycle) => cycle.id === first?.id)?.status,
+    "cancelled",
+    "and yesterday's was closed rather than left beside it",
+  );
+
+  const waiting = await runtime.orchestrator.pendingDecisions();
+  assert.equal(waiting.length, 1, "exactly one gate is waiting: today's");
+  assert.equal(waiting[0]?.cycleId, cycles.find((cycle) => cycle.id !== first?.id)?.id);
+});
