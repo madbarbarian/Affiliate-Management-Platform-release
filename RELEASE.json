@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.3.0",
-  "commit": "ccea871",
-  "builtAt": "2026-09-11T23:55:54.157Z",
+  "version": "0.4.0",
+  "commit": "5e1770b",
+  "builtAt": "2026-09-12T05:10:44.141Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 23822,
-      "sha256": "8851e50f0e03ca1529389bb1ac11d789573780063c70fa8aac23afe68df64cc4"
+      "bytes": 27791,
+      "sha256": "4ed1fac097bc100bddaf871d5ba44fdd836a3d53bb399ebda90cdba3627b41ea"
     },
     {
       "path": "CLAUDE.md",
@@ -177,8 +177,8 @@
     },
     {
       "path": "docs/1-requirements/requirements.md",
-      "bytes": 40903,
-      "sha256": "ba8d5c5e9d36968131fa1a74db73510a363f83e0b599003d276195909f30bd31"
+      "bytes": 43396,
+      "sha256": "80628ad1c48e6e35ba366e8c8f35ab6d898e40c8513324ce2a64a5ed0bdf20bd"
     },
     {
       "path": "docs/2-setup/first-week.md",
@@ -242,8 +242,8 @@
     },
     {
       "path": "docs/3-development/taking-updates.md",
-      "bytes": 11193,
-      "sha256": "8cfe0fcd36573aef97ac6ccc45446277aec303f2f3f23b97e493bb06be7f459f"
+      "bytes": 11300,
+      "sha256": "fd4469984cbb784e08db7c9e26010683b60c476fe08e10d85def6cf38376dbcd"
     },
     {
       "path": "docs/4-operations/hosting.md",
@@ -257,8 +257,8 @@
     },
     {
       "path": "docs/5-project-management/decisions.md",
-      "bytes": 14556,
-      "sha256": "b016c579c1d4aa56e554a30b1b43de2381b58a4d69332bd7d2debe9df6b37758"
+      "bytes": 18948,
+      "sha256": "6c1ab8f3f2985bdbc383f775398bbe92a9ddd4d5b24feb47fdd907070dbb8cd6"
     },
     {
       "path": "docs/6-testing/.gitkeep",
@@ -293,12 +293,12 @@
     {
       "path": "package-lock.json",
       "bytes": 65350,
-      "sha256": "8ed9e708f574930964b7acb78c49f7330a0fae428c01dfb59f440f1cb0be86e3"
+      "sha256": "50c309bdcac2c2e2f01271b1e7ad2b8c41cb2433c84ebfe23ac5046c9e5fe636"
     },
     {
       "path": "package.json",
       "bytes": 1902,
-      "sha256": "cb0ed6ff1b54fb3a17b688aa643937427e769bdaaae8a5ab3cbd0fd226d879bb"
+      "sha256": "ef065b93817e5fa4541ad3509e2a0bae858a7b24dc61bc1f2a6fdb54a20d7ebd"
     },
     {
       "path": "platform.config.example.yaml",
@@ -436,6 +436,11 @@
       "sha256": "569b6e0e81a6b6e432816a865442b4a557290f7b52f7b3a199a040712f9ede28"
     },
     {
+      "path": "src/config/generate.ts",
+      "bytes": 11947,
+      "sha256": "318e1f4a0b63b83275fabe65b7210312db782f38d949d53dd8a989df13eac605"
+    },
+    {
       "path": "src/config/load.ts",
       "bytes": 5984,
       "sha256": "d8ee919b94ab71bbd0c9dbd20466e2efec858619dbc9970126d489acda3966e8"
@@ -462,8 +467,8 @@
     },
     {
       "path": "src/console/messages.ts",
-      "bytes": 21931,
-      "sha256": "b497794deeceac747241ae5d4f65d263b0269520165419a3952b9f80ebcbab3b"
+      "bytes": 26014,
+      "sha256": "98f783ce72159f77f0e4e85fdcf168685bcd91fc284f352f1cff763482a70616"
     },
     {
       "path": "src/console/operators.ts",
@@ -472,8 +477,8 @@
     },
     {
       "path": "src/console/router.ts",
-      "bytes": 36705,
-      "sha256": "1d22fde9a2d14c095be83e90092790220f053f4c1437af00e4e2c3974525986b"
+      "bytes": 41528,
+      "sha256": "7c0b65c56bd63c029cbe1570967c23a87707b8da71e97dcaa0f8b23e2d51be4d"
     },
     {
       "path": "src/console/server.ts",
@@ -481,9 +486,14 @@
       "sha256": "338c1f22a43f8d3fb24f926e0c3f67d8106a8e2c848e11abc05a120806f5ddaf"
     },
     {
+      "path": "src/console/timeline.ts",
+      "bytes": 10867,
+      "sha256": "f31de6779628547592baf384644e1942770a3e15c91fabc6db9cec05bc4fb155"
+    },
+    {
       "path": "src/console/ui.ts",
-      "bytes": 51648,
-      "sha256": "5d49404a97f357423eb887e42393f286437aceeba14d3ef90b95c6048e39d684"
+      "bytes": 62513,
+      "sha256": "10fef63d03dc9435aca222ad99c4849dc7aa880ad00bc3151e86158ce4c06ebd"
     },
     {
       "path": "src/console/updates.ts",
@@ -777,8 +787,8 @@
     },
     {
       "path": "src/worker/handler.ts",
-      "bytes": 11684,
-      "sha256": "ff461f4d25b5b46df20a698a525597f26f843578b2b4282be4909588e192c2ae"
+      "bytes": 14715,
+      "sha256": "8bd0b8470e7e380d99cfe64c20dcc9f8f3f449a9497c6808f7e1ceeecf5cf1aa"
     },
     {
       "path": "src/worker/index.ts",
@@ -797,8 +807,8 @@
     },
     {
       "path": "src/worker/setup.ts",
-      "bytes": 6673,
-      "sha256": "e6e3d7d7675d7faeaf83ba65425cf6cae6ec0d814f891698c4c1235895002162"
+      "bytes": 15883,
+      "sha256": "07c63a9f0a9188ac7eae84d2778c3e4ae50e4f5983ee405aceb256d8e6f3a478"
     },
     {
       "path": "test/anthropic.test.ts",
@@ -832,8 +842,8 @@
     },
     {
       "path": "test/console.test.ts",
-      "bytes": 56492,
-      "sha256": "bc150152e12f1fde95f0dc2eb044bde0097e04d075e2bf32050c9ad01ee33857"
+      "bytes": 64571,
+      "sha256": "08d3dbdf0cfa7b7cf3e4a55d492aa57a53c82aa5ff713f9e841d60c9710f59c5"
     },
     {
       "path": "test/csv.test.ts",
@@ -844,6 +854,11 @@
       "path": "test/exploration.test.ts",
       "bytes": 17457,
       "sha256": "3612281c735f4f1d7aaaec773404dce5914fa10eb17c458106d97503faab4c09"
+    },
+    {
+      "path": "test/generate.test.ts",
+      "bytes": 7434,
+      "sha256": "daf9b51afb30904b7631f8cf977b0543fe2720da2d2d9ac878b3ce555b0b9d76"
     },
     {
       "path": "test/helpers.ts",
@@ -936,14 +951,19 @@
       "sha256": "fbc66675039418b5bcbe1f6b2dae87badb8f15faf1c80f9dc2e586d498be1422"
     },
     {
+      "path": "test/timeline.test.ts",
+      "bytes": 8648,
+      "sha256": "7a5a8e19073a00a2570051ef9f986a02ae41e28c9fa90f6c1d2e06d94824f155"
+    },
+    {
       "path": "test/updates.test.ts",
       "bytes": 6750,
       "sha256": "9725a70c7883575edd4baf845da67ff06fd324ea75df09da2d6e1226592a9d22"
     },
     {
       "path": "test/worker.test.ts",
-      "bytes": 16719,
-      "sha256": "53076b5bde0737a9bbb4ccc8d465d8b163e987cc42cb1a4d7956b70f0e51d7ae"
+      "bytes": 22945,
+      "sha256": "1ffdc6da1d7928b2d6c0c1f3168a5a8ca83a0d551c2484e8e31d164e11a92702"
     },
     {
       "path": "test/yaml.test.ts",

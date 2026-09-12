@@ -337,6 +337,44 @@ test("exactly two backticks in ui.ts are not escaped: the ones holding the page"
   );
 });
 
+test("every CSS variable the page uses is one the page defines", () => {
+  // A colour written as var(--fg) when the token is --ink typechecks, renders,
+  // and passes every test here: the browser silently drops the declaration and
+  // the element inherits whatever was above it. Nothing in a text assertion can
+  // see that, so the names are checked against each other directly.
+  const page = renderPage({ companyName: "テスト" });
+  const style = page.slice(page.indexOf("<style>"), page.indexOf("</style>"));
+
+  const names = (pattern: RegExp): string[] =>
+    [...style.matchAll(pattern)].flatMap((m) => (m[1] === undefined ? [] : [m[1]]));
+
+  const defined = new Set(names(/(--[a-z-]+)\s*:/g));
+  const undefinedNames = new Set(names(/var\((--[a-z-]+)/g).filter((name) => !defined.has(name)));
+  assert.deepEqual(
+    [...undefinedNames],
+    [],
+    `the page reads CSS variables it never defines: ${[...undefinedNames].join(", ")}`,
+  );
+});
+
+test("who you are approving as is not drawn as part of the day's status", () => {
+  // These were one grey span joined by "・": a name that never changes all
+  // session sitting at the same weight as a count that changes on every poll.
+  // The name read as a role, and both got skipped. They are separate elements
+  // now, and the count lives against the heading of the thing it counts.
+  const page = renderPage({ companyName: "テスト" });
+
+  const header = page.slice(page.indexOf("<header>"), page.indexOf("</header>"));
+  assert.match(header, /id="who"/, "the operator's name belongs in the header furniture");
+  assert.doesNotMatch(header, /id="decision-count"/, "the count does not belong in the header");
+
+  const decisions = page.slice(page.indexOf('<section id="decisions">'), page.indexOf('<div id="decision-list"'));
+  assert.match(decisions, /id="decision-count"/, "the count belongs against the heading it counts");
+
+  // The one place a count is worth having is a tab nobody is looking at.
+  assert.match(page, /document\.title = .*baseTitle/, "a background tab should say how many are waiting");
+});
+
 test("no escape on the page was eaten by the template literal it lives in", () => {
   // ui.ts is one template literal, so `\w` reaches the browser as `w`. Both of
   // these still *parse*, which is why the test above cannot see them:
@@ -1106,5 +1144,117 @@ test("the cap on a gate is a thing you cannot exceed, not a thing you are told a
       gate.items.length - gate.selectionHint.max,
       "every box that closed is on a card drawn as closed",
     );
+  });
+});
+
+test("a day can be read back from the console, and only that account's", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "tok-timeline" }, async (base, _handle, company) => {
+    const auth = { cookie: "amp_console=tok-timeline" };
+    const cycle = unwrap(await company.orchestrator.runCycle("main"));
+
+    const ok = await fetch(`${base}/api/ventures/main/cycles/${cycle.date}`, { headers: auth });
+    assert.equal(ok.status, 200);
+    const day = (await ok.json()) as { entries: { step: string; items: { detail: string }[] }[] };
+
+    // What the operating promise is actually about: not that the day ran, but
+    // that a person can read why each idea was argued for.
+    const plan = day.entries.find((entry) => entry.step === "plan");
+    assert.ok(plan, "the planning step is there");
+    assert.ok(plan.items.length > 0, "with the ideas themselves");
+    assert.match(plan.items[0]?.detail ?? "", /根拠:/);
+
+    const missing = await fetch(`${base}/api/ventures/main/cycles/1999-01-01`, { headers: auth });
+    assert.equal(missing.status, 404);
+
+    // An account that is not in the config cannot be used to reach a store.
+    const stranger = await fetch(`${base}/api/ventures/not-an-account/cycles/${cycle.date}`, { headers: auth });
+    assert.equal(stranger.status, 404);
+
+    // The same wall as every other route: a day's ideas are not public.
+    const anonymous = await fetch(`${base}/api/ventures/main/cycles/${cycle.date}`);
+    assert.equal(anonymous.status, 401);
+  });
+});
+
+test("reading a day back is not on the path the operator walks every morning", async () => {
+  // The product promises two decisions a day at thirty seconds each. This
+  // screen reads five collections for one date; putting it in the payload the
+  // day's page re-fetches every 30 seconds is how that promise gets lost.
+  await withConsole({ AMP_TEST_TOKEN: "tok-sep" }, async (base, _handle, company) => {
+    const auth = { cookie: "amp_console=tok-sep" };
+    unwrap(await company.orchestrator.runCycle("main"));
+
+    const state = (await (await fetch(`${base}/api/state`, { headers: auth })).json()) as Record<string, unknown>;
+    assert.equal(state["timeline"], undefined, "the day's own payload does not carry it");
+    assert.ok(Array.isArray(state["pending"]), "and still carries what the operator came for");
+  });
+});
+
+test("the two settings that decide what actually happens are visible, and say so", async () => {
+  // Until this screen existed, neither was anywhere on the page: a licensee
+  // could be running unattended, or running on the simulated model with nothing
+  // real being written, and have no way to find that out from the console.
+  await withConsole({ AMP_TEST_TOKEN: "tok-settings" }, async (base) => {
+    const response = await fetch(`${base}/api/settings`, { headers: { cookie: "amp_console=tok-settings" } });
+    assert.equal(response.status, 200);
+    const settings = (await response.json()) as {
+      autonomy: string;
+      llm: { provider: string };
+      operators: string[];
+      policy: { requireDisclosure: boolean };
+      configPath: string;
+    };
+
+    assert.ok(["manual", "assisted", "auto"].includes(settings.autonomy));
+    assert.ok(["mock", "anthropic"].includes(settings.llm.provider));
+    // Resolved for this request, not read from process.env - there is no
+    // process on a Worker, and that band is where this project's bugs live.
+    assert.ok(settings.operators.length > 0, "whoever can approve is named");
+    assert.equal(typeof settings.policy.requireDisclosure, "boolean");
+    assert.ok(settings.configPath, "and where to change any of it");
+  });
+});
+
+test("the settings are not secrets, and not a second place to change them", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "tok-ro" }, async (base) => {
+    const auth = { cookie: "amp_console=tok-ro" };
+
+    // Same wall as every other route.
+    assert.equal((await fetch(`${base}/api/settings`)).status, 401);
+
+    // Read-only by design: the config file is the one answer to "what is my
+    // configuration" (requirements 3.1), and a second writer makes it two.
+    const written = await fetch(`${base}/api/settings`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ autonomy: "auto" }),
+    });
+    assert.notEqual(written.status, 200, "there is no way to write settings from the console");
+
+    // No credential is echoed back. The passphrases are how the console is
+    // entered at all, and the operator names are deliberately not them.
+    const body = await (await fetch(`${base}/api/settings`, { headers: auth })).text();
+    assert.doesNotMatch(body, /tok-ro/, "a token must never appear in a payload");
+    assert.doesNotMatch(body, /apiKey|ANTHROPIC_API_KEY/, "nor the name of a key's value");
+  });
+});
+
+test("running on the simulated model says so on the settings screen", async () => {
+  // The claim this screen was built for, exercised through the real page script
+  // rather than the payload: a licensee on the mock is reading writing that is
+  // not writing, and nothing anywhere told them. Asserting only that the route
+  // returns "mock" would pass with the whole row rendered wrong.
+  await withConsole({ AMP_TEST_TOKEN: "tok-mockrow" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, hash: "#/settings", until: "settings-body" });
+    const body = page.html("settings-body");
+
+    assert.match(body, /模擬です/, "the model row says the writing is not real");
+    assert.match(body, /class="loud"/, "and says it loudly, not as one grey row among eight");
+
+    // The rest of the screen still rendered, so this is not a page that fell
+    // over before reaching the rows that matter.
+    assert.match(body, /機械に任せている範囲/);
+    assert.match(body, /リンクの行き先/);
+    assert.doesNotMatch(body, /\{(model|fastModel|effort|posts|minutes|smell)\}/, "no placeholder reached the screen");
   });
 });

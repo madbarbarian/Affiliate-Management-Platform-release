@@ -23,7 +23,7 @@ import { describeError } from "../core/result.ts";
 import { randomIds } from "../core/ids.ts";
 import { systemClock } from "../core/clock.ts";
 import type { ReleaseStamp } from "../core/release.ts";
-import { handleRequest, handleRedirect } from "../console/router.ts";
+import { COOKIE_NAME, handleRequest, handleRedirect } from "../console/router.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { CYCLES_LOCK, DISPATCH_LOCK, createTickMemory, runTick } from "../scheduler/tick.ts";
 import { createSqlRegistry } from "../storage/sql-store.ts";
@@ -32,6 +32,7 @@ import { durableObjectLock, type DurableObjectNamespace } from "./lock-do.ts";
 import { createWorkerRuntime, type WorkerEnv } from "./runtime.ts";
 import { resolveOperators } from "../console/operators.ts";
 import { renderSetup } from "./setup.ts";
+import { generateConfig, marketsWithAnOffer } from "../config/generate.ts";
 
 /**
  * What the build put in the Worker. Passed in rather than imported here so a
@@ -79,7 +80,7 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     if (token && !authorised(request, url, token)) {
       return html(401, "<p>合言葉が要ります。Cloudflare で設定した AMP_CONSOLE_TOKEN を <code>?token=…</code> に付けて開いてください。</p>");
     }
-    return html(
+    const page = html(
       200,
       renderSetup({
         configured: configSource === "licensee",
@@ -88,7 +89,73 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
         hasModelKey: hasModelKey(env),
         hasConsoleToken: Boolean(token),
         address: url.origin,
+        markets: marketsWithAnOffer(configText),
       }),
+    );
+    // The same cookie the console page hands out, for the same reason and one
+    // more: the setup form POSTs to /setup, which carries no ?token=, so
+    // without this the licensee fills the form and the submission is refused -
+    // in exactly the state this page tells them to reach.
+    if (token && url.searchParams.get("token") === token) {
+      page.headers.append(
+        "set-cookie",
+        `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
+      );
+    }
+    return page;
+  };
+
+  const setupSubmission = async (
+    request: Request,
+    env: WorkerEnv,
+    url: URL,
+    token: string | undefined,
+    template: string,
+  ): Promise<Response> => {
+    if (token && !authorised(request, url, token)) {
+      return html(401, "<p>合言葉が要ります。この画面をもう一度開き直してください。</p>");
+    }
+    // A body that is not a form throws out of formData(), and a throw here
+    // leaves the Worker returning its own error page instead of a Response.
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return html(400, "<p>フォームの内容を読み取れませんでした。画面を開き直して、もう一度お試しください。</p>");
+    }
+    const read = (name: string): string => String(form.get(name) ?? "").trim();
+    const answers = {
+      companyName: read("companyName"),
+      operatorName: read("operatorName"),
+      ventureId: read("ventureId"),
+      ventureName: read("ventureName"),
+      niche: read("niche"),
+      audience: read("audience"),
+      market: read("market"),
+      persona: read("persona"),
+      firstPerson: read("firstPerson"),
+      // Filled in from where this Worker is actually answering rather than
+      // asked for: the licensee is standing on the address already, and the
+      // measurement path stays broken until something real is in this field.
+      trackingBaseUrl: url.origin,
+    };
+    const generated = generateConfig(template, answers, {});
+    const base = {
+      configured: false,
+      hasDatabase: Boolean(env.DB),
+      hasModelKey: hasModelKey(env),
+      hasConsoleToken: Boolean(token),
+      address: url.origin,
+      markets: marketsWithAnOffer(template),
+      answers,
+    };
+    return html(
+      generated.ok ? 200 : 400,
+      renderSetup(
+        generated.ok
+          ? { ...base, generated: generated.value }
+          : { ...base, formProblem: generated.error.message },
+      ),
     );
   };
 
@@ -105,6 +172,12 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     const token = readToken(env);
 
     if (configSource !== "licensee") {
+      // The setup form, answered. The Worker cannot save the result - a read
+      // only filesystem - so this only builds the file and hands it back; the
+      // licensee carries it to their own repository, where saving is a deploy.
+      if (request.method === "POST" && url.pathname === "/setup") {
+        return setupSubmission(request, env, url, token, configText);
+      }
       // No links can exist yet, so there is nothing for the redirect to serve.
       return setupResponse(request, env, url, token, undefined);
     }

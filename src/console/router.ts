@@ -23,14 +23,16 @@ import { engagementScore } from "../domain/engagement.ts";
 import { formatMoney, revenueByPost, totalCounts, totalsByCurrency } from "../affiliate/attribution.ts";
 import { latestMetricByPost } from "../domain/performance.ts";
 import { buildPortfolio } from "../domain/portfolio.ts";
+import { findMarket, resolveCompliance } from "../domain/market.ts";
 import { appendVentureBlock, listProposals, markAppended, renderVentureBlock, resolveProposal } from "../kernel/exploration.ts";
 import { deactivateVenture, reactivateVenture } from "../kernel/venture-state.ts";
 import { CYCLES_LOCK } from "../scheduler/tick.ts";
 import type { Operator } from "./operators.ts";
 import type { Runtime } from "../runtime.ts";
+import { buildTimeline, type Timeline } from "./timeline.ts";
 import type { Services } from "../kernel/role.ts";
 import type { Store } from "../storage/store.ts";
-import { COMPANY_SCOPE } from "../core/types.ts";
+import { COMPANY_SCOPE, type VentureId } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
 import { fill, messagesFor, type Messages } from "./messages.ts";
 import { checkForUpdate } from "./updates.ts";
@@ -109,6 +111,78 @@ export async function handleRequest(
     // `you` so the page can say whose passphrase this is. Everything approved
     // from here is recorded against that name.
     return json(200, { ...(await buildState(runtime)), you: actor });
+  }
+
+  // What is in force for the whole company. Its own request for the same reason
+  // as the timeline: static config does not belong in a payload re-fetched
+  // every thirty seconds. Read-only - the config file stays the one answer to
+  // "what is my configuration" (requirements 3.1).
+  if (path === "/api/settings" && request.method === "GET") {
+    const { config } = runtime;
+    return json(200, {
+      configPath: runtime.loaded.path,
+      companyName: config.company.name,
+      operator: config.company.operator,
+      // The two that decide what actually happens, and neither was visible
+      // anywhere on this screen: a licensee could be running unattended, or
+      // running on the simulated model, and have no way to find out.
+      autonomy: config.company.autonomy,
+      llm: {
+        provider: config.llm.provider,
+        model: config.llm.model,
+        fastModel: config.llm.fastModel,
+        effort: config.llm.effort,
+      },
+      policy: {
+        requireDisclosure: config.policy.requireDisclosure,
+        maxAiSmellScore: config.policy.maxAiSmellScore,
+        maxPostsPerDay: config.policy.maxPostsPerDay,
+        minMinutesBetweenPosts: config.policy.minMinutesBetweenPosts,
+        bannedPhrases: config.policy.bannedPhrases.length,
+      },
+      // The disclosure and the claims are NOT company-wide, and reporting
+      // `config.policy` for them was this file re-deriving compliance - which
+      // CLAUDE.md forbids in as many words. They are resolved per market by
+      // src/domain/market.ts, so a US venture is owed a different disclosure
+      // and three more prohibited claims than the company list holds. One row
+      // per market, from the one function that is allowed to answer.
+      compliance: config.ventures.map((venture) => {
+        const resolved = resolveCompliance({
+          policy: config.policy,
+          market: findMarket(config.markets, venture.market),
+        });
+        return {
+          venture: venture.id,
+          market: venture.market,
+          disclosureText: resolved.disclosureText,
+          prohibitedClaims: resolved.prohibitedClaims.length,
+          regulator: resolved.regulator,
+        };
+      }),
+      trackingBaseUrl: config.tracking.baseUrl,
+      ventures: config.ventures.length,
+      markets: config.markets.map((market) => market.id),
+      // From the operators this request was already resolved against, not from
+      // process.env - there is no process on a Worker, and that is exactly the
+      // band where this project's elementary bugs have lived.
+      operators: operators.map((entry) => entry.name),
+    });
+  }
+
+  // One day, read back. Deliberately its own request rather than a field on
+  // `/api/state`: it reads five collections for one date, and the day's screen
+  // - which polls every 30 seconds - must not pay for a question almost nobody
+  // asks. Nobody reaches it without clicking a date in an account's history.
+  const timelineMatch = /^\/api\/ventures\/([^/]+)\/cycles\/([^/]+)$/.exec(path);
+  if (timelineMatch && request.method === "GET") {
+    const ventureId = decodeURIComponent(timelineMatch[1] as string);
+    const date = decodeURIComponent(timelineMatch[2] as string);
+    if (!runtime.config.ventures.some((venture) => venture.id === ventureId)) {
+      return json(404, { error: `アカウント ${ventureId} は設定にありません。` });
+    }
+    const timeline = await readTimeline(runtime, ventureId, date);
+    if (!timeline) return json(404, { error: `${date} のサイクルはありません。` });
+    return json(200, timeline);
   }
 
   const resolveMatch = /^\/api\/decisions\/([^/]+)\/resolve$/.exec(path);
@@ -689,6 +763,30 @@ function buildPostText(detail: Readonly<Record<string, unknown>>): string {
   return [readText(detail, "hook"), ...parts, readText(detail, "cta"), readText(detail, "disclosure")]
     .filter((part) => part !== "")
     .join("\n\n");
+}
+
+/**
+ * Gathers the one day the timeline describes.
+ *
+ * Scoped to the account throughout - `stores.for(ventureId)` - so this can never
+ * become a way to read another account's ideas by asking for its date. The
+ * collections are filtered by `cycleId` rather than trusted to hold one day.
+ */
+async function readTimeline(runtime: Runtime, ventureId: string, date: string): Promise<Timeline | undefined> {
+  const store = await runtime.services.stores.for(ventureId as VentureId);
+  const cycles = await store.cycles.find((cycle) => cycle.date === date);
+  const cycle = cycles[0];
+  if (!cycle) return undefined;
+
+  const drafts = await store.drafts.find((draft) => draft.cycleId === cycle.id);
+  return buildTimeline({
+    cycle,
+    ideas: await store.ideas.find((idea) => idea.cycleId === cycle.id),
+    drafts,
+    inspections: await store.inspections.forCycle(drafts.map((draft) => draft.id)),
+    posts: await store.posts.find((post) => post.cycleId === cycle.id),
+    decisions: await store.decisions.find((decision) => decision.cycleId === cycle.id),
+  });
 }
 
 function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): string {

@@ -150,6 +150,41 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
    */
   section.locked .card { opacity: .5; }
   .gate-stale { color: var(--warn); font-weight: 600; }
+  /*
+   * Furniture, not content. It sits beside the refresh button and reads as part
+   * of the frame, so it is quiet - but it is the name that lands in the audit
+   * log, so it is not as quiet as .muted.
+   */
+  .who { color: var(--ink); font-size: 13px; background: var(--chip); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  /*
+   * Against the heading, so the number and the thing it counts are read as one.
+   * Same weight as the heading it modifies; it is a fact, not an alarm.
+   */
+  .count { margin-left: 8px; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink); background: var(--chip); border-radius: 999px; padding: 2px 9px; vertical-align: middle; }
+  /*
+   * A day read back. Quiet on purpose - it is reference, not a thing to act on,
+   * and nothing here competes with the two decisions on the other screen.
+   */
+  .linky { background: none; border: 0; color: var(--accent); font-size: 12px; padding: 0 0 0 10px; cursor: pointer; }
+  .tl-step { border-left: 2px solid var(--line); padding: 0 0 14px 14px; margin-left: 4px; font-size: 13px; }
+  .tl-step:last-child { padding-bottom: 0; }
+  /* The two gates. A person decided these, and that is the distinction. */
+  .tl-step.human { border-left-color: var(--accent); }
+  .tl-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .tl-items { margin-top: 6px; }
+  .tl-item { display: flex; gap: 8px; padding: 3px 0; align-items: baseline; }
+  .tl-item .mark { color: var(--muted); flex: none; width: 1.2em; }
+  .tl-item.chosen .mark { color: var(--accent); }
+  /* Refused by the guardrails. Still listed: what was stopped is part of why. */
+  .tl-item.blocked b { color: var(--danger); }
+  nav { display: flex; gap: 14px; }
+  nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+  nav a:hover { color: var(--ink); }
+  /* The company's settings reuse the account's .field rows further down: they
+     are the same kind of screen, and a second set of styles for them would drift.
+     Only this is new - two of those rows decide what actually happens, and are
+     allowed to say so when they are set to something worth knowing about. */
+  .loud { color: var(--warn); font-weight: 600; }
   .stopped { border-color: var(--danger); border-left-width: 3px; margin-bottom: 22px; }
   .stopped b { color: var(--danger); }
   .stopped code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
@@ -180,8 +215,16 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
 <body>
 <header>
   <h1>${escapeHtml(options.companyName)}</h1>
-  <span class="muted" id="subtitle">${escapeHtml(t("page.loading"))}</span>
   <span style="flex:1"></span>
+  <!-- Who you are approving as sits in the furniture, next to the refresh
+       button, because it does not change all session and every other tool puts
+       it here. It used to share a grey span with the waiting count, where a
+       name read as a role and both were skipped. -->
+  <!-- Two views became three, which is where a way between them starts to
+       earn its place. Links rather than buttons: they are navigation, and the
+       browser's back button should work on them. -->
+  <nav><a href="#/">${escapeHtml(t("nav.today"))}</a><a href="#/settings">${escapeHtml(t("nav.settings"))}</a></nav>
+  <span class="who" id="who" hidden></span>
   <button id="refresh">${escapeHtml(t("page.refresh"))}</button>
 </header>
 <main>
@@ -193,7 +236,10 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
 
 <div id="view-today">
   <section id="decisions">
-    <h2>${escapeHtml(t("today.decisions"))}</h2>
+    <!-- The count belongs against the thing being counted, with the list right
+         underneath. In the header it was a second copy of what the reader was
+         already looking at. -->
+    <h2>${escapeHtml(t("today.decisions"))}<span class="count" id="decision-count" hidden></span></h2>
     <div id="decision-list"><p class="empty">${escapeHtml(t("page.loading"))}</p></div>
   </section>
 
@@ -258,10 +304,22 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
     <div id="venture-switch"></div>
   </section>
 </div>
+
+<div id="view-settings" hidden>
+  <p><a class="back" href="#/">${escapeHtml(t("venture.back"))}</a></p>
+  <section>
+    <h2>${escapeHtml(t("settings.heading"))}</h2>
+    <p class="muted">${escapeHtml(t("settings.lede"))}</p>
+    <div id="settings-body"><p class="empty">${escapeHtml(t("page.loading"))}</p></div>
+  </section>
+</div>
 </main>
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
+// Captured before anything prefixes a count onto it, so repeated renders do not
+// stack "(1) (1) ".
+const baseTitle = document.title;
 let state = null;
 /** decisionId -> { selected: Set<string>, order: string[] } */
 const draft = new Map();
@@ -511,12 +569,26 @@ function renderDecision(decision) {
 
 function render() {
   if (!state) return;
-  $("subtitle").textContent =
-    (state.pending.length > 0 ? fmt("page.waitingCount", { n: state.pending.length }) : T["page.waitingNone"]) +
-    // Whose passphrase this is. The audit log records this name against
-    // everything approved here, so it has to be visible before pressing, not
-    // discoverable afterwards.
-    (state.you ? fmt("page.asOperator", { name: state.you }) : "");
+  // Whose passphrase this is. The audit log records this name against
+  // everything approved here, so it has to be visible before pressing, not
+  // discoverable afterwards.
+  const who = $("who");
+  who.textContent = state.you ?? "";
+  who.title = T["page.operatorTitle"];
+  who.hidden = !state.you;
+
+  const waiting = state.pending.length;
+  const count = $("decision-count");
+  count.textContent = String(waiting);
+  count.title = fmt("page.waitingCount", { n: waiting });
+  // No "(0)" next to the heading: the empty list below already says it, and a
+  // zero badge is a thing to read that carries nothing.
+  count.hidden = waiting === 0;
+
+  // The one place a count earns its keep is when nobody is looking at the page.
+  // A background tab said only the company name, so a day's work could sit here
+  // unanswered with the tab open the whole time.
+  document.title = (waiting > 0 ? "(" + waiting + ") " : "") + baseTitle;
 
   // A stop belongs above everything, including the decisions: approving while
   // stopped is refused, and finding that out by pressing the button is a worse
@@ -789,10 +861,130 @@ function move(entry, itemId, delta) {
   entry.order.splice(target, 0, removed);
 }
 
+/**
+ * What is in force for the whole company, to read.
+ *
+ * Two of these rows are why this screen exists. Until now neither the autonomy
+ * setting nor the model provider appeared anywhere on this page, so a licensee could be
+ * running unattended, or running on the simulated model with nothing real being
+ * written, and have no way to find that out from the console. Those two say so
+ * in the warning colour when they are set to something worth knowing; the rest
+ * is reference.
+ */
+function renderSettings(s) {
+  const row = (label, value, where) =>
+    '<div class="field"><div class="label">' + esc(label) + "</div><div>" + value + "</div>" +
+    (where ? '<div class="where">' + esc(where) + "</div>" : "") + "</div>";
+  const loud = (text) => '<span class="loud">' + text + "</span>";
+
+  const autonomy = s.autonomy === "auto" ? loud(T["settings.autonomyAuto"])
+    : s.autonomy === "manual" ? esc(T["settings.autonomyManual"])
+    : esc(T["settings.autonomyAssisted"]);
+
+  const model = s.llm.provider === "mock"
+    ? loud(T["settings.modelMock"])
+    : esc(fmt("settings.modelReal", { model: s.llm.model, fastModel: s.llm.fastModel, effort: s.llm.effort }));
+
+  // The same hostname doctor refuses. Left at the example's placeholder every
+  // tracked link in every post goes nowhere, and no click is ever counted.
+  const trackingBad = /example\\.invalid/.test(s.trackingBaseUrl) || !/^https:/.test(s.trackingBaseUrl);
+  const tracking = esc(s.trackingBaseUrl) + (trackingBad ? "<br>" + loud(T["settings.trackingBad"]) : "");
+
+  const who = s.operators.length === 1
+    ? fmt("settings.operatorOne", { name: s.operators[0] })
+    : fmt("settings.operatorMany", { names: s.operators.join(T["punct.sep"]), n: s.operators.length });
+
+  return '<div class="card">' +
+    row(T["settings.autonomy"], autonomy, "company.autonomy") +
+    row(T["settings.model"], model, "llm.provider") +
+    row(T["settings.operator"], esc(who), "company.operator") +
+    row(
+      T["settings.disclosure"],
+      s.policy.requireDisclosure ? esc(s.policy.disclosureText) : loud(T["settings.disclosureOff"]),
+      "policy.disclosureText",
+    ) +
+    row(T["settings.limits"], esc(fmt("settings.limitsValue", {
+      posts: s.policy.maxPostsPerDay, minutes: s.policy.minMinutesBetweenPosts, smell: s.policy.maxAiSmellScore,
+    })), "policy") +
+    row(T["settings.words"], esc(fmt("settings.wordsValue", {
+      banned: s.policy.bannedPhrases, prohibited: s.policy.prohibitedClaims,
+    })), "policy.bannedPhrases") +
+    row(T["settings.tracking"], tracking, "tracking.baseUrl") +
+    row(T["settings.scale"], esc(fmt("settings.scaleValue", {
+      ventures: s.ventures, markets: s.markets.join(", "),
+    })), "ventures / markets") +
+  "</div>" +
+  '<p class="muted">' + fmt("setup.editInFile", { path: esc(s.configPath) }) + "</p>";
+}
+
+// What is open in the timeline, so the 30-second poll's re-render can put it
+// back instead of closing it.
+let openTimelineDate = "";
+let openTimelineHtml = "";
+
+/**
+ * A day, read back. Each role in the order it ran, what it said, and what it
+ * produced - with the two gates marked as a person's decision rather than the
+ * machine's, because that is the distinction the whole screen exists to show.
+ */
+function renderTimeline(day) {
+  const seconds = (ms) => (ms / 1000).toFixed(1) + "s";
+  return '<div class="card tl">' +
+    day.entries.map((entry) => {
+      const items = (entry.items ?? []).map((item) =>
+        '<div class="tl-item' + (item.blocked ? " blocked" : "") + (item.chosen ? " chosen" : "") + '">' +
+        (entry.byHuman ? '<span class="mark">' + (item.chosen ? "✓" : "—") + "</span>" : "") +
+        "<span><b>" + esc(item.title) + "</b>" +
+        (item.detail ? '<span class="muted"> ' + esc(item.detail) + "</span>" : "") +
+        "</span></div>").join("");
+      return '<div class="tl-step' + (entry.byHuman ? " human" : "") + '">' +
+        '<div class="tl-head"><b>' + esc(cycleStepLabel(entry.step)) + "</b>" +
+        '<span class="muted">' + esc(entry.startedAt.slice(11, 16)) + T["punct.sep"] + seconds(entry.durationMs) + "</span>" +
+        (entry.byHuman ? '<span class="chip">' + esc(T["timeline.byHuman"]) + "</span>" : "") +
+        "</div>" +
+        (entry.note ? '<div class="muted">' + esc(entry.note) + "</div>" : "") +
+        entry.said.map((line) => "<div>" + esc(line) + "</div>").join("") +
+        (items ? '<div class="tl-items">' + items + "</div>" : "") +
+      "</div>";
+    }).join("") +
+    (day.failure
+      ? '<div class="tl-step"><div class="err">' + esc(failureSummary(day.failure.code).short) +
+        T["punct.sep"] + esc(day.failure.message) + "</div></div>"
+      : "") +
+  "</div>";
+}
+
 document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-act]");
   if (!target) return;
   const act = target.dataset.act;
+
+  // Handled before the decision lookup below, which returns early for anything
+  // without a data-decision. This one belongs to a date, not to a gate.
+  if (act === "timeline") {
+    const ventureId = routedVentureId();
+    const box = $("timeline");
+    const already = openTimelineDate === target.dataset.date;
+    openTimelineDate = already ? "" : target.dataset.date;
+    box.dataset.date = openTimelineDate;
+    if (already) {
+      openTimelineHtml = "";
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = '<p class="empty">' + esc(T["page.loading"]) + "</p>";
+    try {
+      const day = await api(
+        "/api/ventures/" + encodeURIComponent(ventureId) + "/cycles/" + encodeURIComponent(target.dataset.date),
+      );
+      openTimelineHtml = renderTimeline(day);
+    } catch (error) {
+      openTimelineHtml = '<p class="err">' + esc(error.message ?? error) + "</p>";
+    }
+    box.innerHTML = openTimelineHtml;
+    return;
+  }
+
   const decisionId = target.dataset.decision;
   const decision = state?.pending.find((d) => d.id === decisionId);
   if (!decision) return;
@@ -913,9 +1105,18 @@ function renderVenture(v) {
             (cycle.failureStep ? fmt("punct.paren", { text: cycleStepLabel(cycle.failureStep) }) : "")
           : cycleStatusLabel(cycle.status) +
             (cycle.published > 0 ? T["punct.sep"] + fmt("venture.published", { n: cycle.published }) : "");
+        // The way in to the day. Not a button and not on the daily path: this
+        // answers "why did it propose that", which only comes up when something
+        // looks wrong, and the operator's thirty seconds are on the other screen.
         return '<div><span class="when">' + esc(cycle.date) + "</span><span" +
-          (failed ? ' class="bad"' : "") + ">" + esc(what) + "</span></div>";
-      }).join("") + "</div>";
+          (failed ? ' class="bad"' : "") + ">" + esc(what) + "</span>" +
+          '<button class="linky" data-act="timeline" data-date="' + esc(cycle.date) + '">' +
+          esc(T["timeline.open"]) + "</button></div>";
+      }).join("") + "</div>" +
+      // Carried across the re-render rather than rebuilt empty. load() runs
+      // every 30 seconds, and an open day was being wiped out from under
+      // whoever was reading it.
+      '<div id="timeline" data-date="' + esc(openTimelineDate) + '">' + openTimelineHtml + "</div>";
 
   $("venture-numbers-head").textContent = fmt("venture.numbers", { days: state?.portfolio?.days ?? 30 });
   $("venture-numbers").innerHTML =
@@ -999,8 +1200,19 @@ let runningVentureId = null;
 
 async function load() {
   const ventureId = routedVentureId();
-  $("view-today").hidden = Boolean(ventureId);
+  const onSettings = window.location.hash === "#/settings";
+  $("view-today").hidden = Boolean(ventureId) || onSettings;
   $("view-venture").hidden = !ventureId;
+  $("view-settings").hidden = !onSettings;
+  if (onSettings) {
+    try {
+      $("settings-body").innerHTML = renderSettings(await api("/api/settings"));
+    } catch (error) {
+      $("settings-body").innerHTML = '<p class="err">' + esc(error.message ?? error) + "</p>";
+    }
+    // The day's state is still loaded below: the header's count and the stop
+    // banner belong on every view.
+  }
   try {
     // The day's state is loaded either way: the header's count, the stop
     // banner and the window length come from it, and they belong on both.

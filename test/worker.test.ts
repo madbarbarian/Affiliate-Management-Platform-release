@@ -249,7 +249,10 @@ test("with no config of its own, the worker serves the setup page rather than a 
   assert.equal(response.status, 200);
   const body = await response.text();
   assert.match(body, /あと1つで、動き始めます/);
-  assert.match(body, /platform\.config\.yaml/, "it has to say where to put the config");
+  // It asks the questions rather than handing over the 428-line file: the file
+  // name comes after there is something to put in it, in the result view.
+  assert.match(body, /<form method="post" action="\/setup">/, "it has to offer the way in");
+  assert.match(body, /何について書きますか/);
   assert.match(body, /amp\.example\.workers\.dev/, "and show the address it is answering on");
 });
 
@@ -375,4 +378,124 @@ test("a cron that fires while the last one is still running does nothing", async
   assert.equal(refused.status, 409);
 
   await db.close();
+});
+
+test("the setup form turns answers into a config, without a terminal", async () => {
+  // The licensee's first hour used to begin at a 428-line YAML file, which
+  // docs/2-setup/onboarding.md names as where most people stop. This is the
+  // whole path that replaces it, through the real handler.
+  const handlers = createWorker({ configSource: "example", configText: await exampleConfig(), prompts: {} });
+
+  const form = new URLSearchParams({
+    companyName: "みどり商店",
+    operatorName: "みどり",
+    ventureId: "cosme",
+    ventureName: "コスメ",
+    niche: "敏感肌向けのスキンケア",
+    audience: "季節の変わり目に肌が荒れる30代。",
+    market: "jp",
+    persona: "元美容部員。自分の肌で失敗してきた当事者。",
+    firstPerson: "わたし",
+  });
+  const response = await handlers.fetch(
+    new Request("https://amp-midori.workers.dev/setup", {
+      method: "POST",
+      body: form,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    }),
+    {} as never,
+  );
+
+  assert.equal(response.status, 200);
+  const page = await response.text();
+  assert.match(page, /みどり商店/, "their words are in the file it shows");
+  // Their name, not "owner": it goes against every approval in the audit
+  // trail, and that record cannot be rewritten later.
+  assert.match(page, /operator: &quot;みどり&quot;/, "and the name approvals are recorded against");
+  assert.match(page, /コピー/, "and there is a way to take it away");
+  assert.match(page, /platform\.config\.yaml/, "and it names the file to create");
+  // The comments are most of what the file is, and the reason it is filled in
+  // as text rather than serialised from an object.
+  assert.match(page, /景表法|ステルスマーケティング/, "the guidance comes with it");
+
+  // The address it is answering on, filled in for them: until this is a real
+  // host, every tracked link in every post goes to a name that does not resolve.
+  assert.match(page, /amp-midori\.workers\.dev/);
+  assert.doesNotMatch(page, /example\.invalid/);
+
+  // The licensee has no terminal and no git. The most that can be removed from
+  // here is choosing "Create new file" and typing the name - GitHub's own
+  // editor takes a filename in the URL. The content cannot ride along (its
+  // query strings cap out near 2KB and this file is twenty times that), so the
+  // paste stays, and nothing here holds a credential for their repository.
+  assert.match(page, /new\/main\?filename=platform\.config\.yaml/, "it opens the file already named");
+  assert.match(page, /id="repo"/, "it asks where, rather than assuming");
+  assert.match(page, /アドレスが分からないときは/, "and still works for someone who cannot answer that");
+});
+
+test("a refused setup form comes back filled in, saying everything that is wrong", async () => {
+  const handlers = createWorker({ configSource: "example", configText: await exampleConfig(), prompts: {} });
+  const response = await handlers.fetch(
+    new Request("https://amp-midori.workers.dev/setup", {
+      method: "POST",
+      body: new URLSearchParams({ companyName: "", ventureId: "Cosme Shop", ventureName: "コスメ", market: "jp" }),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    }),
+    {} as never,
+  );
+
+  assert.equal(response.status, 400);
+  const page = await response.text();
+  assert.match(page, /会社の名前/);
+  assert.match(page, /id/);
+  // Retyping what was accepted, to fix what was not, is how a form loses people.
+  assert.match(page, /value="コスメ"/, "what was typed comes back");
+});
+
+test("the setup form still works once the passphrase is set, which is the state it asks for", async () => {
+  // The dead end this nearly shipped with. The page tells the licensee to set
+  // AMP_CONSOLE_TOKEN; doing so made every form submission 401, because the
+  // setup path handed out no cookie and the form POSTs to /setup with no
+  // ?token= on it. The earlier test missed it by passing {} as the env, so
+  // there was no token and the branch was never entered.
+  const handlers = createWorker({ configSource: "example", configText: await exampleConfig(), prompts: {} });
+  const env = { AMP_CONSOLE_TOKEN: "s3cret" } as never;
+
+  const page = await handlers.fetch(new Request("https://amp-m.workers.dev/?token=s3cret"), env);
+  assert.equal(page.status, 200);
+  const cookie = page.headers.getSetCookie()[0];
+  assert.ok(cookie, "opening with the token must hand back a cookie the form can use");
+  assert.match(cookie, /^amp_console=s3cret;/);
+  assert.match(cookie, /HttpOnly/);
+
+  const submitted = await handlers.fetch(
+    new Request("https://amp-m.workers.dev/setup", {
+      method: "POST",
+      body: new URLSearchParams({
+        companyName: "みどり商店", operatorName: "みどり", ventureId: "cosme", ventureName: "コスメ",
+        niche: "スキンケア", audience: "30代", market: "jp", persona: "元美容部員", firstPerson: "わたし",
+      }),
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: cookie.split(";")[0] as string },
+    }),
+    env,
+  );
+  assert.equal(submitted.status, 200, "the form the page hands them must be submittable");
+  assert.match(await submitted.text(), /みどり商店/);
+});
+
+test("a body that is not a form is refused, not thrown out of the Worker", async () => {
+  // An unguarded formData() throws, and a throw here escapes fetch() - the
+  // licensee gets Cloudflare's own error page instead of anything this repo
+  // wrote.
+  const handlers = createWorker({ configSource: "example", configText: await exampleConfig(), prompts: {} });
+  const response = await handlers.fetch(
+    new Request("https://amp-m.workers.dev/setup", {
+      method: "POST",
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    }),
+    {} as never,
+  );
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /読み取れませんでした/);
 });
