@@ -61,6 +61,12 @@ export type RunCycleOptions = {
 
 export type DispatchSummary = {
   readonly published: readonly string[];
+  /**
+   * Posts whose slot arrived on a channel that cannot publish by itself. They
+   * are composed and waiting for a person, and are deliberately not in
+   * `published`: nothing is live until someone says they posted it.
+   */
+  readonly handedOver: readonly string[];
   readonly failed: readonly { postId: string; reason: string }[];
   readonly stillWaiting: number;
   /** Posts whose slot has passed but that a stop is holding back. */
@@ -90,6 +96,17 @@ export type Orchestrator = {
   resolveGate(decisionId: string, request: ResolutionRequest): Promise<Result<Cycle, PlatformError>>;
   /** Publishes anything whose slot has arrived. Called by the daemon. */
   dispatchDue(nowMs: number, options?: DispatchOptions): Promise<Result<DispatchSummary, PlatformError>>;
+  /**
+   * Records that a person posted, by hand, a post the platform handed them.
+   *
+   * The only way a `handed_over` post becomes `published`. `nowIso` is when
+   * they said so, not when the slot was - the two differ by however long it
+   * took them to get to their phone, and the second one would be a guess.
+   */
+  recordPostedByHand(
+    postId: string,
+    request: { readonly by: string; readonly url?: string; readonly nowIso: string },
+  ): Promise<Result<ScheduledPost, PlatformError>>;
   pendingDecisions(ventureId?: VentureId): Promise<Decision[]>;
   /**
    * Closes gates whose day has gone, in each account's own timezone.
@@ -722,6 +739,13 @@ export function createOrchestrator(services: Services): Orchestrator {
       await store.posts.put({ ...post, status: "failed", failureReason: channel.error.message });
       return channel;
     }
+    // Decided here and not in the channel. A channel that cannot publish says
+    // only that; what a post then becomes is the orchestrator's to choose, the
+    // same way it chooses between holding a slot and handing it to a scheduler.
+    if (!channel.value.capabilities.publishesItself) {
+      if (post.scheduledFor > clock.now()) return ok(post);
+      return handOverToPerson(post);
+    }
     if (!channel.value.capabilities.nativeScheduling) {
       if (post.scheduledFor > clock.now()) return ok(post);
       return publishNow(post);
@@ -746,6 +770,55 @@ export function createOrchestrator(services: Services): Orchestrator {
     await store.posts.put(updated);
     if (!result.value.scheduled) await postComments(updated);
     return ok(updated);
+  }
+
+  /**
+   * Composes the post and leaves it waiting for a person.
+   *
+   * Everything the publishing path does except the part that would be a lie:
+   * the text is composed by the channel, persisted on the post, and recorded in
+   * the audit trail. What it is not is `published` - the operating promise is
+   * that a person can audit why a post was proposed, and a post marked live
+   * that nobody put anywhere would make every number downstream of it false.
+   */
+  async function handOverToPerson(post: ScheduledPost): Promise<Result<ScheduledPost, PlatformError>> {
+    const store = await stores.for(post.ventureId);
+    const channel = services.channels.get(post.channel);
+    if (!channel.ok) return channel;
+
+    // Fail closed. A channel that says it cannot publish and offers no way to
+    // compose leaves nothing to hand anyone, and a post sitting silently in
+    // `approved` forever is the failure nobody discovers.
+    const compose = channel.value.compose?.bind(channel.value);
+    if (!compose) {
+      const reason =
+        `Channel "${post.channel}" (adapter "${channel.value.adapter}") says it cannot publish by itself, ` +
+        `but does not compose the text either, so there is nothing to hand you. Give the adapter a ` +
+        `\`compose\`, or set the channel to an adapter that publishes.`;
+      await store.posts.put({ ...post, status: "failed", failureReason: reason });
+      return fail("config", "channel.cannot_compose", reason, { retryable: false });
+    }
+
+    const parts = compose(post.content);
+    const handed: ScheduledPost = {
+      ...post,
+      status: "handed_over",
+      handOverParts: parts,
+      handedOverAt: clock.nowIso(),
+    };
+    await store.posts.put(handed);
+
+    await recordEvent({
+      id: services.ids.next("evt"),
+      at: clock.nowIso(),
+      ventureId: post.ventureId,
+      cycleId: post.cycleId,
+      type: "post.handed_over",
+      actor: "orchestrator",
+      summary: truncate(post.content.hook, 120),
+      data: { postId: post.id, channel: post.channel, parts: parts.length },
+    });
+    return ok(handed);
   }
 
   async function publishNow(post: ScheduledPost): Promise<Result<ScheduledPost, PlatformError>> {
@@ -934,6 +1007,7 @@ export function createOrchestrator(services: Services): Orchestrator {
 
     async dispatchDue(nowMs, options) {
       const published: string[] = [];
+      const handedOver: string[] = [];
       const failed: { postId: string; reason: string }[] = [];
       const stopped = new Set(options?.skipVentures ?? []);
       let held = 0;
@@ -958,9 +1032,16 @@ export function createOrchestrator(services: Services): Orchestrator {
           held += 1;
           continue;
         }
-        const result = await publishNow(post);
-        if (result.ok) published.push(post.id);
-        else failed.push({ postId: post.id, reason: result.error.message });
+        // A channel that hands its posts to a person is asked here too, and
+        // the answer decides which list this post lands in. `publishNow` is
+        // never called for one: it would report a publication that did not
+        // happen, which is the whole thing this branch exists to prevent.
+        const channel = services.channels.get(post.channel);
+        const byHand = channel.ok && !channel.value.capabilities.publishesItself;
+        const result = byHand ? await handOverToPerson(post) : await publishNow(post);
+        if (!result.ok) failed.push({ postId: post.id, reason: result.error.message });
+        else if (byHand) handedOver.push(post.id);
+        else published.push(post.id);
       }
 
       // Posts the channel is holding. Their slot passing is the only signal we
@@ -1003,7 +1084,56 @@ export function createOrchestrator(services: Services): Orchestrator {
       const waiting = await postsWhere(
         (post) => (post.status === "approved" || post.status === "scheduled") && post.scheduledFor > nowMs,
       );
-      return ok({ published, failed, stillWaiting: waiting.length, held, commentsWithheld });
+      return ok({ published, handedOver, failed, stillWaiting: waiting.length, held, commentsWithheld });
+    },
+
+    async recordPostedByHand(postId, request) {
+      // Same shape as `findDecision`, and for the same reason: a press on a
+      // screen arrives as an id with no account attached to it.
+      let found: { post: ScheduledPost; store: Awaited<ReturnType<typeof stores.for>> } | undefined;
+      for (const scope of await stores.each()) {
+        const post = await scope.store.posts.get(postId);
+        if (post) {
+          found = { post, store: scope.store };
+          break;
+        }
+      }
+      if (!found) return fail("not_found", "post.not_found", `No post "${postId}".`);
+      const { post, store } = found;
+
+      if (post.status !== "handed_over") {
+        return fail(
+          "conflict",
+          "post.not_handed_over",
+          `Post ${post.id} is "${post.status}", not a post waiting for you to publish it, so there is ` +
+            `nothing to record. Only a post this platform handed you can be marked as posted.`,
+          { retryable: false, details: { status: post.status } },
+        );
+      }
+
+      const published: ScheduledPost = {
+        ...post,
+        status: "published",
+        // When they pressed it. The slot is when it should have gone out, and
+        // using that would date every hand-posted piece of work to a moment
+        // nobody was at their phone.
+        publishedAt: request.nowIso,
+        postedBy: request.by,
+        ...(request.url ? { externalUrl: request.url } : {}),
+      };
+      await store.posts.put(published);
+
+      await recordEvent({
+        id: services.ids.next("evt"),
+        at: request.nowIso,
+        ventureId: post.ventureId,
+        cycleId: post.cycleId,
+        type: "post.published",
+        actor: request.by,
+        summary: truncate(post.content.hook, 120),
+        data: { postId: post.id, url: published.externalUrl ?? null, byHand: true },
+      });
+      return ok(published);
     },
 
     async expireStaleGates() {

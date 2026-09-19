@@ -23,6 +23,16 @@ import type { ChannelId, DraftContent, EngagementSnapshot, SwipeItem, VentureId 
 export type PostFormat = "short" | "thread" | "longform";
 
 export type ChannelCapabilities = {
+  /**
+   * False when this channel cannot put a post out on its own and the text has
+   * to be handed to a person, who opens the app and posts it.
+   *
+   * It is stated here rather than inferred from a failing `publish` because the
+   * orchestrator has to know *before* the slot arrives: a post it cannot
+   * publish must become a post waiting for someone, not a post that failed.
+   * Such a channel implements `compose` instead of `publish`.
+   */
+  readonly publishesItself: boolean;
   /** True when the platform itself can hold a post until a future time. */
   readonly nativeScheduling: boolean;
   /** True when a post can be a multi-part thread. */
@@ -73,6 +83,15 @@ export type Channel = {
   readonly capabilities: ChannelCapabilities;
   discover(request: DiscoverRequest): Promise<Result<SwipeItem[], PlatformError>>;
   publish(request: PublishRequest): Promise<Result<PublishResult, PlatformError>>;
+  /**
+   * The post as the parts that would actually go out, in order.
+   *
+   * Required of a channel whose `publishesItself` is false: it is the only
+   * thing such a channel produces, so it *is* its publish path, and the screen
+   * that shows a person what to paste reads exactly this. Optional on the rest
+   * only because they already answer the question by publishing.
+   */
+  compose?(content: DraftContent): string[];
   comment(request: CommentRequest): Promise<Result<{ externalId: string }, PlatformError>>;
   metrics(externalIds: readonly string[]): Promise<Result<Record<string, EngagementSnapshot>, PlatformError>>;
   /** Cheap credential/reachability check for `amp doctor`. */

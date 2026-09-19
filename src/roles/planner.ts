@@ -9,6 +9,7 @@
 
 import { fail, ok, type PlatformError, type Result } from "../core/result.ts";
 import { selectForPlanning } from "../playbook/playbook.ts";
+import { coveredAngles } from "../domain/coverage.ts";
 import { computePerformance } from "../domain/performance.ts";
 import { ventureBrief, type Role, type RoleContext } from "../kernel/role.ts";
 import { array, integer, number, object, string } from "../llm/schema.ts";
@@ -91,10 +92,18 @@ export const planner: Role<PlanInput, PlanOutput> = {
 
     const winners = performance.rows.filter((row) => row.lift >= 1);
     const losers = performance.rows.filter((row) => row.lift > 0 && row.lift < 0.7);
-    const recentIdeas = await store.ideas.find((idea) => idea.ventureId === venture.id);
-    const recentAngles = recentIdeas
-      .slice(-25)
-      .map((idea) => `- ${truncate(idea.angle, 110)}`)
+    // Only angles that actually went out. The prompt calls this list "already
+    // covered - do not repeat these angles", so feeding it every idea ever
+    // proposed burned an angle the moment it appeared on the approval screen:
+    // an idea the operator liked but did not pick that day was suppressed for
+    // good, because only one post a day can be picked.
+    const [pastIdeas, pastDrafts, pastPosts] = await Promise.all([
+      store.ideas.find((idea) => idea.ventureId === venture.id),
+      store.drafts.find((draft) => draft.ventureId === venture.id),
+      store.posts.find((post) => post.ventureId === venture.id),
+    ]);
+    const recentAngles = coveredAngles({ ideas: pastIdeas, drafts: pastDrafts, posts: pastPosts })
+      .map((angle) => `- ${truncate(angle, 110)}`)
       .join("\n");
 
     const response = await context.llm.completeJson<PlanResponse>({

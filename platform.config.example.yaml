@@ -240,6 +240,42 @@ channels:
       maxCharacters: 500
       format: thread           # short | thread | longform
 
+  # --- You post it yourself -------------------------------------------------
+  # Connecting a posting API is the longest job in your first hour, and some
+  # platforms have no API worth the trouble. This adapter skips it: when a
+  # post's slot arrives, the platform composes the text and puts it on the
+  # console under 「あなたが投稿する番です」. You copy it, open the app, paste,
+  # post, and press 「投稿しました」. Ten seconds.
+  #
+  # Choose it when:
+  #   - you want to see the whole loop working today, on a real account
+  #   - the platform you post to has no API you want to wire up (X, Instagram,
+  #     note, a blog — any of them, with no adapter written)
+  #   - one account is worth doing by hand and the rest are automated
+  #
+  # What you keep: clicks, conversions and revenue. The link in the text is
+  # this platform's own /go/ redirect, so everything downstream of the click is
+  # recorded exactly as it would be for an API post.
+  #
+  # What you lose: likes and replies. Nobody is asking the platform for them,
+  # so engagement for these posts stays empty and the analysis role learns from
+  # clicks and revenue only. `doctor` says so; it is a choice, not a fault.
+  #
+  # To use it: set `enabled: true` here, and list `by-hand` in the account's
+  # `channels` below instead of (or as well as) `threads`.
+  - id: by-hand
+    adapter: manual
+    enabled: false
+    credentialEnv: {}      # nothing to connect, so nothing to keep secret
+    # Nothing to search: this adapter cannot read the platform either.
+    research: { queries: [], minLikes: 0, maxItems: 1, lookbackHours: 24 }
+    options:
+      maxCharacters: 500   # the destination's own limit; the text is cut to it
+      format: short        # short | thread | longform
+      # The console offers this as a link next to the text, so posting is one
+      # click and a paste. Any https:// address that opens the composer.
+      composerUrl: "https://www.threads.net/"
+
   # --- Presets for other channels ------------------------------------------
   # All of these use `adapter: webhook`: you point them at your own service, or
   # at a Make / Zapier / n8n scenario you already have. The four endpoints are

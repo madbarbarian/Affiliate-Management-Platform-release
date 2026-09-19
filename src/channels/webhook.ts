@@ -82,6 +82,7 @@ export function createWebhookChannel(context: ChannelFactoryContext): Channel {
     id: context.id,
     adapter: "webhook",
     capabilities: {
+      publishesItself: true,
       nativeScheduling: Boolean(context.options["nativeScheduling"] ?? false),
       threads: Boolean(context.options["threads"] ?? false),
       discovery: Boolean(endpoints.discover),

@@ -1,6 +1,6 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "An autonomous AI-company platform that runs affiliate operations end to end, with the human kept in the loop for approval and ordering only.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",

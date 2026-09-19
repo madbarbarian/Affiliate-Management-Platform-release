@@ -32,6 +32,7 @@ export function createMockChannel(context: ChannelFactoryContext): Channel {
     id: context.id,
     adapter: "mock",
     capabilities: {
+      publishesItself: true,
       // Configurable because the two cases behave very differently once
       // something goes wrong: a channel that schedules natively is holding the
       // post itself and the platform can no longer recall it, while a channel

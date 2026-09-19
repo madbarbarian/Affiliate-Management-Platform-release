@@ -173,9 +173,17 @@ export async function runTick(
   // stopped - a stop means "do not spend or decide anything", and a call
   // proposing new accounts is both.
   if (!stoppedEntirely) await exploreIfDue(runtime, memory, nowMs);
-  if (dispatched.value.published.length > 0 || dispatched.value.failed.length > 0) {
+  if (
+    dispatched.value.published.length > 0 ||
+    dispatched.value.handedOver.length > 0 ||
+    dispatched.value.failed.length > 0
+  ) {
     logger.info("dispatch", {
       published: dispatched.value.published.length,
+      // Counted apart from `published` on purpose: these are composed and
+      // waiting for the operator to post them, and a log line that added the
+      // two together would report work as done that nobody has done.
+      handedOver: dispatched.value.handedOver.length,
       failed: dispatched.value.failed.length,
       waiting: dispatched.value.stillWaiting,
     });

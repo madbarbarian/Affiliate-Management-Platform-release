@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.5.1",
-  "commit": "7b050ce",
-  "builtAt": "2026-09-19T02:20:44.908Z",
+  "version": "0.6.0",
+  "commit": "6565812",
+  "builtAt": "2026-09-19T04:37:02.427Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 34483,
-      "sha256": "569f6e8c77cb6c714b8399b7020889dfaa9b4d4d99980cd6df5913299df490d7"
+      "bytes": 37797,
+      "sha256": "171786904e3f551d9cb9b34c09e10f348a5b13056a4eb313a3e73607e6abec70"
     },
     {
       "path": "CLAUDE.md",
@@ -287,8 +287,8 @@
     },
     {
       "path": "docs/7-references/configuration.md",
-      "bytes": 14015,
-      "sha256": "329640bf19cb7768e03efc6a49a93c12996d8c4494168ab0e94e636c27f6b1bf"
+      "bytes": 15961,
+      "sha256": "9dbbd3305d587819e8cfe207fd1587bf787a2e2782dd99029da3dfac61fce83a"
     },
     {
       "path": "docs/7-references/cross-border.md",
@@ -313,12 +313,12 @@
     {
       "path": "package.json",
       "bytes": 1902,
-      "sha256": "9b574bec3b7c2ee7eca6f3dfcb6a9b30d094fbb48bc7480189c2c6a01805abb2"
+      "sha256": "8258694f9a6f4965c9c346f45dda11158327d0485dd2bfdf50816b5ff1f31b8e"
     },
     {
       "path": "platform.config.example.yaml",
-      "bytes": 20545,
-      "sha256": "55c6726672cfe202b6094da5cf381ffc57fd2f87621e5ac63df20d31eb68f2c1"
+      "bytes": 22524,
+      "sha256": "ce5042febd520c0bcbf0c861916ba981456ef027078d6080273cdc8ffe4af325"
     },
     {
       "path": "prompts/analyst.system.md",
@@ -417,33 +417,38 @@
     },
     {
       "path": "src/channels/channel.ts",
-      "bytes": 3312,
-      "sha256": "f12d3a71a42aa98c25573cc4460cb1c3aeabc10b85917435076297de98659e74"
+      "bytes": 4232,
+      "sha256": "f856e579c4afb14a116773c48a073c21c3aa0d5142a1ccf4f6e2fa7887e6c00a"
     },
     {
       "path": "src/channels/format.ts",
-      "bytes": 4240,
-      "sha256": "91754aad1d7f83782b9e06e1b2560a87c894f6b3b4022df52acd91cbee849cb2"
+      "bytes": 8523,
+      "sha256": "b33bde5abb0ed35ea56f1a5e88b97dccee6bb54a1cae6bf62d7b9e45f74b5d71"
     },
     {
       "path": "src/channels/index.ts",
-      "bytes": 2549,
-      "sha256": "424b6ec5d446439b51324ed19795879f7a6104e3409965c2981658e870e4d63e"
+      "bytes": 2657,
+      "sha256": "caec3c49e64cdb18388e616feb38e90cdc1101f77e3976d014e7b654ef9a5929"
+    },
+    {
+      "path": "src/channels/manual.ts",
+      "bytes": 5276,
+      "sha256": "06c3394eda9956bed65cf501a102a6da2d81a6b4c4043619aaa81727a45ade64"
     },
     {
       "path": "src/channels/mock.ts",
-      "bytes": 6645,
-      "sha256": "b9339b58f21692bdab032373db765bd69e63ebf0e1fa053ffa4acd3c66656cf5"
+      "bytes": 6674,
+      "sha256": "d9091b3605cc9c3ba21896d050c87907227b7699a03f997ab7af2e07f9f4297c"
     },
     {
       "path": "src/channels/threads.ts",
-      "bytes": 15028,
-      "sha256": "be0f2e8230a296baebce47871eb7dce529cd9e00ebf77d364d481cb3cb9e3e8d"
+      "bytes": 11888,
+      "sha256": "9705320b210b9e71655fc14e4deafd3c5c04a8b54dc9d039362ef6380d521675"
     },
     {
       "path": "src/channels/webhook.ts",
-      "bytes": 8933,
-      "sha256": "31a42778e091326368949146e7ead51716f856d045bcfc09ac417b4a701bff14"
+      "bytes": 8962,
+      "sha256": "745e84fb7db5779cb7eca0a3e2d04404baff60092e767b261df6cbe4e71a5d09"
     },
     {
       "path": "src/cli.ts",
@@ -482,8 +487,8 @@
     },
     {
       "path": "src/console/messages.ts",
-      "bytes": 27855,
-      "sha256": "8425e1d8dcdda383cbe363e7c476507befb4226ebd96b593da22672fff4deaff"
+      "bytes": 30632,
+      "sha256": "da41033e1fe0bdb90086d2b00047592358da79013ca2de84626798c4778f1666"
     },
     {
       "path": "src/console/operators.ts",
@@ -492,8 +497,8 @@
     },
     {
       "path": "src/console/router.ts",
-      "bytes": 46622,
-      "sha256": "1b4b082038c954449edf41adfd31b236574956fc776bdd591a02f8537b383b88"
+      "bytes": 51223,
+      "sha256": "59627def22edeb3c7bc36205a94dfaa212e5c97cabfc15229ab1aef1035e086e"
     },
     {
       "path": "src/console/server.ts",
@@ -507,8 +512,8 @@
     },
     {
       "path": "src/console/ui.ts",
-      "bytes": 69399,
-      "sha256": "8ab5508b11ffe932dd042bedaa1c2f3d4ac68c808095cb4af4fcde8f47ee7ed3"
+      "bytes": 75320,
+      "sha256": "1ce8f6f944bd614f2a4ac3a0ee8bb9cff53541855d1662e81fb8a7e9282c1435"
     },
     {
       "path": "src/console/unlock.ts",
@@ -557,8 +562,13 @@
     },
     {
       "path": "src/core/types.ts",
-      "bytes": 21733,
-      "sha256": "8a0023ba8d8b734464f67f9e7d85f45e2f65f6f63aa9962d5a552b8f0d80bb9a"
+      "bytes": 22627,
+      "sha256": "e9cd20eae63b77345b88f511ca40c6e772a5706684a158d45105aef4905b4693"
+    },
+    {
+      "path": "src/domain/coverage.ts",
+      "bytes": 2822,
+      "sha256": "1e11cba0611b2143fe4064a3ad195ad6bc0b246ecd93683097644c45c3e8f3d1"
     },
     {
       "path": "src/domain/engagement.ts",
@@ -577,8 +587,8 @@
     },
     {
       "path": "src/domain/measurement.ts",
-      "bytes": 7109,
-      "sha256": "070a785d1c73556180371d5c8528b1324a4e4f73f019da125683fdcfe34a6020"
+      "bytes": 8154,
+      "sha256": "553457e5aabaacb24f4962e6c2db51e55bb25dd36044b20aee3e2bdd8e1e02b6"
     },
     {
       "path": "src/domain/performance.ts",
@@ -602,8 +612,8 @@
     },
     {
       "path": "src/kernel/assemble.ts",
-      "bytes": 11146,
-      "sha256": "32e0705ddd21f658afc8ce23043e9943fc133648f689661ad9fbe3b17f3ae25b"
+      "bytes": 11689,
+      "sha256": "814133bc67cf84484ee872b7fbf21427e138a9da74b5ca02a802a7ee7e5c4234"
     },
     {
       "path": "src/kernel/exploration.ts",
@@ -612,8 +622,8 @@
     },
     {
       "path": "src/kernel/orchestrator.ts",
-      "bytes": 44380,
-      "sha256": "40ca4bea99f43ddda76cf5a4c747dd28d1812063e8bef14d141cb667913b819c"
+      "bytes": 50138,
+      "sha256": "d5e04aaa32b3e5381f0ea0ffd99b5842fc5e00f55834ddc110d8d159f79e7b20"
     },
     {
       "path": "src/kernel/pause.ts",
@@ -722,8 +732,8 @@
     },
     {
       "path": "src/roles/planner.ts",
-      "bytes": 7715,
-      "sha256": "de470943c4a2ead0018c0cdb2ca156025d6f7f40116006c0e255e6b01fb03de6"
+      "bytes": 8363,
+      "sha256": "e63a4c7a48dcce05864cfd138806a74d89332e0d4b2741b1c151e21ca4792e33"
     },
     {
       "path": "src/roles/publisher.ts",
@@ -742,8 +752,8 @@
     },
     {
       "path": "src/roles/writer.ts",
-      "bytes": 7713,
-      "sha256": "cb6ad13225ab5dae613be4e170db1ad3f51e9355397842db9a03fc067cace9c1"
+      "bytes": 8175,
+      "sha256": "fcdc2ea44390398590c204eed4321802c7009c4d8cb12254f08ec8826d643bca"
     },
     {
       "path": "src/runtime.ts",
@@ -757,8 +767,8 @@
     },
     {
       "path": "src/scheduler/tick.ts",
-      "bytes": 10289,
-      "sha256": "61ed15cafad8c4ba83c4ae86fbd04b0d33873300e1d1391a51a91af22e25ba35"
+      "bytes": 10624,
+      "sha256": "4a70d5c6bfb67027d174f201bbdbc473cc969118f9f3d64441c9e6b60fefe69a"
     },
     {
       "path": "src/storage/atomic.ts",
@@ -852,8 +862,8 @@
     },
     {
       "path": "test/cli.smoke.test.ts",
-      "bytes": 21432,
-      "sha256": "ce89a01cc21601dd5601c0ff2c7a77705c4b2b51171c1f63877e23c34b115baf"
+      "bytes": 22971,
+      "sha256": "f1e6b2b5aa45a7e9b1a5d07e09ca26c30e5c00435a09cfd6d9b81d193974048d"
     },
     {
       "path": "test/cli.test.ts",
@@ -867,8 +877,13 @@
     },
     {
       "path": "test/console.test.ts",
-      "bytes": 83122,
-      "sha256": "bbb4b7d5070f96870ab10ac0fae84d4888c2bf1419d908ba92edd85aab61dfe3"
+      "bytes": 88184,
+      "sha256": "f3138efeebfdc376cdca3cc4a5c7554e5c6afa8ecc56e5d44d669c5ef9c53590"
+    },
+    {
+      "path": "test/coverage.test.ts",
+      "bytes": 4796,
+      "sha256": "8c3f93b18f40139dcb1476c6915b0e0b7ce57fa133e9e4658716bd623b622173"
     },
     {
       "path": "test/csv.test.ts",
@@ -899,6 +914,11 @@
       "path": "test/licensing.test.ts",
       "bytes": 5686,
       "sha256": "6a54cbd55c9086ccdbb890c5da38687cdcb1c111b790729a061ed36dc72860b3"
+    },
+    {
+      "path": "test/manual-channel.test.ts",
+      "bytes": 13938,
+      "sha256": "06505e44feef27ee0a67af8b219fd4bca7012c3817a67d238b86c20df6885e9c"
     },
     {
       "path": "test/market.test.ts",

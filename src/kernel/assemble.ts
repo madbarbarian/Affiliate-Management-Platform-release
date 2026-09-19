@@ -226,6 +226,16 @@ export function guardWithStop(inner: Orchestrator, services: Services, state: St
       });
     },
 
+    // Not gated on the stop, for the same reason `dispatchDue` records posts a
+    // channel put out on its own clock: this does not publish anything, it
+    // records that a person already did. A stop that arrived after the post was
+    // handed over cannot un-post it, and refusing here would leave the operator
+    // with a live post the platform denies exists - and no link between it and
+    // the clicks it is about to earn.
+    recordPostedByHand(postId, request) {
+      return inner.recordPostedByHand(postId, request);
+    },
+
     pendingDecisions(ventureId) {
       return inner.pendingDecisions(ventureId);
     },

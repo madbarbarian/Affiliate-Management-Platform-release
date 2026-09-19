@@ -308,6 +308,12 @@ export type PostStatus =
   | "queued"
   | "approved"
   | "scheduled"
+  /**
+   * The slot arrived on a channel that cannot publish by itself, so the text
+   * was composed and handed to a person. It is not live and must never be
+   * counted as if it were: only someone saying they posted it moves it on.
+   */
+  | "handed_over"
   | "published"
   | "failed"
   | "cancelled";
@@ -334,6 +340,20 @@ export type ScheduledPost = {
   readonly externalUrl?: string;
   readonly publishedAt?: string;
   readonly failureReason?: string;
+  /**
+   * The post as text, in the order it goes out, composed by the channel at the
+   * moment it was handed over.
+   *
+   * Stored rather than recomposed on demand, because it is what a person was
+   * actually shown and pasted. Recomposing it later would answer a different
+   * question - what the channel would compose *now* - and the audit promise is
+   * about what happened.
+   */
+  readonly handOverParts?: readonly string[];
+  /** When the platform gave up publishing this itself and asked a person to. */
+  readonly handedOverAt?: string;
+  /** Who said they posted it, when a person did. */
+  readonly postedBy?: string;
 };
 
 // ---------------------------------------------------------------------------

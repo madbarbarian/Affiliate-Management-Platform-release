@@ -7,6 +7,7 @@
  */
 
 import { fail, ok, type PlatformError, type Result } from "../core/result.ts";
+import { publishedHooks } from "../domain/coverage.ts";
 import { issueLink, shortUrl } from "../affiliate/links.ts";
 import { describeCompliance, findMarket, resolveCompliance, type ComplianceProfile } from "../domain/market.ts";
 import { describeFormat } from "../channels/format.ts";
@@ -195,9 +196,14 @@ function describePattern(pattern: Pattern | undefined): string {
 }
 
 async function recentHookList(context: RoleContext, limit: number): Promise<string[]> {
-  const drafts = await context.store.drafts.find((draft) => draft.ventureId === context.venture.id);
-  return drafts
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, limit)
-    .map((draft) => `- ${truncate(draft.content.hook, 90)}`);
+  // Only the ones that were published. The prompt says "Recent posts from this
+  // account - do not repeat their openings", and a draft that was written and
+  // never chosen is not a post: nobody has read that opening, so retiring it
+  // spends a hook the account never used. The same defect the planner had with
+  // angles, one layer down.
+  const [drafts, posts] = await Promise.all([
+    context.store.drafts.find((draft) => draft.ventureId === context.venture.id),
+    context.store.posts.find((post) => post.ventureId === context.venture.id),
+  ]);
+  return publishedHooks({ drafts, posts }, limit).map((draft) => `- ${truncate(draft.content.hook, 90)}`);
 }

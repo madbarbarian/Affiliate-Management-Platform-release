@@ -168,7 +168,7 @@ moves. Whatever you configure here must match the terms your tenants accepted �
 | Field | Meaning |
 |---|---|
 | `id` | Referenced by `ventures[].channels` |
-| `adapter` | `mock` · `threads` · `webhook`, or one you register |
+| `adapter` | `mock` · `manual` · `threads` · `webhook`, or one you register |
 | `enabled` | |
 | `credentialEnv` | Map of credential name → env var name. Never literal secrets. |
 | `research.queries` | What the research role searches for |
@@ -178,6 +178,38 @@ moves. Whatever you configure here must match the terms your tenants accepted �
 | `options.maxCharacters` | The channel's own limit |
 | `options.format` | `short` · `thread` · `longform`. Changes what the writing role produces — a 280-character post and a note article are different pieces of work, not the same text at two lengths. |
 | `options` | Otherwise adapter-specific; for `webhook`, the endpoint URLs. |
+
+### The `manual` adapter — you post it yourself
+
+Connecting a posting API is the longest job in a first hour, and some platforms
+have none worth wiring up. This adapter skips it. When a post's slot arrives the
+platform composes the text — the same composition an API adapter would publish,
+disclosure and all — and the post becomes `handed_over` rather than `published`.
+The console shows it under 「あなたが投稿する番です」 with the text, a copy
+control, a link to the app and a 「投稿しました」 button. Pressing that is what
+makes it `published`, timed to the press.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `maxCharacters` | `500` | The destination's own limit. The text is composed and cut to it. |
+| `format` | `short` | `short` · `thread` · `longform`, as for any channel. |
+| `composerUrl` | — | An `https://` (or `http://`) address that opens the destination's composer. The console offers it as a link beside the text. Anything else is ignored, because the console renders it into the page that approves posts. |
+
+`credentialEnv` is empty: there is nothing to connect.
+
+**What you keep.** Clicks, conversions and revenue. The link in the text is this
+platform's own `/go/` redirect, so everything downstream of the click is
+recorded exactly as it is for a post the platform published itself.
+
+**What you lose.** Likes and replies. Nobody is asking the platform for them, so
+engagement for these posts stays empty and the analysis role learns from clicks
+and revenue only. `doctor` and the accounts table say so in those words — it is
+a deliberate trade, not a broken configuration, and it reads differently from
+the `mock` adapter, whose numbers are invented.
+
+**The affiliate link.** On a channel with comments the tracked link lives in the
+link drop under the post. This channel has none, so the console hands you that
+comment too, under the post text, to paste as the first reply.
 
 ## `networks[]`
 

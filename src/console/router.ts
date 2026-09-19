@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 import { localDate } from "../core/clock.ts";
 import { composeThreadParts } from "../channels/format.ts";
+import { composerUrlOf } from "../channels/manual.ts";
 import { readPause } from "../kernel/pause.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
@@ -37,6 +38,7 @@ import { COMPANY_SCOPE, type VentureId } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
 import { fill, messagesFor, type Messages } from "./messages.ts";
 import { checkForUpdate } from "./updates.ts";
+import { isVentureActive, readVentureState } from "../kernel/venture-state.ts";
 import { readUnlockSubmission, renderUnlock, UNLOCK_MISMATCH, UNLOCK_PATH } from "./unlock.ts";
 
 export const COOKIE_NAME = "amp_console";
@@ -65,6 +67,14 @@ export function sessionCookie(token: string): string {
  * than a cron trigger and a browser gives up long before this.
  */
 const RUN_LOCK_TTL_MS = 5 * 60_000;
+
+/**
+ * How many posts waiting on a person are carried to the page at once. Each one
+ * is a whole post's text, on a payload the browser re-fetches every thirty
+ * seconds, so this is a size bound and not a policy: the oldest come first, and
+ * pressing one brings the next into view.
+ */
+const HAND_OVER_SHOWN = 20;
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -267,6 +277,31 @@ export async function handleRequest(
     });
   }
 
+  // "I posted it." The only thing that makes a handed-over post live, and the
+  // reason it is a press rather than something inferred: nobody but the person
+  // who opened the app knows whether it went out.
+  //
+  // `url` is optional and is the post's own address. Nothing hangs off it yet -
+  // engagement for these posts stays empty on purpose - but it is the one piece
+  // of information that would be needed later, and it is only available in the
+  // seconds after posting.
+  const postedMatch = /^\/api\/posts\/([^/]+)\/posted$/.exec(path);
+  if (postedMatch && request.method === "POST") {
+    const body = await readJson(request);
+    if (!body.ok) return json(400, { error: body.error.message });
+    const payload = body.value as { url?: unknown };
+    const url = typeof payload.url === "string" ? payload.url.trim() : "";
+    const result = await runtime.orchestrator.recordPostedByHand(decodeURIComponent(postedMatch[1] as string), {
+      by: actor,
+      ...(url !== "" ? { url } : {}),
+      nowIso: runtime.services.clock.nowIso(),
+    });
+    if (!result.ok) return json(result.error.kind === "not_found" ? 404 : 409, { error: result.error.message });
+    // The row's post count and the day's numbers just changed.
+    forgetPortfolio(runtime);
+    return json(200, { postId: result.value.id, status: result.value.status, publishedAt: result.value.publishedAt });
+  }
+
   // Switching an account on or off. Writes the state file the daemon re-reads
   // every tick - no config edit, no restart, nothing deleted.
   const switchMatch = /^\/api\/ventures\/([^/]+)\/(deactivate|activate)$/.exec(path);
@@ -413,7 +448,21 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     return out;
   };
 
-  const decisions = await runtime.orchestrator.pendingDecisions();
+  // Only the accounts that are running. Stopping one is how an operator says
+  // "do nothing more here", and the tick hears it - no new cycle starts. The
+  // gate already open did not hear it, so the screen kept asking for a decision
+  // about an account that had been stopped, with no way to make the question go
+  // away. The record stays pending and the day-turn lapse closes it, the same
+  // as any gate nobody answered; this is about what the operator is asked.
+  const ventureState = readVentureState(runtime.state);
+  const runningVentures = new Set(
+    runtime.config.ventures
+      .filter((venture) => isVentureActive(venture, ventureState))
+      .map((venture) => venture.id as string),
+  );
+  const decisions = (await runtime.orchestrator.pendingDecisions()).filter((decision) =>
+    runningVentures.has(decision.ventureId as string),
+  );
 
   // Which day each one belongs to.
   //
@@ -494,6 +543,39 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       at: new Date(post.scheduledFor).toISOString().replace("T", " ").slice(0, 16),
       status: post.status,
       hook: post.content.hook.slice(0, 70),
+    }));
+
+  // Posts on a channel the platform cannot publish to. They live above the
+  // schedule rather than as another row in it, because every other row is
+  // something the machine is going to do and these are the only ones that will
+  // not happen unless the operator does them.
+  //
+  // The text is read from the post, never recomposed here: it is what the
+  // channel composed at the slot, and a screen that recomposed it would be free
+  // to disagree with what was actually handed over - the same drift the gate's
+  // preview already had once.
+  const composerUrlByChannel = new Map(
+    runtime.config.channels.map((channel) => [channel.id, composerUrlOf(channel.options)]),
+  );
+  const handOver = (await gather((store) => store.posts.find((post) => post.status === "handed_over")))
+    // Oldest slot first, and capped: each card carries a whole post, and this
+    // payload is re-fetched every thirty seconds. An operator who leaves a
+    // month of these unpressed works through them from the top rather than
+    // downloading all of them on every poll - nothing is dropped, because
+    // pressing one brings the next into view.
+    .sort((a, b) => a.scheduledFor - b.scheduledFor)
+    .slice(0, HAND_OVER_SHOWN)
+    .map((post) => ({
+      postId: post.id,
+      ventureName: ventureName.get(post.ventureId) ?? post.ventureId,
+      channel: post.channel,
+      at: new Date(post.scheduledFor).toISOString().replace("T", " ").slice(0, 16),
+      parts: post.handOverParts ?? [],
+      // The link drop goes with it. It is where the affiliate URL lives on a
+      // channel with comments, and on this one nobody is going to post it
+      // unless it is on the screen next to the post it belongs under.
+      comments: post.commentDrafts.map((comment) => ({ purpose: comment.purpose, text: comment.text })),
+      ...(composerUrlByChannel.get(post.channel) ? { composerUrl: composerUrlByChannel.get(post.channel) } : {}),
     }));
 
   const published = await gather((store) => store.posts.find((post) => post.status === "published"));
@@ -629,6 +711,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       })),
     },
     upcoming,
+    handOver,
     stats: [
       { label: T["stats.posts"], value: String(published.length) },
       { label: T["stats.engagement"], value: String(Math.round(engagementTotal)) },

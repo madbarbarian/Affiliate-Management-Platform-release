@@ -49,6 +49,8 @@ async function withConsole(
     operators?: { name: string; tokenEnv: string }[];
     locale?: "ja" | "en";
     release?: ReleaseStamp;
+    /** Anything else the config needs - a different channel, a different autonomy. */
+    config?: Record<string, unknown>;
   } = {},
 ): Promise<void> {
   const dataDir = await mkdtemp(join(tmpdir(), "amp-console-"));
@@ -71,6 +73,7 @@ async function withConsole(
         ...(options.operators ? { operators: options.operators } : {}),
         ...(options.locale ? { locale: options.locale } : {}),
       },
+      ...(options.config ?? {}),
     }),
     ...(options.llm ? { llm: options.llm } : {}),
   });
@@ -1617,5 +1620,115 @@ test("pressing run twice starts one day, not two", async () => {
     const runs = page.requests.filter((path) => path.endsWith("/run"));
     assert.equal(runs.length, 1, `the day was started ${runs.length} times`);
     assert.equal((await company.store.cycles.all()).length, 1, "and only one cycle exists");
+  });
+});
+
+test("a post the platform cannot publish reaches the operator as text, a link and one button", async () => {
+  // The whole feature, from the operator's side: the text they will paste, the
+  // comment that carries the affiliate link, somewhere to go, and the press
+  // that records what they did. Read off the real HTTP surface, because the
+  // console is the only place a licensee has - there is no terminal.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      unwrap(await company.orchestrator.runCycle("main"));
+      const approved = await company.store.posts.find((post) => post.status === "approved");
+      assert.ok(approved.length > 0);
+      company.clock.set(new Date(Math.max(...approved.map((post) => post.scheduledFor)) + 60_000).toISOString());
+      unwrap(await company.orchestrator.dispatchDue(company.clock.now()));
+
+      const read = async () =>
+        (await (
+          await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+        ).json()) as {
+          handOver: {
+            postId: string;
+            parts: string[];
+            comments: { purpose: string; text: string }[];
+            composerUrl?: string;
+          }[];
+          stats: { label: string; value: string }[];
+        };
+
+      const before = await read();
+      assert.ok(before.handOver.length > 0, "a handed-over post has to be on the screen");
+      const card = before.handOver[0]!;
+      const stored = (await company.store.posts.get(card.postId))!;
+      assert.deepEqual(
+        card.parts,
+        stored.handOverParts,
+        "the screen shows the text that was handed over, never a fresh rendering of the draft",
+      );
+      assert.equal(card.composerUrl, "https://www.threads.net/", "and where to go to paste it");
+
+      // The press. The URL of the real post is optional and travels with it.
+      const response = await fetch(`${base}/api/posts/${encodeURIComponent(card.postId)}/posted`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${handle.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://www.threads.net/@owner/post/xyz" }),
+      });
+      assert.equal(response.status, 200, await response.text());
+
+      const now = await company.store.posts.get(card.postId);
+      assert.equal(now?.status, "published");
+      assert.equal(now?.externalUrl, "https://www.threads.net/@owner/post/xyz");
+      // Recorded against the passphrase that was used, like every other press.
+      assert.equal(now?.postedBy, "owner");
+
+      const after = await read();
+      assert.ok(
+        after.handOver.every((entry) => entry.postId !== card.postId),
+        "and it leaves the list of things waiting on the operator",
+      );
+    },
+    {
+      config: {
+        company: { name: "Hand Co", operator: "owner", autonomy: "auto" },
+        channels: [
+          {
+            id: "by-hand",
+            adapter: "manual",
+            enabled: true,
+            credentialEnv: {},
+            research: { queries: [], minLikes: 0, maxItems: 1, lookbackHours: 24 },
+            options: { maxCharacters: 500, format: "thread", composerUrl: "https://www.threads.net/" },
+          },
+        ],
+        ventures: BASE_CONFIG.ventures.map((venture) => ({ ...venture, channels: ["by-hand"] })),
+      },
+    },
+  );
+});
+
+test("stopping an account stops it asking to be approved", async () => {
+  // The owner stopped the reference environment and the console kept showing
+  // its ideas gate. The tick hears "stopped" - no new cycle opens - but the
+  // gate already open did not, and there was no way to make the question go
+  // away short of answering it for an account that had been told to stop.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, _handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+
+    const asking = async (): Promise<number> => {
+      const state = (await (
+        await fetch(`${base}/api/state?token=a-real-token-value`)
+      ).json()) as { pending: unknown[] };
+      return state.pending.length;
+    };
+
+    assert.equal(await asking(), 1, "a running account with an open gate asks");
+
+    const stopped = await fetch(`${base}/api/ventures/main/deactivate?token=a-real-token-value`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: "今日はここまで" }),
+    });
+    assert.equal(stopped.status, 200);
+
+    assert.equal(await asking(), 0, "a stopped account does not");
+
+    // And the record is untouched: the decision is still pending, to be closed
+    // by the day-turn lapse like any gate nobody answered.
+    const pending = await company.orchestrator.pendingDecisions();
+    assert.equal(pending.length, 1, "stopping is not answering, and the trail says so");
   });
 });

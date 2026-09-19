@@ -88,11 +88,33 @@ const ja = {
   "today.upcomingTime": "時刻",
   "today.upcomingStatus": "状態",
   "today.upcomingHook": "冒頭",
+
+  // 自分で投稿するチャンネル。ここだけは、押さなければ何も起きません。
+  // 文面は投稿時点でチャンネルが組み立てたものをそのまま出しています
+  // （画面で作り直すと、実際に渡した文面とズレるため）。
+  "handOver.heading": "あなたが投稿する番です",
+  "handOver.lede": "この投稿は、あなたのアカウントから手で出してください。文面をコピーして、アプリを開いて、貼って投稿します。",
+  "handOver.slot": "予定していた時刻：{at}",
+  "handOver.part": "本文 {n}/{total}",
+  "handOver.onePart": "本文",
+  "handOver.comment": "最初のコメント（{purpose}）",
+  "handOver.commentLede": "アフィリエイトリンクはこのコメントに入っています。投稿したあと、最初の返信として貼ってください。",
+  "handOver.copy": "コピー",
+  "handOver.copied": "コピーしました",
+  "handOver.copyFailed": "コピーできませんでした。文面を選んで手でコピーしてください。",
+  "handOver.open": "アプリを開く",
+  "handOver.done": "投稿しました",
+  "handOver.sending": "記録しています…",
+  "handOver.urlPrompt": "投稿のURLがあれば貼ってください（空のままでもかまいません）",
+  "handOver.noEngagement": "このチャンネルでは、いいね・返信は取得できません。クリックと報酬はこれまでどおり記録されます。",
   "today.stats": "直近の数字",
   "today.activity": "最近の動き",
   "today.activityEmpty": "まだ記録がありません。",
   "today.activityFailed": "{step}で止まりました — {reason}",
   "today.activityExpired": "{day} の判断は、答えのないまま日が変わりました",
+  // 公開ではないので、公開と同じ見た目にしない。1つの投稿がこの欄に2回出る
+  // （渡したとき・押したとき）以上、どちらがどちらか読めなければ意味がない。
+  "today.activityHandedOver": "あなたが投稿する番です — {hook}",
   // Words the server renders. The router runs in the same process as this file
   // and reads it directly rather than shipping a second vocabulary: what a
   // screen says has to have one source, or console.locale becomes a promise
@@ -318,11 +340,28 @@ const en: Messages = {
   "today.upcomingTime": "Time",
   "today.upcomingStatus": "State",
   "today.upcomingHook": "Opening",
+
+  "handOver.heading": "Your turn to post",
+  "handOver.lede": "This one goes out from your own account. Copy the text, open the app, paste, post.",
+  "handOver.slot": "Slot it was planned for: {at}",
+  "handOver.part": "Post {n}/{total}",
+  "handOver.onePart": "Post",
+  "handOver.comment": "First comment ({purpose})",
+  "handOver.commentLede": "The affiliate link is in this comment. Paste it as the first reply once the post is up.",
+  "handOver.copy": "Copy",
+  "handOver.copied": "Copied",
+  "handOver.copyFailed": "Could not copy. Select the text and copy it by hand.",
+  "handOver.open": "Open the app",
+  "handOver.done": "I posted it",
+  "handOver.sending": "Recording…",
+  "handOver.urlPrompt": "The URL of the post, if you have it (you can leave this empty)",
+  "handOver.noEngagement": "Likes and replies cannot be read back on this channel. Clicks and revenue are recorded as usual.",
   "today.stats": "Recent numbers",
   "today.activity": "Recently",
   "today.activityEmpty": "Nothing recorded yet.",
   "today.activityFailed": "Stopped at {step} — {reason}",
   "today.activityExpired": "The gate for {day} lapsed unanswered",
+  "today.activityHandedOver": "Your turn to post — {hook}",
   "gate.proposalLabel": "Proposals",
   "gate.publishLabel": "Posts and their order",
   "gate.questionProposal": "Which of today's proposed posts should be written?",

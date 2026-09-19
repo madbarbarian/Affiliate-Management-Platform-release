@@ -20,7 +20,7 @@
 
 import { fail, ok, tryAsync, type PlatformError, type Result } from "../core/result.ts";
 import type { EngagementSnapshot, SwipeItem } from "../core/types.ts";
-import { composeThreadParts } from "./format.ts";
+import { renderPostParts } from "./format.ts";
 import type {
   Channel,
   ChannelFactoryContext,
@@ -101,6 +101,7 @@ export function createThreadsChannel(context: ChannelFactoryContext): Channel {
     id: context.id,
     adapter: "threads",
     capabilities: {
+      publishesItself: true,
       nativeScheduling: false,
       threads: true,
       discovery: true,
@@ -297,9 +298,12 @@ async function readInsights(
 }
 
 /**
- * Renders a draft into Threads-sized parts. The hook always leads, and the
- * disclosure always rides on the first part - a `#PR` buried in part four is
- * not a disclosure.
+ * Renders a draft into Threads-sized parts.
+ *
+ * The composition itself lives in `format.ts` and is shared with every other
+ * adapter, including the one that hands the text to a person: two channels
+ * showing the same draft differently is how a disclosure ends up in one of
+ * them and not the other.
  */
 export function renderParts(content: {
   hook: string;
@@ -309,85 +313,5 @@ export function renderParts(content: {
   hashtags: readonly string[];
   threadParts?: readonly string[];
 }): string[] {
-  // `composeThreadParts` counts the hook and the close once wherever the writer
-  // already put them; it is empty only when there was nothing to thread.
-  const parts = composeThreadParts({
-    hook: content.hook,
-    cta: content.cta,
-    hashtags: content.hashtags,
-    threadParts: content.threadParts ?? [],
-  });
-  if (parts.length > 0) {
-    // Trimming to length after appending the disclosure cut the disclosure off
-    // whenever the first part was long - publishing an affiliate thread with no
-    // notice at all, which is the exact failure this file's header promises not
-    // to allow. Part 0 is trimmed with room reserved for it instead.
-    return parts.map((part, index) =>
-      index === 0 ? fitWithDisclosure(part, content.disclosure) : part.slice(0, MAX_CHARACTERS),
-    );
-  }
-
-  const single = [content.hook, content.body, content.cta, content.hashtags.join(" ")]
-    .filter((line) => line.trim() !== "")
-    .join("\n\n");
-  const withNotice = withDisclosure(single, content.disclosure);
-  if (withNotice.length <= MAX_CHARACTERS) return [withNotice];
-
-  // Too long for one post: lead with hook + disclosure, continue in replies.
-  const head = fitWithDisclosure(content.hook, content.disclosure);
-  const rest = [content.body, content.cta, content.hashtags.join(" ")]
-    .filter((line) => line.trim() !== "")
-    .join("\n\n");
-  return [head, ...chunk(rest, MAX_CHARACTERS)];
-}
-
-function withDisclosure(text: string, disclosure: string): string {
-  if (disclosure.trim() === "" || text.includes(disclosure.trim())) return text;
-  return `${text}\n\n${disclosure.trim()}`;
-}
-
-/**
- * Trims a post to the channel's limit **with room kept for the disclosure**.
- *
- * The order matters and is the whole point: append then trim, and a long first
- * part silently loses the notice; reserve then append, and the post is shorter
- * instead. When even that will not fit, the disclosure wins and the copy is
- * what gets cut - an over-trimmed post is a bad post, a post with no notice is
- * a compliance failure on someone else's account.
- */
-function fitWithDisclosure(text: string, disclosure: string): string {
-  const notice = disclosure.trim();
-  if (notice === "") return text.slice(0, MAX_CHARACTERS);
-  if (text.length <= MAX_CHARACTERS && text.includes(notice)) return text;
-
-  const room = MAX_CHARACTERS - notice.length - 2;
-  if (room <= 0) return notice.slice(0, MAX_CHARACTERS);
-
-  const trimmed = text.slice(0, room).trimEnd();
-  return trimmed.includes(notice) ? trimmed : `${trimmed}\n\n${notice}`;
-}
-
-/** Splits on paragraph, then line, then hard character boundaries. */
-function chunk(text: string, size: number): string[] {
-  const out: string[] = [];
-  let current = "";
-  for (const paragraph of text.split(/\n\n+/)) {
-    for (const piece of paragraph.length <= size ? [paragraph] : hardSplit(paragraph, size)) {
-      const candidate = current === "" ? piece : `${current}\n\n${piece}`;
-      if (candidate.length <= size) {
-        current = candidate;
-      } else {
-        if (current !== "") out.push(current);
-        current = piece;
-      }
-    }
-  }
-  if (current !== "") out.push(current);
-  return out;
-}
-
-function hardSplit(text: string, size: number): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
-  return out;
+  return renderPostParts(content, MAX_CHARACTERS);
 }

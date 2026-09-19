@@ -483,3 +483,33 @@ test("a fresh run puts an account's files in its own folder", async () => {
     await scratch.cleanup();
   }
 });
+
+test("the by-hand channel in the shipped example wires up, and doctor says what it costs", async () => {
+  // The example gained a channel a licensee is expected to turn on in their
+  // first hour, which means the two lines they change - `enabled`, and the
+  // account's `channels` - have to produce a working configuration. That is
+  // config parsing, the channel registry and the adapter, none of which the
+  // unit tests reach.
+  const { config, cleanup } = await scratchConfig((yaml) =>
+    yaml
+      .replace(/^(  - id: by-hand\n    adapter: manual\n)    enabled: false$/m, "$1    enabled: true")
+      .replace(/^    channels:\n      - threads$/m, "    channels:\n      - by-hand"),
+  );
+  try {
+    const outcome = await amp(["doctor", "--config", config], { AMP_CONSOLE_TOKEN: "a-passphrase" });
+    assert.match(
+      outcome.stdout,
+      /channel\s+by-hand \(manual\)/,
+      `the by-hand channel never reached the registry:\n${outcome.stdout}\n${outcome.stderr}`,
+    );
+    // The trade, in the place a licensee looks when something seems off - and
+    // worded so it does not read as the mock adapter's "your numbers are made
+    // up", which is a different problem with a different fix.
+    assert.match(outcome.stdout, /you post them yourself/);
+    assert.match(outcome.stdout, /Clicks, conversions and revenue are unaffected/);
+    assert.doesNotMatch(outcome.stdout, /Their engagement numbers are simulated/);
+    assert.ok(!looksLikeACrash(outcome), outcome.stderr);
+  } finally {
+    await cleanup();
+  }
+});

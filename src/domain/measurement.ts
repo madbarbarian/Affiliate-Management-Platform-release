@@ -18,6 +18,7 @@
  * before the first post, when there is nothing to measure yet.
  */
 
+import { MANUAL_ADAPTER } from "../channels/manual.ts";
 import type { PlatformConfig } from "../config/schema.ts";
 import type { VentureId } from "../core/types.ts";
 
@@ -84,18 +85,33 @@ export function describeMeasurementChain(
   // The mock adapters exist so the whole loop runs before anyone has an
   // account. Left in place once real posting starts they are worse than
   // nothing: the reports look right and every number in them is invented.
+  //
+  // A hand-off channel is the opposite failure and must not be worded like
+  // this one. Nothing about it is invented; there is simply nobody asking the
+  // platform for likes, because the licensee posted it themselves. Saying
+  // "simulated" there would tell them to go and fix a working configuration.
   const simulatedChannels = channels.filter((channel) => channel.adapter === "mock");
+  const byHandChannels = channels.filter((channel) => channel.adapter === MANUAL_ADAPTER);
   links.push(
-    simulatedChannels.length === 0 && channels.length > 0
-      ? pass("engagement")
-      : problem(
+    simulatedChannels.length > 0
+      ? problem(
           "engagement",
-          simulatedChannels.length > 0
-            ? `Channel(s) ${list(simulatedChannels.map((c) => c.id))} use the "mock" adapter. ` +
-                `Their engagement numbers are simulated, so nothing this venture learns is real. ` +
-                `Set a real \`adapter\` before you post for an audience.`
-            : "No channel to report engagement.",
-        ),
+          `Channel(s) ${list(simulatedChannels.map((c) => c.id))} use the "mock" adapter. ` +
+            `Their engagement numbers are simulated, so nothing this venture learns is real. ` +
+            `Set a real \`adapter\` before you post for an audience.`,
+        )
+      : byHandChannels.length > 0
+        ? problem(
+            "engagement",
+            `Channel(s) ${list(byHandChannels.map((c) => c.id))} use the "${MANUAL_ADAPTER}" adapter: you ` +
+              `post them yourself, so likes and replies cannot be read back and this venture learns from ` +
+              `clicks and revenue only. Nothing is simulated - there is nothing to read. Clicks, ` +
+              `conversions and revenue are unaffected, because the link in the post is this platform's ` +
+              `own redirect. Connect a posting API when you want the engagement back.`,
+          )
+        : channels.length > 0
+          ? pass("engagement")
+          : problem("engagement", "No channel to report engagement."),
   );
 
   links.push(linkStep(config));

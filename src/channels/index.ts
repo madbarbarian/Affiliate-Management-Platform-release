@@ -9,11 +9,13 @@
 import { fail, ok, type PlatformError, type Result } from "../core/result.ts";
 import type { ChannelConfig } from "../config/schema.ts";
 import type { Channel, ChannelFactory } from "./channel.ts";
+import { createManualChannel, MANUAL_ADAPTER } from "./manual.ts";
 import { createMockChannel } from "./mock.ts";
 import { createThreadsChannel } from "./threads.ts";
 import { createWebhookChannel } from "./webhook.ts";
 
 export const builtinChannelFactories: Record<string, ChannelFactory> = {
+  [MANUAL_ADAPTER]: createManualChannel,
   mock: createMockChannel,
   threads: createThreadsChannel,
   webhook: createWebhookChannel,

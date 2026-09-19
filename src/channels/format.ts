@@ -64,6 +64,112 @@ export function composeThreadParts(content: {
   return parts;
 }
 
+/**
+ * A whole draft as the parts that actually go out, sized to a channel's limit.
+ *
+ * The hook always leads and the disclosure always rides on the first part - a
+ * `#PR` buried in part four is not a disclosure.
+ *
+ * It takes `maxCharacters` rather than reading a constant because two very
+ * different callers need the same answer: the adapter that posts through an
+ * API, and the adapter that hands the text to a person. If the person were
+ * shown text composed by a second implementation, the notice could be in one
+ * and not the other, and nobody would find out until a regulator did.
+ */
+export function renderPostParts(
+  content: {
+    readonly hook: string;
+    readonly body: string;
+    readonly cta: string;
+    readonly disclosure: string;
+    readonly hashtags: readonly string[];
+    readonly threadParts?: readonly string[];
+  },
+  maxCharacters: number,
+): string[] {
+  // `composeThreadParts` counts the hook and the close once wherever the writer
+  // already put them; it is empty only when there was nothing to thread.
+  const parts = composeThreadParts({
+    hook: content.hook,
+    cta: content.cta,
+    hashtags: content.hashtags,
+    threadParts: content.threadParts ?? [],
+  });
+  if (parts.length > 0) {
+    // Trimming to length after appending the disclosure cut the disclosure off
+    // whenever the first part was long - publishing an affiliate thread with no
+    // notice at all, which is the exact failure this function promises not to
+    // allow. Part 0 is trimmed with room reserved for it instead.
+    return parts.map((part, index) =>
+      index === 0 ? fitWithDisclosure(part, content.disclosure, maxCharacters) : part.slice(0, maxCharacters),
+    );
+  }
+
+  const single = [content.hook, content.body, content.cta, content.hashtags.join(" ")]
+    .filter((line) => line.trim() !== "")
+    .join("\n\n");
+  const withNotice = withDisclosure(single, content.disclosure);
+  if (withNotice.length <= maxCharacters) return [withNotice];
+
+  // Too long for one post: lead with hook + disclosure, continue in replies.
+  const head = fitWithDisclosure(content.hook, content.disclosure, maxCharacters);
+  const rest = [content.body, content.cta, content.hashtags.join(" ")]
+    .filter((line) => line.trim() !== "")
+    .join("\n\n");
+  return [head, ...chunk(rest, maxCharacters)];
+}
+
+function withDisclosure(text: string, disclosure: string): string {
+  if (disclosure.trim() === "" || text.includes(disclosure.trim())) return text;
+  return `${text}\n\n${disclosure.trim()}`;
+}
+
+/**
+ * Trims a post to the channel's limit **with room kept for the disclosure**.
+ *
+ * The order matters and is the whole point: append then trim, and a long first
+ * part silently loses the notice; reserve then append, and the post is shorter
+ * instead. When even that will not fit, the disclosure wins and the copy is
+ * what gets cut - an over-trimmed post is a bad post, a post with no notice is
+ * a compliance failure on someone else's account.
+ */
+function fitWithDisclosure(text: string, disclosure: string, maxCharacters: number): string {
+  const notice = disclosure.trim();
+  if (notice === "") return text.slice(0, maxCharacters);
+  if (text.length <= maxCharacters && text.includes(notice)) return text;
+
+  const room = maxCharacters - notice.length - 2;
+  if (room <= 0) return notice.slice(0, maxCharacters);
+
+  const trimmed = text.slice(0, room).trimEnd();
+  return trimmed.includes(notice) ? trimmed : `${trimmed}\n\n${notice}`;
+}
+
+/** Splits on paragraph, then line, then hard character boundaries. */
+function chunk(text: string, size: number): string[] {
+  const out: string[] = [];
+  let current = "";
+  for (const paragraph of text.split(/\n\n+/)) {
+    for (const piece of paragraph.length <= size ? [paragraph] : hardSplit(paragraph, size)) {
+      const candidate = current === "" ? piece : `${current}\n\n${piece}`;
+      if (candidate.length <= size) {
+        current = candidate;
+      } else {
+        if (current !== "") out.push(current);
+        current = piece;
+      }
+    }
+  }
+  if (current !== "") out.push(current);
+  return out;
+}
+
+function hardSplit(text: string, size: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+  return out;
+}
+
 /** What the writing role is told about the shape it is writing. */
 export function describeFormat(format: PostFormat, maxCharacters: number): string {
   switch (format) {

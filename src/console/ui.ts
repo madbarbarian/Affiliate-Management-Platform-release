@@ -118,6 +118,17 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
   .grid-reset { font-size: 12px; color: var(--muted); background: none; border: 0; padding: 4px 0; cursor: pointer; }
   /* The exact text going out, shown at the publishing gate without a click. */
   pre.post { background: var(--panel); border-color: var(--accent); line-height: 1.7; font-size: 14px; }
+  /*
+   * A post the operator has to put out themselves. Bordered in the accent
+   * colour because it is the one thing on this screen that does not happen
+   * unless they do it - the table underneath is a list of things the machine
+   * is going to do on its own.
+   */
+  .card.handover { border-color: var(--accent); }
+  .card.handover h3 { margin: 0 0 6px; font-size: 15px; }
+  .handover-part { margin: 12px 0; }
+  .handover-part .muted { font-size: 12px; margin-bottom: 4px; }
+  .handover-part button { font-size: 12px; padding: 4px 10px; }
   .pr-ok { color: var(--accent); font-size: 12px; margin-top: 6px; }
   .pr-missing { color: var(--danger); font-size: 13px; font-weight: 600; margin-top: 6px; }
   .pr-none { color: var(--muted); font-size: 12px; margin-top: 6px; }
@@ -258,6 +269,10 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
 
   <section>
     <h2>${escapeHtml(t("today.upcoming"))}</h2>
+    <!-- Above the schedule, not inside it. Every row of the table below is
+         something the machine will do on its own; these are the only ones that
+         do not happen unless the operator does them. -->
+    <div id="hand-over"></div>
     <div id="upcoming"></div>
   </section>
 
@@ -664,6 +679,56 @@ function renderDecision(decision) {
     </section>\`;
 }
 
+/**
+ * A post the platform composed and cannot publish: the text, and the press.
+ *
+ * The text shown is the text the channel composed at the slot, carried here on
+ * the post itself. Nothing on this screen rebuilds it - a preview free to
+ * disagree with what was handed over is the same defect the publishing gate
+ * already had once, and here it would be worse: this text is the post.
+ */
+function renderHandOver(post) {
+  const parts = post.parts ?? [];
+  const sending = posting.has(post.postId);
+  const block = (label, text, key) =>
+    '<div class="handover-part">' +
+      '<div class="muted">' + esc(label) + "</div>" +
+      '<pre class="post" id="ho-' + esc(post.postId) + "-" + esc(key) + '">' + esc(text) + "</pre>" +
+      '<button data-hand-over-act="copy" data-target="ho-' + esc(post.postId) + "-" + esc(key) + '">' +
+        esc(T["handOver.copy"]) + "</button>" +
+    "</div>";
+
+  const body = parts.map((part, index) =>
+    block(parts.length > 1 ? fmt("handOver.part", { n: index + 1, total: parts.length }) : T["handOver.onePart"],
+      part, "p" + index)).join("");
+
+  const comments = (post.comments ?? []).map((comment, index) =>
+    block(fmt("handOver.comment", { purpose: comment.purpose }), comment.text, "c" + index)).join("");
+
+  return '<div class="card handover">' +
+    "<h3>" + esc(T["handOver.heading"]) + " — " + esc(post.ventureName) + "</h3>" +
+    '<p class="muted">' + esc(T["handOver.lede"]) + "</p>" +
+    '<p class="muted">' + esc(fmt("handOver.slot", { at: post.at })) + T["punct.sep"] + esc(post.channel) + "</p>" +
+    body +
+    (comments === "" ? "" : '<p class="muted">' + esc(T["handOver.commentLede"]) + "</p>" + comments) +
+    '<div class="row">' +
+      '<button class="primary" data-hand-over-act="done" data-post="' + esc(post.postId) + '"' +
+        (sending ? " disabled" : "") + ">" +
+        esc(sending ? T["handOver.sending"] : T["handOver.done"]) + "</button>" +
+      // A plain link, opened in a new tab: the operator is coming back to this
+      // page to press the button, and replacing it would lose the text.
+      (post.composerUrl
+        ? '<a class="open" href="' + esc(post.composerUrl) + '" target="_blank" rel="noopener noreferrer">' +
+            esc(T["handOver.open"]) + "</a>"
+        : "") +
+    "</div>" +
+    // Said where the loss actually shows, rather than left for the operator to
+    // discover as a gap in their numbers.
+    '<p class="muted">' + esc(T["handOver.noEngagement"]) + "</p>" +
+    '<div class="err" id="hoerr-' + esc(post.postId) + '"></div>' +
+  "</div>";
+}
+
 function render() {
   if (!state) return;
   // Whose passphrase this is. The audit log records this name against
@@ -705,6 +770,9 @@ function render() {
   $("decision-list").innerHTML = state.pending.length === 0
     ? '<p class="empty">' + esc(T["today.decisionsEmpty"]) + "</p>"
     : state.pending.map(renderDecision).join("");
+
+  const handOver = state.handOver ?? [];
+  $("hand-over").innerHTML = handOver.map(renderHandOver).join("");
 
   $("upcoming").innerHTML = state.upcoming.length === 0
     ? '<p class="empty">' + esc(T["today.upcomingEmpty"]) + "</p>"
@@ -804,6 +872,11 @@ function activityText(entry) {
   if (entry.type === "decision.expired") {
     return "<b>" + esc(fmt("today.activityExpired", { day: entry.day ?? "" })) + "</b>";
   }
+  // Handing a post over and a person posting it both land here, and with only
+  // the stored summary the two read as the same line twice about the same post.
+  if (entry.type === "post.handed_over") {
+    return esc(fmt("today.activityHandedOver", { hook: entry.summary }));
+  }
   if (entry.type !== "cycle.failed") return esc(entry.summary);
   const failure = failureSummary(entry.failureCode);
   return '<b>' + esc(fmt("today.activityFailed", {
@@ -867,6 +940,54 @@ document.addEventListener("click", async (event) => {
     const box = $("perr-" + proposalId);
     if (box) box.textContent = String(error.message ?? error);
     target.disabled = false;
+  }
+});
+
+document.addEventListener("click", async (event) => {
+  const target = event.target.closest("[data-hand-over-act]");
+  if (!target) return;
+
+  if (target.dataset.handOverAct === "copy") {
+    const source = $(target.dataset.target);
+    if (!source) return;
+    const label = target.textContent;
+    try {
+      await navigator.clipboard.writeText(source.textContent);
+      target.textContent = T["handOver.copied"];
+      // The label goes back on its own. A button that stays reading "copied"
+      // says nothing about the next press.
+      setTimeout(() => { target.textContent = label; }, 2000);
+    } catch {
+      // Clipboard access is refused outside a secure context, which is exactly
+      // where a licensee running this on a plain http address will be. The text
+      // is on the screen either way, so this says how to get it.
+      notice(T["handOver.copyFailed"], "warn");
+    }
+    return;
+  }
+
+  const postId = target.dataset.post;
+  if (posting.has(postId)) return;
+  // Asked, not assumed. The URL is only obtainable in the seconds after
+  // posting, and cancelling the prompt must not cancel the record - the post is
+  // live by then, and nothing else on this page can say so.
+  const url = window.prompt(T["handOver.urlPrompt"], "") ?? "";
+  posting.add(postId);
+  target.disabled = true;
+  target.textContent = T["handOver.sending"];
+  try {
+    await api("/api/posts/" + encodeURIComponent(postId) + "/posted", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    posting.delete(postId);
+    await load();
+  } catch (error) {
+    posting.delete(postId);
+    const box = $("hoerr-" + postId);
+    if (box) box.textContent = String(error.message ?? error);
+    target.disabled = false;
+    target.textContent = T["handOver.done"];
   }
 });
 
@@ -1356,6 +1477,15 @@ let runningVentureId = null;
  * variable the second answer would release the guard on the first.
  */
 const resolving = new Set();
+/**
+ * Posts this page has already reported as posted and is still waiting on.
+ *
+ * Same reason as resolving: the poll rebuilds this card every thirty seconds,
+ * and a fresh 「投稿しました」 button coming back enabled is how a press becomes
+ * two - which the second time round is refused, with an error on a card that
+ * had in fact worked.
+ */
+const posting = new Set();
 
 async function load() {
   const ventureId = routedVentureId();
