@@ -6,7 +6,7 @@
 公開版（Claude Design のキャンバス）:
 <https://claude.ai/code/artifact/d1e2d79a-bf60-44c5-a252-73b430bcf6bb>
 
-## 9枚
+## 11枚
 
 | ファイル | 画面 | 状態 |
 |---|---|---|
@@ -19,6 +19,8 @@
 | `Proposals.dc.html` | 探索の提案 — 採用／見送り、採用後の追記の案内 | 静止 |
 | `Venture.dc.html` | アカウント — 失敗の理由と再実行、履歴、数字、型、止める | 静止・提案 |
 | `VentureSetup.dc.html` | アカウントの設定 — 読むだけ、各行に出所を添える | 静止・提案 |
+| `Settings.dc.html` | 会社の設定 — 自律の範囲とAIモデルが自分から名乗る | 静止・**実装済 v0.4.0** |
+| `Timeline.dc.html` | この日を見る — 役割の順番と言ったこと、門は誰が決めたか | 静止・**実装済 v0.4.0** |
 
 **右の2列（アカウント／アカウントの設定）はまだ実装が無い。** 承認画面を「今日／全アカウント／
 アカウント」の3階層に分ける提案で、根拠と順番は
@@ -28,6 +30,11 @@
 `canvas.json` が配置と付箋を持つ。右の2枚（全アカウント、探索の提案）は日課ではなく週に1回の
 画面で、実装では承認画面の同じページの判断待ちの**下**に節として付く
 （`docs/3-development/exploration-design.md`）。
+
+**右端の2枚（会社の設定／この日を見る）は提案ではなく、v0.4.0 で動いているもの。**
+承認画面のヘッダーも同時に変わった — 名前は右上の丸い印、待ち件数は「あなたの判断待ち」の
+見出しの横。以前の「みどり として ・ 1 / 2」は、名前が役職に読まれ、数も名前も
+読み飛ばされていた。`Main.dc.html` のヘッダーはその後の形。
 
 **要件・承認画面・用語を変えたら、このキャンバスも変える。** ルールは `CLAUDE.md` の Conventions にある。
 
@@ -61,6 +68,7 @@ node "<design skill>/seed-canvas.mjs" \
   --artboard PlanDetail.dc.html --artboard PostDetail.dc.html \
   --artboard Idle.dc.html --artboard Portfolio.dc.html --artboard Proposals.dc.html \
   --artboard Venture.dc.html --artboard VentureSetup.dc.html \
+  --artboard Settings.dc.html --artboard Timeline.dc.html \
   --canvas canvas.json
 ```
 

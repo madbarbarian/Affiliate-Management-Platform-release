@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 1180px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: center; gap: 10px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px;
+    }
+    .hist div.row { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .hist div.row:last-child { border-bottom: 0; }
+    .hist .when { color: var(--muted); font-variant-numeric: tabular-nums; width: 104px; flex: none; }
+    .hist .bad { color: var(--danger); }
+    .linky { background: none; border: 0; color: var(--accent); font-size: 12px; padding: 0 0 0 10px; cursor: pointer; margin-left: auto; }
+    .tl { margin-top: 10px; }
+    .tl-step { border-left: 2px solid var(--line); padding: 0 0 14px 14px; margin-left: 4px; font-size: 13px; }
+    .tl-step:last-child { padding-bottom: 0; }
+    .tl-step.human { border-left-color: var(--accent); }
+    .tl-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 2px 9px; font-size: 12px; color: var(--muted); }
+    .muted { color: var(--muted); }
+    .tl-items { margin-top: 6px; }
+    .tl-item { display: flex; gap: 8px; padding: 3px 0; align-items: baseline; }
+    .tl-item .mark { color: var(--muted); flex: none; width: 1.2em; }
+    .tl-item.chosen .mark { color: var(--accent); }
+    .tl-item.blocked b { color: var(--danger); }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <h1>朝のツール部屋</h1>
+    <nav><a class="here">今日</a><a>設定</a></nav>
+    <span class="who">みどり</span>
+  </header>
+
+  <div class="scroll">
+    <h2>最近の動き</h2>
+    <div class="card hist">
+      <div class="row"><span class="when">2026-09-13</span><span>完了 ・ 2件公開</span><button class="linky">閉じる</button></div>
+      <div class="row"><span class="when">2026-09-12</span><span>完了 ・ 3件公開</span><button class="linky">この日を見る</button></div>
+      <div class="row"><span class="when">2026-09-11</span><span class="bad">検品できませんでした（検品）</span><button class="linky">この日を見る</button></div>
+    </div>
+
+    <div class="card tl">
+      <div class="tl-step">
+        <div class="tl-head"><b>分析</b><span class="muted">05:10 ・ 1.8s</span></div>
+        <div>投稿 12 件を読み、エンゲージメントの中央値は 41</div>
+        <div>クリック 38、成果 2</div>
+        <div>確定した報酬 4200 JPY</div>
+        <div>確定した報酬 31 USD</div>
+        <div>型を 1 件、実績ありに格上げ</div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-head"><b>調査</b><span class="muted">05:40 ・ 3.2s</span></div>
+        <div>参考になる投稿を 24 件集め、9 件は捨てた</div>
+        <div>再現できそうな型を 2 件</div>
+        <div class="tl-items">
+          <div class="tl-item"><span><b>「やめた」から始める一人称</b><span class="muted"> 自分の失敗から入ると、読者が身構えない</span></span></div>
+        </div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-head"><b>企画</b><span class="muted">06:20 ・ 4.1s</span></div>
+        <div>案を 10 件</div>
+        <div class="tl-items">
+          <div class="tl-item"><span><b>1. 朝30分をやめた話</b><span class="muted"> 逆張り / 根拠: 8/29 の同型が保存612 / 失敗の仕方: 自慢に読める</span></span></div>
+          <div class="tl-item"><span><b>2. 見積もりを2倍にした</b><span class="muted"> 実体験 / 根拠: クリック率が中央値の1.8倍 / 失敗の仕方: 再現性がないと読まれる</span></span></div>
+        </div>
+      </div>
+
+      <div class="tl-step human">
+        <div class="tl-head"><b>企画の承認</b><span class="muted">07:02 ・ 0.2s</span><span class="chip">人が決めた</span></div>
+        <div>みどり が 10 件のうち 3 件を選んだ</div>
+        <div class="tl-items">
+          <div class="tl-item chosen"><span class="mark">✓</span><span><b>朝30分をやめた話</b></span></div>
+          <div class="tl-item chosen"><span class="mark">✓</span><span><b>見積もりを2倍にした</b></span></div>
+          <div class="tl-item"><span class="mark">—</span><span><b>ツール10選</b><span class="muted"> 推奨ではない</span></span></div>
+        </div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-head"><b>執筆</b><span class="muted">07:03 ・ 6.4s</span></div>
+        <div>3 件を書いた</div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-head"><b>検品</b><span class="muted">07:05 ・ 2.9s</span></div>
+        <div>3 件を検品</div>
+        <div>AIっぽさの最大値は 38</div>
+        <div>1 件は出さないと判断</div>
+        <div class="tl-items">
+          <div class="tl-item"><span><b>AIっぽさ 12</b></span></div>
+          <div class="tl-item blocked"><span><b>AIっぽさ 38</b><span class="muted"> 「〜かもしれません」が3回 / 開示文が本文から離れている</span></span></div>
+        </div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-head"><b>枠決め</b><span class="muted">07:06 ・ 0.4s</span></div>
+        <div>2 件の枠を決めた</div>
+      </div>
+
+      <div class="tl-step human">
+        <div class="tl-head"><b>投稿の承認</b><span class="muted">18:40 ・ 0.3s</span><span class="chip">人が決めた</span></div>
+        <div>みどり が 2 件のうち 2 件を選んだ</div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-head"><b>投稿</b><span class="muted">21:00 ・ 1.1s</span></div>
+        <div>2 件を公開</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

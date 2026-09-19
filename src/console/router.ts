@@ -16,6 +16,7 @@ import { Buffer } from "node:buffer";
 import { join } from "node:path";
 
 import { localDate } from "../core/clock.ts";
+import { composeThreadParts } from "../channels/format.ts";
 import { readPause } from "../kernel/pause.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
@@ -36,9 +37,27 @@ import { COMPANY_SCOPE, type VentureId } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
 import { fill, messagesFor, type Messages } from "./messages.ts";
 import { checkForUpdate } from "./updates.ts";
+import { readUnlockSubmission, renderUnlock, UNLOCK_MISMATCH, UNLOCK_PATH } from "./unlock.ts";
 
 export const COOKIE_NAME = "amp_console";
 export const MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * The session a valid passphrase buys, written once.
+ *
+ * Three places hand it out - `/`, `/unlock`, and the Worker's setup page - and
+ * a flag that differs between them is a flag nobody would notice missing.
+ */
+export function sessionCookie(token: string): string {
+  // Percent-encoded, because a cookie value is not a place a raw passphrase
+  // fits: a `;` in one ends the cookie and starts an attribute, a space ends it
+  // outright. Unencoded, the form would take a generated passphrase, say it
+  // matched, and hand back a session the browser drops - the same refusal as
+  // before, one screen later. `readCookie` undoes it, and a session written
+  // before this still reads, because a value with nothing escaped in it decodes
+  // to itself.
+  return `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`;
+}
 
 /**
  * How long a run started from the console holds the lock before it is assumed
@@ -69,16 +88,22 @@ export async function handleRequest(
   // The redirect is public by design - it is the link in the posts.
   if (path.startsWith(REDIRECT_PATH)) return handleRedirect(runtime.services, url, request);
 
+  // The passphrase, typed. Before the gate, because this is how you get through
+  // it: everything else here needs a credential, and this route is where one is
+  // presented. It admits nothing on its own - the same `holderOf` decides.
+  if (path === UNLOCK_PATH && request.method === "POST") return handleUnlock(request, operators);
+
   // The name, not a yes. Everything this request records is attributed to it,
   // which is the whole reason a passphrase carries one.
   const actor = identify(request, url, operators);
   if (actor === undefined) {
-    if (path === "/") {
-      return new Response("Unauthorised. Open the URL printed by `amp console`, which carries the token.\n", {
-        status: 401,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
-    }
+    // The console, and the page a browser lands back on when the form was
+    // reloaded after a refusal. It used to answer, in English, "Open the URL
+    // printed by `amp console`" - a licensee on Cloudflare has no terminal to
+    // run that in, and a passphrase worth having cannot go in a URL at all, so
+    // the page asks for it instead. `next` is `/` and never `/unlock`: landing
+    // back here after getting in is a loop, not an arrival.
+    if (path === "/" || path === UNLOCK_PATH) return html(401, renderUnlock({ next: "/" }));
     return json(401, { error: "unauthorised" });
   }
 
@@ -91,7 +116,7 @@ export async function handleRequest(
     // them out on their next click.
     if (suppliedToken && holderOf(suppliedToken, operators) !== undefined) {
       // Move the token out of the URL so it stops appearing in history.
-      headers["set-cookie"] = `${COOKIE_NAME}=${suppliedToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`;
+      headers["set-cookie"] = sessionCookie(suppliedToken);
     }
     return new Response(
       renderPage({ companyName: runtime.config.company.name, locale: runtime.config.console.locale }),
@@ -421,6 +446,11 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     gateLabel: T[decision.gate === "proposal_approval" ? "gate.proposalLabel" : "gate.publishLabel"],
     question: T[decision.gate === "proposal_approval" ? "gate.questionProposal" : "gate.questionPublish"],
     ventureName: ventureName.get(decision.ventureId) ?? decision.ventureId,
+    // The account, not only its name. Answering this gate starts minutes of
+    // work, and when the answer to that request is lost the page watches this
+    // account's row to find out what became of it - which it cannot do from a
+    // display name two accounts are allowed to share.
+    ventureId: decision.ventureId,
     max: decision.selectionHint.max,
     // In `manual` autonomy nothing is pre-ticked; the operator starts from a
     // blank slate on purpose.
@@ -748,19 +778,40 @@ function readText(detail: Readonly<Record<string, unknown>>, key: string): strin
 }
 
 /**
- * The literal text that will appear on the channel, in the order it appears.
+ * The parts of the post as the channel will publish them, in order.
  *
  * `threadParts` wins over `body` when it is present, because that is what the
  * channel publishes. Showing `body` here meant the operator approved one text
  * while a different one went out - which defeats the entire point of putting
- * the post in front of them unfolded.
+ * the post in front of them unfolded. The same reasoning is why the hook and
+ * the close are composed by `composeThreadParts` rather than bolted on here: a
+ * writer returns parts that already carry both, and a screen that adds them
+ * again shows a post nobody is going to publish.
  */
-function buildPostText(detail: Readonly<Record<string, unknown>>): string {
-  const parts = Array.isArray(detail["threadParts"])
-    ? (detail["threadParts"] as unknown[]).map((part) => String(part ?? "").trim())
-    : [readText(detail, "body")];
+function buildPostParts(detail: Readonly<Record<string, unknown>>): string[] {
+  const threadParts = Array.isArray(detail["threadParts"])
+    ? (detail["threadParts"] as unknown[]).map((part) => String(part ?? ""))
+    : [];
+  const hashtags = Array.isArray(detail["hashtags"])
+    ? (detail["hashtags"] as unknown[]).map((tag) => String(tag ?? ""))
+    : [];
 
-  return [readText(detail, "hook"), ...parts, readText(detail, "cta"), readText(detail, "disclosure")]
+  const composed = composeThreadParts({
+    hook: readText(detail, "hook"),
+    cta: readText(detail, "cta"),
+    hashtags,
+    threadParts,
+  });
+  if (composed.length > 0) return composed;
+
+  return [readText(detail, "hook"), readText(detail, "body"), readText(detail, "cta")].filter(
+    (part) => part !== "",
+  );
+}
+
+/** The literal text that will appear on the channel, with the notice under it. */
+function buildPostText(detail: Readonly<Record<string, unknown>>): string {
+  return [...buildPostParts(detail), readText(detail, "disclosure")]
     .filter((part) => part !== "")
     .join("\n\n");
 }
@@ -795,14 +846,19 @@ function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): s
     const value = detail[key];
     if (typeof value === "string" && value.trim() !== "") lines.push(`${label}: ${value}`);
   };
-  push("HOOK", "hook");
-  push("BODY", "body");
-  if (Array.isArray(detail["threadParts"])) {
-    (detail["threadParts"] as unknown[]).forEach((part, index) => {
-      lines.push(`THREAD ${index + 1}: ${String(part ?? "")}`);
-    });
+  // A threaded draft's parts already contain the hook and the close, so listing
+  // the raw fields beside them printed the whole post twice and left the
+  // operator guessing which copy was the one going out. Either way this shows
+  // the text once, in publication order - and the notice, which is the line
+  // they are here to check.
+  const threaded = Array.isArray(detail["threadParts"]) && (detail["threadParts"] as unknown[]).length > 0;
+  if (threaded) {
+    buildPostParts(detail).forEach((part, index) => lines.push(`THREAD ${index + 1}: ${part}`));
+  } else {
+    push("HOOK", "hook");
+    push("BODY", "body");
+    push("CTA", "cta");
   }
-  push("CTA", "cta");
   push("PR", "disclosure");
   push(T["preview.angle"], "angle");
   push(T["preview.targetPain"], "targetPain");
@@ -827,6 +883,36 @@ function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): s
 // ---------------------------------------------------------------------------
 // Plumbing
 // ---------------------------------------------------------------------------
+
+/**
+ * The passphrase as the form sent it.
+ *
+ * The comparison is `holderOf` - the same one every other route is admitted by,
+ * with the same constant-time compare and the same refusal of an empty
+ * credential. A second comparison here would be a second place for that bug to
+ * come back in.
+ */
+async function handleUnlock(request: Request, operators: readonly Operator[]): Promise<Response> {
+  const body = await readBodyText(request);
+  if (!body.ok) return json(400, { error: body.error.message });
+
+  const submitted = readUnlockSubmission(body.value);
+  if (holderOf(submitted.token, operators) === undefined) {
+    // The page again, with the reason, and never carrying what was typed: this
+    // page's whole job is to be the only place that value exists.
+    return html(401, renderUnlock({ next: submitted.next, problem: UNLOCK_MISMATCH }));
+  }
+
+  // 303, so a refresh of where they land is not a re-post of the passphrase.
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: submitted.next,
+      "set-cookie": sessionCookie(submitted.token),
+      "cache-control": "no-store",
+    },
+  });
+}
 
 /** The name of whoever presented a valid passphrase, or undefined for nobody. */
 function identify(request: Request, url: URL, operators: readonly Operator[]): string | undefined {
@@ -880,21 +966,42 @@ function readCookie(header: string | undefined, name: string): string | undefine
   if (!header) return undefined;
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return rest.join("=");
+    if (key === name) return decodeCookieValue(rest.join("="));
   }
   return undefined;
 }
 
-async function readJson(request: Request): Promise<Result<unknown, PlatformError>> {
+/**
+ * The passphrase as it was before `sessionCookie` encoded it.
+ *
+ * A value that predates the encoding, or one a hand rolled a `%` into, is not
+ * valid percent-encoding and throws; it is then whatever it already was, which
+ * is what those sessions were compared as.
+ */
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+async function readBodyText(request: Request): Promise<Result<string, PlatformError>> {
   const text = await request.text();
   // Measured in bytes, not characters: a body of multi-byte text is as
   // expensive to hold as the same number of ASCII bytes.
   if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) {
     return fail("validation", "console.body_too_large", "Request body is too large.");
   }
-  if (text.trim() === "") return ok({});
+  return ok(text);
+}
+
+async function readJson(request: Request): Promise<Result<unknown, PlatformError>> {
+  const body = await readBodyText(request);
+  if (!body.ok) return body;
+  if (body.value.trim() === "") return ok({});
   try {
-    return ok(JSON.parse(text));
+    return ok(JSON.parse(body.value));
   } catch (cause) {
     return fail("validation", "console.invalid_json", "Request body was not valid JSON.", { cause });
   }
@@ -908,5 +1015,12 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+function html(status: number, body: string): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });
 }

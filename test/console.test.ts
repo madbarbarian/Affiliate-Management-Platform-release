@@ -17,7 +17,8 @@ import { join } from "node:path";
 
 import { startConsole, type ConsoleHandle } from "../src/console/server.ts";
 import { createTestCompany, refusingProvider, testConfig, BASE_CONFIG, type TestCompany } from "./helpers.ts";
-import type { MockProvider } from "../src/llm/mock.ts";
+import { createMockProvider, type MockProvider } from "../src/llm/mock.ts";
+import { createDemoHandlers } from "../src/llm/demo.ts";
 import type { Lock } from "../src/storage/lock.ts";
 import { CYCLES_LOCK } from "../src/scheduler/tick.ts";
 import { CYCLE_FAILURE_CODES, CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES } from "../src/console/labels.ts";
@@ -32,6 +33,8 @@ import type { Runtime } from "../src/runtime.ts";
 import type { ReleaseStamp } from "../src/core/release.ts";
 import { fileState } from "../src/kernel/state.ts";
 import { openPage } from "./page-harness.ts";
+import { renderUnlock, UNLOCK_MISMATCH } from "../src/console/unlock.ts";
+import { waitingIsOver, WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
 
 /**
  * A console backed by the test company. `startConsole` only reads `config`,
@@ -219,6 +222,80 @@ test("the publish gate says whether each post carries an offer, so a missing dis
       "the demo slate mixes offer and no-offer posts; without one of each this test proves nothing",
     );
   });
+});
+
+test("the publish gate shows a threaded post once, not the hook and the close twice over", async () => {
+  // On a real run the writer returned parts that already opened with the hook
+  // and ended on the CTA. The gate printed HOOK, BODY, every part, then CTA, so
+  // the operator read the same post two and a half times and could not tell
+  // which version was the one about to go out. The mock never produced that
+  // shape, which is why nothing here caught it.
+  const HOOK = "結論から言うと、設営の最初の20分が全部です。";
+  const CTA = "僕が最初に下ろすのは椅子でした。あなたは何ですか？";
+  const PART_ONE = `${HOOK}\n\nキャンプ場8回分、ぜんぶ順番の問題でした。道具ではなかった。`;
+  const PART_TWO = `僕が固定した手順はこれです。ペグを打つ前に荷物を降ろしきる。それだけ。\n\n${CTA}`;
+  const written = {
+    hook: HOOK,
+    body: `${PART_ONE}\n\n${PART_TWO}`,
+    cta: CTA,
+    disclosure: "",
+    hashtags: [] as string[],
+    threadParts: [PART_ONE, PART_TWO],
+  };
+
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      const atProposal = unwrap(await company.orchestrator.runCycle("main"));
+      const proposal = (await company.store.decisions.get(atProposal.pendingDecisionId as string))!;
+      unwrap(
+        await company.orchestrator.resolveGate(proposal.id, {
+          decidedBy: "tester",
+          selectedIds: proposal.items.slice(0, proposal.selectionHint.max).map((item) => item.id),
+          nowIso: company.clock.nowIso(),
+        }),
+      );
+
+      const state = (await (
+        await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+      ).json()) as {
+        pending: { gateLabel: string; items: { preview: string; post?: string; hasOffer?: boolean }[] }[];
+      };
+      const publish = state.pending.find((decision) => decision.gateLabel === "投稿の承認と順番");
+      assert.ok(publish, "the cycle should be waiting at the publish gate");
+      assert.ok(publish.items.length > 0, "and it should have posts in it");
+
+      const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
+      for (const item of publish.items) {
+        assert.equal(count(item.preview, HOOK), 1, `the preview says the hook twice:\n${item.preview}`);
+        assert.equal(count(item.preview, CTA), 1, `the preview says the close twice:\n${item.preview}`);
+        assert.equal(count(item.post ?? "", HOOK), 1, "and so does the text being approved");
+        assert.equal(count(item.post ?? "", CTA), 1, "and so does the text being approved");
+        if (item.hasOffer) {
+          assert.match(item.preview, /PR:/, "the notice is still on the screen it is checked on");
+        }
+      }
+      assert.ok(
+        publish.items.some((item) => item.hasOffer),
+        "without a post carrying an offer, the disclosure assertion above proves nothing",
+      );
+    },
+    {
+      llm: createMockProvider({
+        responses: {
+          ...createDemoHandlers(),
+          "write.draft": () => written,
+          "inspect.review": () => ({
+            aiSmellScore: 40,
+            revisedAiSmellScore: 12,
+            findings: [],
+            revised: written,
+            unfixable: "",
+          }),
+        } as never,
+      }),
+    },
+  );
 });
 
 test("a failed day tells the operator why, on the page that is all they have", async () => {
@@ -1256,5 +1333,289 @@ test("running on the simulated model says so on the settings screen", async () =
     assert.match(body, /機械に任せている範囲/);
     assert.match(body, /リンクの行き先/);
     assert.doesNotMatch(body, /\{(model|fastModel|effort|posts|minutes|smell)\}/, "no placeholder reached the screen");
+  });
+});
+
+/** The form on the 401 page, submitted the way a browser submits it. */
+function unlock(base: string, fields: Record<string, string>): Promise<Response> {
+  return fetch(`${base}/unlock`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields).toString(),
+    redirect: "manual",
+  });
+}
+
+test("a passphrase with a + in it gets in through the page, and never could through the address", async () => {
+  // The defect, in one test. The deploy screen tells the licensee to generate a
+  // passphrase with a password manager, which produces exactly this - and
+  // `?token=sunny+river+42` is read as "sunny river 42", so the passphrase they
+  // were told to make was the one that could not be presented. The old 401 then
+  // said only that a passphrase was required, which reads as "you typed nothing".
+  const passphrase = "sunny+river+42";
+  await withConsole({ AMP_TEST_TOKEN: passphrase }, async (base) => {
+    const pasted = await fetch(`${base}/api/state?token=${passphrase}`);
+    assert.equal(pasted.status, 401, "in the address the + is a space by the time anything reads it");
+
+    const unlocked = await unlock(base, { token: passphrase, next: "/" });
+    assert.equal(unlocked.status, 303, "the same passphrase, posted, is the holder's");
+    assert.equal(unlocked.headers.get("location"), "/");
+
+    const cookie = unlocked.headers.getSetCookie()[0];
+    assert.ok(cookie, "getting in has to hand back the session");
+    assert.match(cookie, /^amp_console=sunny%2Briver%2B42;/, "encoded, so the browser keeps all of it");
+    assert.match(cookie, /HttpOnly/);
+
+    const opened = await fetch(`${base}/api/state`, { headers: { cookie: cookie.split(";")[0] as string } });
+    assert.equal(opened.status, 200, "and that session opens the console");
+  });
+});
+
+test("a passphrase with a semicolon and a space in it survives being a session", async () => {
+  // The half of the same defect that lives one screen later: a cookie value
+  // ends at a `;` or a space, so a passphrase carrying either was accepted by
+  // the form, and then the session it handed back was truncated to something
+  // that was nobody's. The licensee types the right passphrase, is told they
+  // are in, and lands back on the same page.
+  const passphrase = "night; owl 7 & rain";
+  await withConsole({ AMP_TEST_TOKEN: passphrase }, async (base) => {
+    const unlocked = await unlock(base, { token: passphrase, next: "/" });
+    assert.equal(unlocked.status, 303);
+
+    const cookie = unlocked.headers.getSetCookie()[0] as string;
+    const value = cookie.split(";")[0] as string;
+    assert.ok(!/[ ;]/.test(value.slice("amp_console=".length)), "nothing a cookie ends at");
+
+    const opened = await fetch(`${base}/api/state`, { headers: { cookie: value } });
+    assert.equal(opened.status, 200, "the session the browser would actually send is the holder's");
+  });
+});
+
+test("a passphrase that does not match gets the page back, with nothing attached to it", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base) => {
+    for (const token of ["last-months-value", ""]) {
+      const response = await unlock(base, { token, next: "/" });
+      assert.equal(response.status, 401, `"${token}" must not open anything`);
+      assert.equal(response.headers.getSetCookie().length, 0, "a refusal must never hand out a session");
+    }
+
+    const body = await (await unlock(base, { token: "last-months-value", next: "/" })).text();
+    assert.match(body, /合言葉が違いました/, "and says so, rather than repeating the first screen");
+    assert.match(body, /type="password"/, "with the field still there - a dead end is what this replaced");
+    assert.doesNotMatch(body, /last-months-value/, "what was typed never goes back into the page");
+  });
+});
+
+test("the page that takes a passphrase cannot be used to send somebody somewhere else", async () => {
+  // An open redirect is worth most on exactly this page: it is where a person
+  // has already decided to type a secret, and a copy of it one hop away would
+  // be believed.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base) => {
+    for (const [next, landsOn] of [
+      ["//evil.example", "/"],
+      ["https://evil.example", "/"],
+      ["/\\evil.example", "/"],
+      ["/api/settings", "/api/settings"],
+    ] as const) {
+      const response = await unlock(base, { token: "a-real-token-value", next });
+      assert.equal(response.status, 303);
+      assert.equal(response.headers.get("location"), landsOn, `next=${next}`);
+    }
+  });
+});
+
+test("the two routes that answer without a credential still answer without one", async () => {
+  // A route added ahead of the gate is a chance to move the gate. The redirect
+  // is the link inside every published post and the reader has no passphrase;
+  // health is what says the deploy is alive before anything else works.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base) => {
+    const health = await fetch(`${base}/healthz`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { ok: true });
+
+    const link = await fetch(`${base}/go/not-a-real-code`, { redirect: "manual" });
+    assert.equal(link.status, 404, "a reader's click is not a login");
+  });
+});
+
+test("the passphrase page carries no value of its own, and cannot be made to carry markup", () => {
+  const page = renderUnlock({ next: '/"><script>alert(1)</script>', problem: UNLOCK_MISMATCH });
+  assert.doesNotMatch(page, /<script>/, "the return path is a value in an attribute, never markup");
+  assert.match(page, /value="\/&quot;&gt;&lt;script&gt;/);
+  assert.match(page, /<input type="password" name="token" autocomplete="current-password"/);
+  assert.doesNotMatch(page, /name="token"[^>]*value=/, "the passphrase is never written back into the page");
+});
+
+// ---------------------------------------------------------------------------
+// The screen that went quiet
+//
+// Running a day and answering the ideas gate each do minutes of model calls,
+// and both did that work inside the HTTP request. When the response was lost -
+// a Cloudflare edge timeout, a closed laptop - the page silently went back to
+// what it had been showing, although the work had finished and been saved. The
+// owner pressed run, saw nothing, reloaded, and found three proposals waiting;
+// pressed approve, saw nothing, reloaded, and found the next gate open with a
+// finished post behind it. He pressed each of them twice.
+// ---------------------------------------------------------------------------
+
+/** A row for the judgement to read, with only the fields it reads. */
+function row(ventureId: string, cycle?: { date: string; status: string; nextStep?: string }) {
+  return cycle ? { ventureId, lastCycle: cycle } : { ventureId };
+}
+
+test("a gate opening for this account is what ends the wait", () => {
+  // The clearest answer there is: the work finished and it is asking something
+  // new. It has to count even while the row still says 動作中, because the
+  // portfolio behind that row is memoised for thirty seconds and the gate is
+  // not - so for up to half a minute the two disagree, and the gate is right.
+  const before: WaitingSnapshot = {
+    pending: [],
+    portfolio: { rows: [row("main", { date: "2026-09-18", status: "running", nextStep: "write" })] },
+  };
+  const now: WaitingSnapshot = {
+    pending: [{ id: "dec_1", ventureId: "main" }],
+    portfolio: { rows: [row("main", { date: "2026-09-18", status: "running", nextStep: "write" })] },
+  };
+  assert.equal(waitingIsOver(before, now, "main"), true);
+});
+
+test("another account's gate, and a step that only moved, are not an answer", () => {
+  const cycle = { date: "2026-09-18", status: "running", nextStep: "write" };
+  const before: WaitingSnapshot = {
+    pending: [],
+    portfolio: { rows: [row("main", cycle), row("second", { date: "2026-09-18", status: "running" })] },
+  };
+
+  // A second account opening its own gate says nothing about this one, and
+  // ending the wait on it would leave a screen that has not changed reading
+  // 終わりました.
+  assert.equal(
+    waitingIsOver(before, { ...before, pending: [{ id: "dec_9", ventureId: "second" }] }, "main"),
+    false,
+  );
+
+  // The middle of the work is saved a step at a time. A cycle that has gone
+  // from write to inspect has finished nothing the operator asked for, and a
+  // screen that said so would be lying a second way.
+  const moved: WaitingSnapshot = {
+    pending: [],
+    portfolio: {
+      rows: [row("main", { date: "2026-09-18", status: "running", nextStep: "inspect" }), row("second")],
+    },
+  };
+  assert.equal(waitingIsOver(before, moved, "main"), false);
+});
+
+test("a cycle that came to rest ends the wait; a state that cannot say does not", () => {
+  const before: WaitingSnapshot = {
+    pending: [],
+    portfolio: { rows: [row("main", { date: "2026-09-18", status: "running", nextStep: "write" })] },
+  };
+  const at = (status: string, nextStep?: string): WaitingSnapshot => ({
+    pending: [],
+    portfolio: {
+      rows: [row("main", nextStep ? { date: "2026-09-18", status, nextStep } : { date: "2026-09-18", status })],
+    },
+  });
+
+  assert.equal(waitingIsOver(before, at("completed"), "main"), true, "a day that finished");
+  assert.equal(waitingIsOver(before, at("failed"), "main"), true, "and one that failed");
+  assert.equal(waitingIsOver(before, at("cancelled"), "main"), true, "and one that was stopped");
+
+  // Nothing moved at all.
+  assert.equal(
+    waitingIsOver(before, { ...before }, "main"),
+    false,
+    "an unchanged state is not an answer",
+  );
+
+  // Fail-closed: when the state cannot answer, the answer is not yes. Saying
+  // yes here takes down the line saying the work is still going, which is the
+  // silence this whole path exists to end. Saying no costs one more poll.
+  assert.equal(waitingIsOver(null, at("completed"), "main"), false, "nothing to compare against");
+  assert.equal(waitingIsOver(before, { pending: [] }, "main"), false, "no rows at all");
+  assert.equal(waitingIsOver(before, at("completed"), ""), false, "no account named");
+});
+
+test("a gate says which account it belongs to, not only what it is called", async () => {
+  // Two accounts are allowed the same display name, and answering a gate starts
+  // minutes of work whose answer can be lost. The page watches this account's
+  // row to find out what became of it, and cannot do that from a name.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { pending: { id: string; ventureId?: string; ventureName: string }[] };
+    assert.equal(state.pending.length, 1);
+    assert.equal(state.pending[0]!.ventureId, "main");
+  });
+});
+
+test("the page carries the deadline, the watch and the words for both", () => {
+  // The script is inlined and most of it cannot be called from here, so this is
+  // a guard against a refactor quietly dropping the wiring - not a test that it
+  // works. What it does assert exactly is that the page carries the *same*
+  // judgement the three tests above exercise, rather than a second copy of it.
+  const page = renderPage({ companyName: "テスト" });
+
+  assert.ok(page.includes(WAITING_IS_OVER_SOURCE), "the page must inline the tested function, not a copy");
+  assert.match(page, /const SLOW_ACTION_DEADLINE_MS = 20000;/, "the request stops being the work after 20s");
+  assert.match(page, /const WATCH_POLL_MS = \d+;/);
+  assert.match(page, /const WATCH_LIMIT_MS = \d+;/, "a watch with no bound is the same lie more slowly");
+  assert.match(page, /waitingIsOver\(before, state, ventureId\)/, "the watch has to consult it");
+  assert.match(page, /withDeadline\(/);
+  assert.match(page, /<div id="notice" hidden>/, "the line has to outlive the render that rebuilds the card");
+
+  for (const key of ["wait.stillRunning", "wait.gateStillRunning", "wait.changed", "wait.tooLong"]) {
+    assert.ok(page.includes(key), `${key} never reached the page`);
+    // Both languages, like every other string on this screen. The parity test
+    // above proves the key sets match; this proves the keys exist at all.
+    assert.ok(MESSAGES.ja[key as keyof typeof MESSAGES.ja], `${key} has no Japanese`);
+    assert.ok(MESSAGES.en[key as keyof typeof MESSAGES.en], `${key} has no English`);
+  }
+
+  // And the guard that survives a re-render: the poll rebuilds the gate's card
+  // every few seconds, and a fresh button reading 承認して進める is what got the
+  // same day approved twice.
+  assert.match(page, /const sending = resolving\.has\(decision\.id\);/);
+  assert.match(page, /if \(resolving\.has\(decisionId\)\) return;/);
+  assert.match(page, /if \(runningVentureId === ventureId\) return;/);
+});
+
+test("pressing approve twice sends one answer, not two", async () => {
+  // The screen said 送信中… and then, when the response never came, went back to
+  // 「N件を承認して進める」 - so it was pressed again. The disabled attribute
+  // could not stop that: it is on a button the poll replaces.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { pending: { id: string }[] };
+    const decisionId = state.pending[0]!.id;
+
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    // Both presses before the first has settled, which is the only moment the
+    // guard exists for.
+    await Promise.all([
+      page.press({ act: "submit", decision: decisionId }),
+      page.press({ act: "submit", decision: decisionId }),
+    ]);
+
+    const answers = page.requests.filter((path) => path.includes("/resolve"));
+    assert.equal(answers.length, 1, `the gate was answered ${answers.length} times`);
+  });
+});
+
+test("pressing run twice starts one day, not two", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-cycle" });
+    await Promise.all([
+      page.press({ ventureRun: "1", venture: "main" }),
+      page.press({ ventureRun: "1", venture: "main" }),
+    ]);
+
+    const runs = page.requests.filter((path) => path.endsWith("/run"));
+    assert.equal(runs.length, 1, `the day was started ${runs.length} times`);
+    assert.equal((await company.store.cycles.all()).length, 1, "and only one cycle exists");
   });
 });

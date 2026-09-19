@@ -20,10 +20,18 @@
  */
 
 import { describeError } from "../core/result.ts";
+import type { PlatformError } from "../core/result.ts";
 import { randomIds } from "../core/ids.ts";
 import { systemClock } from "../core/clock.ts";
 import type { ReleaseStamp } from "../core/release.ts";
-import { COOKIE_NAME, handleRequest, handleRedirect } from "../console/router.ts";
+import { handleRequest, handleRedirect, sessionCookie } from "../console/router.ts";
+import {
+  readUnlockSubmission,
+  renderUnlock,
+  safeNext,
+  UNLOCK_MISMATCH,
+  UNLOCK_PATH,
+} from "../console/unlock.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { CYCLES_LOCK, DISPATCH_LOCK, createTickMemory, runTick } from "../scheduler/tick.ts";
 import { createSqlRegistry } from "../storage/sql-store.ts";
@@ -78,7 +86,11 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     problem: string | undefined,
   ): Response => {
     if (token && !authorised(request, url, token)) {
-      return html(401, "<p>合言葉が要ります。Cloudflare で設定した AMP_CONSOLE_TOKEN を <code>?token=…</code> に付けて開いてください。</p>");
+      // It used to tell them to put AMP_CONSOLE_TOKEN in `?token=…`, which is
+      // the instruction that cannot be followed: the deploy screen asks for a
+      // generated passphrase, and a `+` in one arrives as a space, a `#` cuts
+      // the rest off. The field below carries it intact.
+      return html(401, renderUnlock({ next: safeNext(url.pathname) }));
     }
     const page = html(
       200,
@@ -97,12 +109,31 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     // without this the licensee fills the form and the submission is refused -
     // in exactly the state this page tells them to reach.
     if (token && url.searchParams.get("token") === token) {
-      page.headers.append(
-        "set-cookie",
-        `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
-      );
+      page.headers.append("set-cookie", sessionCookie(token));
     }
     return page;
+  };
+
+  /**
+   * The passphrase, typed into the page this file serves.
+   *
+   * Only for the screens this file answers itself. Once a config validates, the
+   * router owns the passphrase and it may not be this variable at all - a
+   * licensee can rename it with `console.tokenEnv`, and a second operator has
+   * one of their own. Two gates on two different questions is the bug the
+   * comment further down was written for.
+   */
+  const unlockSubmission = async (request: Request, token: string | undefined): Promise<Response> => {
+    const submitted = readUnlockSubmission(await request.text());
+    // Nothing is locked, so there is nothing to type. Send them to the page
+    // rather than refusing a passphrase that is not being asked for.
+    if (!token) return seeOther(submitted.next);
+    // The empty one is refused before anything compares it, for the same reason
+    // `holderOf` refuses it: an empty secret must never be satisfiable.
+    if (submitted.token === "" || !constantTimeEqual(submitted.token, token)) {
+      return html(401, renderUnlock({ next: submitted.next, problem: UNLOCK_MISMATCH }));
+    }
+    return seeOther(submitted.next, sessionCookie(token));
   };
 
   const setupSubmission = async (
@@ -113,7 +144,9 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     template: string,
   ): Promise<Response> => {
     if (token && !authorised(request, url, token)) {
-      return html(401, "<p>合言葉が要ります。この画面をもう一度開き直してください。</p>");
+      // Back to the setup page once they are in: the answers are gone either
+      // way, and "/setup" only exists as somewhere to post them to.
+      return html(401, renderUnlock({ next: "/" }));
     }
     // A body that is not a form throws out of formData(), and a throw here
     // leaves the Worker returning its own error page instead of a Response.
@@ -170,8 +203,10 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     }
 
     const token = readToken(env);
+    const unlocking = request.method === "POST" && url.pathname === UNLOCK_PATH;
 
     if (configSource !== "licensee") {
+      if (unlocking) return unlockSubmission(request, token);
       // The setup form, answered. The Worker cannot save the result - a read
       // only filesystem - so this only builds the file and hands it back; the
       // licensee carries it to their own repository, where saving is a deploy.
@@ -204,10 +239,14 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
         return handleRedirect({ stores, ids: randomIds, clock: systemClock }, url, request);
       }
       if (!runtime.ok) {
+        // The same page is behind the same gate here, so it needs the same way
+        // through it - a broken config is exactly when a licensee is locked out
+        // and cannot read why.
+        if (unlocking) return unlockSubmission(request, token);
         // A config that was written but does not validate is the same situation
         // for the person reading it: they are not running yet, and they need to
         // know which line to fix.
-        return setupResponse(request, env, url, token, describeError(runtime.error));
+        return setupResponse(request, env, url, token, licenseeProblem(runtime.error));
       }
       // The router refuses an empty token on every route, which would leave a
       // licensee staring at 401 with nothing to act on. Name the variable their
@@ -293,7 +332,16 @@ function readCookie(header: string | null, name: string): string | undefined {
   if (!header) return undefined;
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return rest.join("=");
+    if (key === name) {
+      // `sessionCookie` percent-encodes, because a `;` or a space in a
+      // passphrase would otherwise end the cookie. Anything that is not valid
+      // encoding is a session from before that, and reads as itself.
+      try {
+        return decodeURIComponent(rest.join("="));
+      } catch {
+        return rest.join("=");
+      }
+    }
   }
   return undefined;
 }
@@ -333,6 +381,37 @@ function readToken(env: WorkerEnv): string | undefined {
 function hasModelKey(env: WorkerEnv): boolean {
   const value = env["ANTHROPIC_API_KEY"];
   return typeof value === "string" && value.trim() !== "";
+}
+
+/**
+ * What went wrong, for the person who has to fix it.
+ *
+ * Every other screen this Worker serves is in Japanese, and then the one that
+ * appears when the platform will not start hands over an English sentence -
+ * read by a licensee who has just switched to the real model and now cannot
+ * open anything. The known cases get the fix in their own language, with the
+ * original underneath: it names the variable, which a renamed `apiKeyEnv`
+ * makes worth keeping.
+ */
+export function licenseeProblem(error: PlatformError): string {
+  if (error.code === "llm.no_api_key") {
+    return (
+      "モデルの鍵が設定されていません。\n" +
+      "Cloudflare の Workers & Pages → この Worker → Settings → Variables and Secrets → Add で、" +
+      "種類を Secret にして保存してください。名前は下の英文にあるとおりです。\n" +
+      "鍵をまだ使わないなら、設定ファイルの llm.provider を mock に戻せば動きます。\n\n" +
+      describeError(error)
+    );
+  }
+  return describeError(error);
+}
+
+/** 303, so refreshing where they land does not re-post the passphrase. */
+function seeOther(location: string, cookie?: string): Response {
+  return new Response(null, {
+    status: 303,
+    headers: { location, "cache-control": "no-store", ...(cookie ? { "set-cookie": cookie } : {}) },
+  });
 }
 
 function html(status: number, body: string): Response {

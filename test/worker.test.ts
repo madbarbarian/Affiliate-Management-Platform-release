@@ -15,12 +15,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { repoRoot } from "../src/config/load.ts";
+import { renderSetup } from "../src/worker/setup.ts";
 import { createSqliteDriver } from "../src/storage/sqlite-driver.ts";
 import type { SqlParam, SqlStatement } from "../src/storage/sql-driver.ts";
 import type { D1Database, D1PreparedStatement } from "../src/storage/d1-driver.ts";
 import { createWorkerRuntime } from "../src/worker/runtime.ts";
 import worker from "../src/worker/index.ts";
-import { createWorker } from "../src/worker/handler.ts";
+import { createWorker, licenseeProblem } from "../src/worker/handler.ts";
 import { configSource } from "../src/worker/bundled.generated.ts";
 
 /** The handlers as a licensee's deploy has them: a config of their own. */
@@ -178,8 +179,18 @@ test("a missing model key is reported by name rather than crashing the worker", 
   assert.equal(runtime.ok, false);
   assert.equal(runtime.ok ? "" : runtime.error.code, "llm.no_api_key");
   // Cloudflare has no .env.local and no terminal to make one in, so the fix
-  // the message names has to be the one that exists there.
-  assert.match(runtime.ok ? "" : runtime.error.message, /wrangler secret put/);
+  // the message names first has to be the one that exists there - a licensee
+  // met this on the day they switched to the real model, and what it told them
+  // to do was run a command on a machine they do not have.
+  const message = runtime.ok ? "" : runtime.error.message;
+  assert.match(message, /Variables and Secrets -> Add/);
+  assert.ok(
+    message.indexOf("Variables and Secrets") < message.indexOf(".env.local"),
+    "the host's own fix comes before the one that needs a terminal",
+  );
+  // And on the screen they are actually reading, in the language the rest of
+  // it is written in.
+  if (!runtime.ok) assert.match(licenseeProblem(runtime.error), /モデルの鍵が設定されていません/);
   await db.close();
 });
 
@@ -248,7 +259,7 @@ test("with no config of its own, the worker serves the setup page rather than a 
   const response = await worker.fetch(new Request("https://amp.example.workers.dev/"), { DB: fakeD1() });
   assert.equal(response.status, 200);
   const body = await response.text();
-  assert.match(body, /あと1つで、動き始めます/);
+  assert.match(body, /あと1つ、決めるだけです/);
   // It asks the questions rather than handing over the 428-line file: the file
   // name comes after there is something to put in it, in the result view.
   assert.match(body, /<form method="post" action="\/setup">/, "it has to offer the way in");
@@ -268,7 +279,9 @@ test("the setup page is behind the passphrase once there is one", async (t) => {
 
   const allowed = await worker.fetch(new Request("https://amp.example.workers.dev/?token=a-real-token-value"), env);
   assert.equal(allowed.status, 200);
-  assert.match(await allowed.text(), /承認画面の合言葉が設定されています/);
+  const page = await allowed.text();
+  assert.match(page, /<span class="badge done">済<\/span><span class="what"><b>承認画面の合言葉/);
+  assert.match(page, /設定されています/);
 });
 
 
@@ -498,4 +511,88 @@ test("a body that is not a form is refused, not thrown out of the Worker", async
   );
   assert.equal(response.status, 400);
   assert.match(await response.text(), /読み取れませんでした/);
+});
+
+test("what is done, what is next and what can wait are three different marks", () => {
+  // The panel used to open every line with a sentence ("できています — データの
+  // 保管場所が…"), and the owner read the whole thing as prose on the first real
+  // walk. A state has to be something the eye sorts before it reads.
+  const page = renderSetup({
+    configured: false,
+    hasDatabase: true,
+    hasConsoleToken: true,
+    hasModelKey: false,
+    address: "https://amp-test.example.workers.dev",
+  });
+
+  assert.match(page, /<span class="badge done">済<\/span><span class="what"><b>データの保管場所/);
+  assert.match(page, /<span class="badge now">これから<\/span><span class="what"><b>設定/);
+  // The one that must not read as a fault: at this point in the hour there is
+  // no key on purpose, and the same red as a missing database would tell a
+  // licensee they are broken while they are exactly where they should be.
+  assert.match(page, /<span class="badge later">あとで<\/span><span class="what"><b>AIモデルの鍵/);
+});
+
+test("the setup page takes the passphrase in a field, because the address cannot carry it", async () => {
+  // The deploy screen asks for a generated passphrase and this page then told
+  // them to put it in `?token=…`. A `+` in one arrives as a space and a `#`
+  // cuts off everything after it, so the passphrase the licensee was told to
+  // make was the one they could not present - and there is no terminal here to
+  // work around it in.
+  const handlers = createWorker({ configSource: "example", configText: await exampleConfig(), prompts: {} });
+  const env = { AMP_CONSOLE_TOKEN: "sunny+river+42" } as never;
+
+  const pasted = await handlers.fetch(new Request("https://amp-m.workers.dev/?token=sunny+river+42"), env);
+  assert.equal(pasted.status, 401, "in the address the + is a space by the time anything reads it");
+  const page = await pasted.text();
+  assert.match(page, /合言葉を入力してください/, "the refusal has to offer the way in");
+  assert.match(page, /<input type="password" name="token"/);
+
+  const unlocked = await handlers.fetch(
+    new Request("https://amp-m.workers.dev/unlock", {
+      method: "POST",
+      body: new URLSearchParams({ token: "sunny+river+42", next: "/" }),
+    }),
+    env,
+  );
+  assert.equal(unlocked.status, 303);
+  assert.equal(unlocked.headers.get("location"), "/");
+  const cookie = unlocked.headers.getSetCookie()[0];
+  assert.ok(cookie, "getting in has to hand back the session the setup form needs");
+  assert.match(cookie, /^amp_console=sunny%2Briver%2B42;/, "encoded, so the browser keeps all of it");
+
+  const opened = await handlers.fetch(
+    new Request("https://amp-m.workers.dev/", { headers: { cookie: cookie.split(";")[0] as string } }),
+    env,
+  );
+  assert.equal(opened.status, 200);
+  assert.match(await opened.text(), /あと1つ、決めるだけです/);
+
+  const wrong = await handlers.fetch(
+    new Request("https://amp-m.workers.dev/unlock", {
+      method: "POST",
+      body: new URLSearchParams({ token: "sunny river 42", next: "//evil.example" }),
+    }),
+    env,
+  );
+  assert.equal(wrong.status, 401);
+  assert.equal(wrong.headers.getSetCookie().length, 0, "a refusal must never hand out a session");
+});
+
+test("the screen that says what is broken has a way to ask again", () => {
+  // The fix is always somewhere else - the GitHub copy, or the Cloudflare
+  // dashboard - and the page said "1〜2分でこの画面が動き始めます", which is
+  // only true if something reloads it. Nothing did, and the first person
+  // through this walk sat looking at a page with no control on it.
+  const page = renderSetup({
+    configured: true,
+    problem: "llm.provider is \"anthropic\" but ANTHROPIC_API_KEY is not set.",
+    hasDatabase: true,
+    hasConsoleToken: true,
+    hasModelKey: false,
+    address: "https://amp-test.example.workers.dev",
+  });
+
+  assert.match(page, /<a class="again" href="\/">/, "a way back to the same question");
+  assert.match(page, /直したら/);
 });

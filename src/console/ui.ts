@@ -8,6 +8,7 @@
 
 import { CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES } from "./labels.ts";
 import { messagesFor, type Locale } from "./messages.ts";
+import { WAITING_IS_OVER_SOURCE } from "./waiting.ts";
 
 export function renderPage(options: { companyName: string; locale?: Locale }): string {
   const locale = options.locale ?? "ja";
@@ -130,6 +131,14 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
     max-height: 40vh; overflow: auto;
   }
   /*
+   * "It is still running." Its own element, above everything, and the one thing
+   * on this page no render touches: the boxes these sentences used to go in
+   * belong to a card the poll rebuilds every few seconds, and the gate one of
+   * them talks about is gone from the screen by the time it matters.
+   */
+  #notice { font-size: 14px; margin: 0 0 18px; padding: 12px 14px; }
+  #notice.warn { border-color: var(--warn); color: var(--warn); }
+  /*
    * Two ways a choice is closed, drawn differently on purpose.
    *
    * The disabled attribute alone changes almost nothing an operator notices: the
@@ -233,6 +242,10 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
        never is. Empty until the check answers, so a licensee who is current -
        or offline - sees nothing at all rather than a box that says nothing. -->
   <div id="update"></div>
+  <!-- Whether a slow press is still working. Outside every view because the
+       card a message like this used to go in is rebuilt by the poll, and at
+       the ideas gate it is gone from the screen altogether. -->
+  <div id="notice" hidden></div>
 
 <div id="view-today">
   <section id="decisions">
@@ -334,6 +347,84 @@ async function api(path, options) {
     throw new Error(body || ("HTTP " + response.status));
   }
   return response.status === 204 ? null : response.json();
+}
+
+/*
+ * Two presses on this screen start minutes of work: running a day, and
+ * answering the ideas gate, which carries on into writing and inspection. Both
+ * did that work inside the HTTP request, so when the response was lost - a
+ * Cloudflare edge timeout, a closed laptop, a network that dropped - the page
+ * silently went back to what it had been showing. The work had in fact
+ * finished and been saved. The owner pressed run, saw nothing, reloaded, and
+ * found three proposals; pressed approve, saw nothing, reloaded, and found the
+ * next gate open with a finished post behind it. He pressed both twice.
+ *
+ * So the page stops treating the request as the work. After the deadline it
+ * stops waiting on the response, says so, and watches the state instead.
+ */
+const SLOW_ACTION_DEADLINE_MS = 20000;
+const WATCH_POLL_MS = 4000;
+/* Bounded, because a screen that spins forever is the same lie more slowly. */
+const WATCH_LIMIT_MS = 300000;
+
+// Inlined from src/console/waiting.ts rather than written out here: this is the
+// one decision on this page a test can call directly, and a second copy of it
+// would be a second answer.
+${WAITING_IS_OVER_SOURCE}
+
+/**
+ * The request, or the deadline, whichever answers first.
+ *
+ * On a deadline the request is left running - it is doing the work, and the
+ * work is saved step by step whether or not this page ever hears the answer.
+ * Its outcome is swallowed rather than dropped: an unhandled rejection minutes
+ * later surfaces in the browser as an error about a request nobody is waiting
+ * for any more.
+ */
+function withDeadline(promise, ms) {
+  let timer;
+  const settled = promise.then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, error }),
+  );
+  return Promise.race([
+    settled,
+    new Promise((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), ms); }),
+  ]).then((outcome) => {
+    clearTimeout(timer);
+    return outcome;
+  });
+}
+
+/** The one line that survives every render. Empty text hides it again. */
+function notice(text, tone) {
+  const box = $("notice");
+  box.className = text ? "card " + (tone || "") : "";
+  box.textContent = text || "";
+  box.hidden = !text;
+}
+
+/**
+ * Stop waiting on the answer; watch for the work instead.
+ *
+ * Polls the state the page already fetches until what this account was waiting
+ * for has moved, re-rendering each time so the screen is never behind what is
+ * on disk. Returns whether it moved before the bound ran out.
+ */
+async function watchUntilItMoves(before, ventureId, stillRunningText) {
+  notice(stillRunningText, "");
+  const stopAt = Date.now() + WATCH_LIMIT_MS;
+  while (Date.now() < stopAt) {
+    await new Promise((resolve) => setTimeout(resolve, WATCH_POLL_MS));
+    await load();
+    if (waitingIsOver(before, state, ventureId)) {
+      notice(T["wait.changed"], "");
+      return true;
+    }
+  }
+  // Not silence, and not a spinner: what is true, and the one thing left to do.
+  notice(T["wait.tooLong"], "warn");
+  return false;
 }
 
 /**
@@ -517,15 +608,21 @@ function renderDecision(decision) {
   // so a choice can be swapped, and only the untouched ones close.
   const locked = Boolean(decision.stale);
   const atMax = entry.selected.size >= decision.max;
+  // A third: this gate has been answered and the writing it started is still
+  // going. The card is rebuilt every few seconds by the poll, so without this
+  // the button came back enabled reading 「N件を承認して進める」 while the work
+  // was in flight - which is how the same day got approved twice. It does not
+  // fade the section the way a gone day does; nothing here is over.
+  const sending = resolving.has(decision.id);
 
   const items = ordered.map((item, index) => {
     const checked = entry.selected.has(item.id);
-    const shut = locked || (atMax && !checked);
+    const shut = locked || sending || (atMax && !checked);
     const rank = checked ? [...entry.order.filter((id) => entry.selected.has(id))].indexOf(item.id) + 1 : "";
     const chips = (item.chips ?? []).map((chip) =>
       '<span class="chip ' + esc(chip.tone ?? "") + '">' + esc(chip.label) + "</span>").join("");
     return \`
-      <div class="card\${shut && !locked ? " shut" : ""}">
+      <div class="card\${shut && !locked && !sending ? " shut" : ""}">
         <div class="item">
           <input type="checkbox" data-act="toggle" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${checked ? "checked" : ""} \${shut ? "disabled" : ""}>
           <div class="item-body">
@@ -542,8 +639,8 @@ function renderDecision(decision) {
           </div>
           <div class="order">
             <span class="rank">\${rank}</span>
-            <button data-act="up" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${locked || index === 0 ? "disabled" : ""}>↑</button>
-            <button data-act="down" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${locked || index === ordered.length - 1 ? "disabled" : ""}>↓</button>
+            <button data-act="up" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${locked || sending || index === 0 ? "disabled" : ""}>↑</button>
+            <button data-act="down" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${locked || sending || index === ordered.length - 1 ? "disabled" : ""}>↓</button>
           </div>
         </div>
       </div>\`;
@@ -557,11 +654,11 @@ function renderDecision(decision) {
       <p class="muted">\${esc(fmt("gate.question", { question: decision.question, max: decision.max }))}\${atMax && !locked ? " " + esc(fmt("gate.atMax", { max: decision.max })) : ""}</p>
       \${items}
       <div class="row">
-        <button class="primary" data-act="submit" data-decision="\${esc(decision.id)}" \${locked || count === 0 ? "disabled" : ""}>
-          \${esc(fmt("gate.approve", { n: count }))}
+        <button class="primary" data-act="submit" data-decision="\${esc(decision.id)}" \${locked || sending || count === 0 ? "disabled" : ""}>
+          \${esc(sending ? T["gate.sending"] : fmt("gate.approve", { n: count }))}
         </button>
-        <button data-act="all" data-decision="\${esc(decision.id)}" \${locked ? "disabled" : ""}>\${esc(T["gate.selectRecommended"])}</button>
-        <button data-act="none" data-decision="\${esc(decision.id)}" \${locked ? "disabled" : ""}>\${esc(T["gate.rejectAll"])}</button>
+        <button data-act="all" data-decision="\${esc(decision.id)}" \${locked || sending ? "disabled" : ""}>\${esc(T["gate.selectRecommended"])}</button>
+        <button data-act="none" data-decision="\${esc(decision.id)}" \${locked || sending ? "disabled" : ""}>\${esc(T["gate.rejectAll"])}</button>
       </div>
       <div class="err" id="err-\${esc(decision.id)}"></div>
     </section>\`;
@@ -811,6 +908,12 @@ document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-venture-run]");
   if (!target) return;
   const ventureId = target.dataset.venture;
+  // The guard that actually holds. Greying the button is what the operator
+  // sees, but it sits on a button the poll replaces every thirty seconds, and
+  // it is not what stops a second POST - this is. A run whose response was lost
+  // is still a run in flight, and a second one is what the orchestrator then
+  // has to reconcile.
+  if (runningVentureId === ventureId) return;
   // A real day makes six model calls and can take minutes. The label is the
   // only thing telling the operator that it is working rather than stuck.
   const label = target.textContent;
@@ -822,25 +925,31 @@ document.addEventListener("click", async (event) => {
   runningVentureId = ventureId;
   target.disabled = true;
   target.textContent = T["venture.running"];
-  try {
-    const result = await api("/api/ventures/" + encodeURIComponent(ventureId) + "/run", {
-      method: "POST",
-      body: "{}",
-    });
-    // The table is rebuilt here, so the box has to be found afterwards - the
-    // one held before is no longer on the page.
+  // What the screen knew before the press. Taken now, because load() replaces
+  // it, and the watcher below has nothing to compare against without it.
+  const before = state;
+  notice("", "");
+
+  const outcome = await withDeadline(
+    api("/api/ventures/" + encodeURIComponent(ventureId) + "/run", { method: "POST", body: "{}" }),
+    SLOW_ACTION_DEADLINE_MS,
+  );
+
+  if (outcome.timedOut) {
+    // The run is still going and everything it has done is saved. The only
+    // thing lost is this page's answer, so this page stops asking for one.
+    await watchUntilItMoves(before, ventureId, T["wait.stillRunning"]);
+    runningVentureId = null;
+    // Clearing the flag first, so this render is what puts the button back.
     await load();
-    const box = $("verr-" + ventureId);
-    if (box && result) {
-      box.className = "muted";
-      box.textContent = result.status === "awaiting_approval"
-        ? T["venture.runAwaiting"]
-        : result.status === "completed"
-          ? T["venture.runCompleted"]
-          : cycleStatusLabel(result.status) +
-            (result.nextStep ? fmt("venture.runNext", { step: cycleStepLabel(result.nextStep) }) : "");
-    }
-  } catch (error) {
+    return;
+  }
+
+  runningVentureId = null;
+  if (!outcome.ok) {
+    const error = outcome.error;
+    // Nothing was re-rendered on this path, so the button this press disabled
+    // is still the one on the page.
     const box = $("verr-" + ventureId);
     if (box) {
       box.className = "err";
@@ -848,8 +957,22 @@ document.addEventListener("click", async (event) => {
     }
     target.disabled = false;
     target.textContent = label;
-  } finally {
-    runningVentureId = null;
+    return;
+  }
+
+  const result = outcome.value;
+  // The table is rebuilt here, so the box has to be found afterwards - the
+  // one held before is no longer on the page.
+  await load();
+  const box = $("verr-" + ventureId);
+  if (box && result) {
+    box.className = "muted";
+    box.textContent = result.status === "awaiting_approval"
+      ? T["venture.runAwaiting"]
+      : result.status === "completed"
+        ? T["venture.runCompleted"]
+        : cycleStatusLabel(result.status) +
+          (result.nextStep ? fmt("venture.runNext", { step: cycleStepLabel(result.nextStep) }) : "");
   }
 });
 
@@ -1012,22 +1135,51 @@ document.addEventListener("click", async (event) => {
     return;
   }
   if (act === "submit") {
+    // Answering the ideas gate does not stop at the gate: it carries on into
+    // writing and inspection, which is minutes of model calls. A second answer
+    // to a gate already answered is refused by the orchestrator, so this guard
+    // is not about correctness - it is about not sending the operator a
+    // conflict for a press the screen invited.
+    if (resolving.has(decisionId)) return;
+    resolving.add(decisionId);
     target.disabled = true;
     target.textContent = T["gate.sending"];
-    try {
-      const ordering = entry.order.filter((id) => entry.selected.has(id));
-      await api("/api/decisions/" + encodeURIComponent(decisionId) + "/resolve", {
+    const ventureId = decision.ventureId;
+    const before = state;
+    notice("", "");
+
+    const ordering = entry.order.filter((id) => entry.selected.has(id));
+    const outcome = await withDeadline(
+      api("/api/decisions/" + encodeURIComponent(decisionId) + "/resolve", {
         method: "POST",
         body: JSON.stringify({ selectedIds: ordering, ordering }),
-      });
+      }),
+      SLOW_ACTION_DEADLINE_MS,
+    );
+
+    if (outcome.timedOut) {
+      // The gate itself was answered the moment the request arrived; what was
+      // lost is the reply to it, not the decision. So the draft goes, and the
+      // page watches for the post this approval is now writing.
       draft.delete(decisionId);
+      await watchUntilItMoves(before, ventureId, T["wait.gateStillRunning"]);
+      resolving.delete(decisionId);
       await load();
-    } catch (error) {
+      return;
+    }
+
+    resolving.delete(decisionId);
+    if (!outcome.ok) {
+      const error = outcome.error;
+      // render() first: it rebuilds the box this writes into, and the button
+      // that press disabled.
+      render();
       const box = $("err-" + decisionId);
       if (box) box.textContent = String(error.message ?? error);
-      target.disabled = false;
-      render();
+      return;
     }
+    draft.delete(decisionId);
+    await load();
   }
 });
 
@@ -1197,6 +1349,13 @@ function renderVenture(v) {
 let venture = null;
 /** The account whose run this page started and is still waiting on. */
 let runningVentureId = null;
+/**
+ * Gates this page has answered and is still waiting on.
+ *
+ * A Set rather than one id: two gates can stand open at once, and with a single
+ * variable the second answer would release the guard on the first.
+ */
+const resolving = new Set();
 
 async function load() {
   const ventureId = routedVentureId();

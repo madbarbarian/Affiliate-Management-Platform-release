@@ -20,6 +20,7 @@
 
 import { fail, ok, tryAsync, type PlatformError, type Result } from "../core/result.ts";
 import type { EngagementSnapshot, SwipeItem } from "../core/types.ts";
+import { composeThreadParts } from "./format.ts";
 import type {
   Channel,
   ChannelFactoryContext,
@@ -308,11 +309,15 @@ export function renderParts(content: {
   hashtags: readonly string[];
   threadParts?: readonly string[];
 }): string[] {
-  if (content.threadParts && content.threadParts.length > 0) {
-    const parts = [...content.threadParts];
-    parts[0] = `${content.hook}\n\n${parts[0] ?? ""}`.trim();
-    const tail = [content.cta, content.hashtags.join(" ")].filter((line) => line.trim() !== "").join("\n\n");
-    if (tail !== "") parts.push(tail);
+  // `composeThreadParts` counts the hook and the close once wherever the writer
+  // already put them; it is empty only when there was nothing to thread.
+  const parts = composeThreadParts({
+    hook: content.hook,
+    cta: content.cta,
+    hashtags: content.hashtags,
+    threadParts: content.threadParts ?? [],
+  });
+  if (parts.length > 0) {
     // Trimming to length after appending the disclosure cut the disclosure off
     // whenever the first part was long - publishing an affiliate thread with no
     // notice at all, which is the exact failure this file's header promises not

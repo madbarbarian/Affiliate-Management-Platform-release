@@ -40,6 +40,23 @@ post was about a mistake, the natural ask is "did this happen to you too?", not
 "check the link in the comments". If there is an offer, the link is a
 consequence of the story, not an interruption of it.
 
+## When the post needs more than one part
+
+`threadParts` is the post exactly as it will be published, in order. Nothing is
+inserted between the parts and nothing is moved.
+
+- Part 1 **begins with the hook**, word for word as you wrote it in `hook`.
+- The last part **ends with the call to action**, word for word as you wrote it
+  in `cta`.
+- `hook` and `cta` repeat those same lines in their own fields, because the
+  compliance checks and the approval screen read them there. They are not extra
+  material waiting to be appended — whatever is already in the parts is
+  published once, exactly where you put it.
+- Hashtags go in `hashtags`, not inside a part.
+- If the post fits in one part, leave `threadParts` empty and write it in
+  `body`. A channel that publishes one post reads `body`, so fill it either
+  way — as the whole post, or as the parts run together.
+
 ## The offer, when there is one
 
 - Say plainly what it costs and what it does not do. Naming a real limitation

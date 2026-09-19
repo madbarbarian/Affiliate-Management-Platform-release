@@ -144,7 +144,19 @@ const ja = {
   "gate.disclosureMissing": "PR表記が入っていません。承認する前に理由を確かめてください。",
   "gate.disclosureNotNeeded": "案件なし。PR表記は要りません",
   "gate.openPost": "根拠・指摘・コメント下書き",
-  "gate.openIdea": "本文を見る",
+  // At this gate the post does not exist yet - it is written after the ideas
+  // are chosen. "本文を見る" promised the text and opened the reasoning, and the
+  // first person through read the brief looking for the post.
+  "gate.openIdea": "ねらいと根拠を見る",
+
+  // 「動かす」と「承認して進める」は、本物のモデルだと数分かかります。返事が
+  // 来ないまま黙って元の画面に戻るのが、この画面がついた唯一の嘘でした。
+  // 仕事そのものは一歩ごとに保存されているので、言うべきことは「まだ続いて
+  // います」であって「何も起きませんでした」ではありません。
+  "wait.stillRunning": "まだ動いています。この画面を閉じても処理は続きます。終わりしだい、画面はひとりでに新しくなります。",
+  "wait.gateStillRunning": "承認は届きました。いま本文を書いています。この画面を閉じても処理は続きます。終わりしだい、画面はひとりでに新しくなります。",
+  "wait.changed": "終わりました。いまの状態を表示しています。",
+  "wait.tooLong": "まだ終わりません。処理はサーバー側で続いています。ページを再読み込みして、いまの状態をご確認ください。",
 
   // The accounts list
   "accounts.heading": "全アカウント — 直近{days}日",
@@ -351,7 +363,12 @@ const en: Messages = {
   "gate.disclosureMissing": "No disclosure. Satisfy yourself why before approving.",
   "gate.disclosureNotNeeded": "No offer. No disclosure needed",
   "gate.openPost": "Evidence, findings, comment draft",
-  "gate.openIdea": "Read the post",
+  "gate.openIdea": "Aim and evidence",
+
+  "wait.stillRunning": "Still running. The work carries on even if you close this page, and the screen will bring itself up to date when it finishes.",
+  "wait.gateStillRunning": "Your approval went through and the posts are being written. The work carries on even if you close this page, and the screen will bring itself up to date when it finishes.",
+  "wait.changed": "Finished. This is where it got to.",
+  "wait.tooLong": "Still not finished. The work carries on on the server. Reload the page to see where it got to.",
 
   "accounts.heading": "All accounts — last {days} days",
   "accounts.lede": "This table is for <b>comparing</b> accounts: which earn, which are stuck, which measure nothing. Stopping and running belong to the account behind it.",

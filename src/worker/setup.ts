@@ -31,8 +31,20 @@ export type SetupState = {
 };
 
 export function renderSetup(state: SetupState): string {
-  const check = (ok: boolean, yes: string, no: string): string =>
-    ok ? `<li class="ok"><b>できています</b> — ${yes}</li>` : `<li class="todo"><b>まだです</b> — ${no}</li>`;
+  // A badge, a name, and the explanation underneath. Written as a sentence per
+  // line ("できています — データの保管場所が…"), the panel read as prose and the
+  // owner scanned past it; the state of each thing has to be a mark the eye can
+  // sort, not the first words of a paragraph.
+  //
+  // Three tones, because two lied: the model key is missing on purpose at this
+  // point, and showing it in the same red as a missing database tells a
+  // licensee they are broken when they are exactly where they should be.
+  const row = (tone: "done" | "now" | "later", label: string, detail: string): string => {
+    const badge = tone === "done" ? "済" : tone === "now" ? "これから" : "あとで";
+    return `<li><span class="badge ${tone}">${badge}</span><span class="what"><b>${label}</b><span class="sub">${detail}</span></span></li>`;
+  };
+  const check = (ok: boolean, label: string, yes: string, no: string, optional = false): string =>
+    ok ? row("done", label, yes) : row(optional ? "later" : "now", label, no);
 
   return `<!doctype html>
 <html lang="ja">
@@ -59,9 +71,19 @@ export function renderSetup(state: SetupState): string {
   li { margin-bottom: 8px; }
   li:last-child { margin-bottom: 0; }
   ul { list-style: none; padding-left: 0; }
-  .ok { color: var(--accent); }
-  .todo { color: var(--muted); }
-  .ok b, .todo b { font-size: 13px; margin-right: 6px; }
+  .status li { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+  .badge {
+    /* One width for all three, so the names line up as a column rather than
+       stepping in and out with the length of the badge. */
+    flex: none; width: 5.8em; white-space: nowrap; text-align: center;
+    font-size: 12px; font-weight: 700;
+    line-height: 1.7; border-radius: 999px; padding: 1px 8px; border: 1px solid;
+  }
+  .badge.done { background: #e8f2ec; color: var(--accent); border-color: #cbe1d5; }
+  .badge.now { background: #fceeea; color: var(--danger); border-color: #f2d3c9; }
+  .badge.later { background: #f2f2ef; color: var(--muted); border-color: var(--line); }
+  .status .what { flex: 1; }
+  .status .sub { display: block; color: var(--muted); font-size: 14px; margin-top: 1px; }
   code { background: #f0f0ec; border-radius: 5px; padding: 1px 6px; font-size: 14px; }
   .addr { word-break: break-all; font-size: 14px; color: var(--muted); }
   .warn { border-color: var(--danger); }
@@ -79,6 +101,10 @@ export function renderSetup(state: SetupState): string {
     font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 8px;
     border: 0; background: var(--accent); color: #fff; cursor: pointer;
   }
+  a.again {
+    display: inline-block; font: inherit; font-weight: 600; padding: 10px 20px;
+    border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none;
+  }
   /* Every problem at once, above the fields, so one pass fixes the form. */
   .formerr {
     border: 1px solid var(--danger); border-radius: 8px; padding: 12px 14px;
@@ -92,40 +118,50 @@ export function renderSetup(state: SetupState): string {
 </head>
 <body>
 <main>
-  <h1>あと1つで、動き始めます</h1>
+  <h1>${state.configured ? "もう少しで、承認画面になります" : "あと1つ、決めるだけです"}</h1>
   <p class="lede">${
     state.configured
-      ? "設定は入っています。下の「まだです」がひとつ残っているだけです。"
-      : "置き場所はできました。まだ「何を書くアカウントなのか」が決まっていません。"
+      ? "設定は入っています。下に「これから」が残っているだけです。"
+      : "置き場所はできました。決まっていないのは「何を書くアカウントなのか」だけです。"
   }</p>
 
   ${
     state.problem
       ? `<section class="warn">
     <h2>設定を読み込めませんでした</h2>
-    <p style="margin:0 0 8px">直したい箇所は次のとおりです。直して保存すると、1〜2分でこの画面が動き始めます。</p>
+    <p style="margin:0 0 8px">直したい箇所は次のとおりです。設定ファイルの変更は1〜2分、鍵の追加はすぐ反映されます。</p>
     <pre style="white-space:pre-wrap;margin:0;font:14px/1.7 inherit;color:var(--danger)">${escapeHtml(state.problem)}</pre>
+    <!--
+      Without this the screen is a dead end. The fix is somewhere else - the
+      GitHub copy, or the Cloudflare dashboard - and when the licensee comes
+      back there is nothing here to press. The page said it would start working
+      on its own, which is only true of something that reloads. The first
+      person through this walk stopped here and asked what to click.
+    -->
+    <p style="margin:14px 0 0"><a class="again" href="/">直したら、ここを押して確かめる</a></p>
   </section>`
       : ""
   }
 
   <section>
     <h2>いまの状態</h2>
-    <ul>
-      ${check(state.hasDatabase, "データの保管場所がつながっています", "データの保管場所が見つかりません。作り直しが要ります")}
-      ${check(state.hasConsoleToken, "承認画面の合言葉が設定されています", "合言葉がありません。設定するまで、この画面は誰でも開けます")}
+    <ul class="status">
+      ${check(state.hasDatabase, "データの保管場所", "つながっています", "見つかりません。作り直しが要ります")}
+      ${check(state.hasConsoleToken, "承認画面の合言葉", "設定されています", "ありません。設定するまで、この画面は誰でも開けます")}
       ${check(
         state.hasModelKey,
-        "AIモデルの鍵が入っています",
-        "AIモデルの鍵はまだです。<b>いまはこれで構いません</b> — 練習用の文章で一巡できます。" +
+        "AIモデルの鍵",
+        "入っています",
+        "いまは無くて構いません。練習用の文章で一巡できます。" +
           // Asked for on the deploy screen, this would be a field nobody can
           // leave empty, so it is not asked for there at all. Which makes this
           // the only place a licensee is told where it goes - and they are
           // standing in a browser, not a terminal.
           "本物の文章にしたくなったら、Cloudflare の <b>Workers &amp; Pages → この Worker → Settings → " +
           "Variables and Secrets</b> で <code>ANTHROPIC_API_KEY</code> を足してください",
+        true,
       )}
-      ${check(state.configured, "設定が入っています", "設定がまだです（下の手順）")}
+      ${check(state.configured, "設定", "入っています", "これから作ります。下のフォームに答えてください")}
     </ul>
   </section>
 

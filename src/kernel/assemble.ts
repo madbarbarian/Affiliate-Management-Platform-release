@@ -258,13 +258,17 @@ export function buildLlm(
     return fail(
       "config",
       "llm.no_api_key",
-      // Half the people who see this are on Cloudflare, where there is no
-      // .env.local and no terminal to put one in - naming only that fix sends
-      // them looking for a file that cannot exist.
+      // Most of the people who see this are on Cloudflare, where there is no
+      // .env.local, no terminal and therefore no `wrangler secret put` - which
+      // is what this used to name first. A licensee met it the day they
+      // switched to the real model, and the fix it offered was one they could
+      // not carry out. The dashboard path is the one that exists for them, so
+      // it goes first and in full; the file is for whoever has a machine.
       `llm.provider is "anthropic" but ${config.llm.apiKeyEnv} is not set. ` +
-        `Put it in .env.local, or - on Cloudflare - add it as a secret ` +
-        `(wrangler secret put ${config.llm.apiKeyEnv}, or the Workers dashboard). ` +
-        `Or set llm.provider to "mock" to run without a model.`,
+        `On Cloudflare: Workers & Pages -> this Worker -> Settings -> ` +
+        `Variables and Secrets -> Add, name ${config.llm.apiKeyEnv}, type Secret. ` +
+        `On your own machine: put it in .env.local (or wrangler secret put ` +
+        `${config.llm.apiKeyEnv}). Or set llm.provider to "mock" to run without a model.`,
     );
   }
   return ok(createAnthropicProvider({ config: config.llm, apiKey, logger }));

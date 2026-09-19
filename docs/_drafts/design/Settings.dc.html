@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: center; gap: 10px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 6px; font-weight: 500;
+    }
+    .lede { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 4px 14px;
+    }
+    .field { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+    .field:last-child { border-bottom: 0; }
+    .field .label { color: var(--muted); font-size: 11px; }
+    .field .where {
+      color: var(--muted); font-size: 11px; margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .loud { color: var(--warn); font-weight: 600; }
+    .note { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
+    .note b { color: var(--ink); }
+    code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <h1>朝のツール部屋</h1>
+    <nav><a>今日</a><a class="here">設定</a></nav>
+    <span class="who">みどり</span>
+  </header>
+
+  <div class="scroll">
+    <h2>この会社の設定</h2>
+    <p class="lede">いま何が効いているかを読む画面です。変更は設定ファイルで行います。</p>
+
+    <div class="card">
+      <div class="field">
+        <div class="label">機械に任せている範囲</div>
+        <div>assisted — 両方の判断であなたを待ちます（推奨は選択済み）</div>
+        <div class="where">company.autonomy</div>
+      </div>
+      <div class="field">
+        <div class="label">AIモデル</div>
+        <div class="loud">mock — 模擬です。本物の文章ではありません</div>
+        <div class="where">llm.provider</div>
+      </div>
+      <div class="field">
+        <div class="label">承認する人</div>
+        <div>みどり（1人）</div>
+        <div class="where">company.operator</div>
+      </div>
+      <div class="field">
+        <div class="label">開示文</div>
+        <div>#PR ・ 広告を含みます</div>
+        <div class="where">policy.disclosureText</div>
+      </div>
+      <div class="field">
+        <div class="label">1日の上限</div>
+        <div>3件まで ・ 最低180分あける ・ AIっぽさ35点で止める</div>
+        <div class="where">policy</div>
+      </div>
+      <div class="field">
+        <div class="label">止める言葉</div>
+        <div>AIっぽい言い回し 18 件 ・ 使わない表現 6 件</div>
+        <div class="where">policy.bannedPhrases</div>
+      </div>
+      <div class="field">
+        <div class="label">リンクの行き先</div>
+        <div>https://amp-morning-toolroom.midori.workers.dev</div>
+        <div class="where">tracking.baseUrl</div>
+      </div>
+      <div class="field">
+        <div class="label">規模</div>
+        <div>アカウント 1 ・ 市場 jp</div>
+        <div class="where">ventures / markets</div>
+      </div>
+    </div>
+
+    <p class="note">
+      <b>編集はファイルで。</b>
+      この画面に入力欄が無いのは未完成だからではありません。設定は
+      <code>platform.config.yaml</code> の1本だけが正本で、画面から書き換えられると
+      「いま何が効いているか」の答えが2つになります。
+    </p>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

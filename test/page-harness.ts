@@ -70,6 +70,19 @@ export type PageRun = {
   html(id: string): string;
   /** Paths the page requested, in order. */
   readonly requests: readonly string[];
+  /**
+   * Presses something, the way the page's own delegated listeners see it.
+   *
+   * The dataset is what the button would carry - `{ act: "submit", decision: id }`
+   * for `data-act="submit" data-decision="..."`. Every document-level click
+   * listener is offered the event; the ones whose selector does not match the
+   * dataset return early, exactly as they do in a browser.
+   *
+   * The returned promise settles when all of them have. Not awaiting it is how
+   * a second press *during* the first is tested, which is the only way to reach
+   * the guard that stops one.
+   */
+  press(dataset: Record<string, string>): Promise<FakeElement>;
 };
 
 export type PageOptions = {
@@ -94,6 +107,7 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
 
   const elements = new Map<string, FakeElement>();
   const requests: string[] = [];
+  const clicks: ((event: unknown) => unknown)[] = [];
   const context = {
     console,
     URL,
@@ -107,13 +121,18 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
     // test process open long after the assertion is done.
     setInterval: () => 0,
     clearInterval: () => {},
+    // setTimeout is already here; its partner was not, and the page clears the
+    // deadline timer it sets on every slow action.
+    clearTimeout,
     document: {
       getElementById(id: string) {
         const found = elements.get(id) ?? element(id);
         elements.set(id, found);
         return found;
       },
-      addEventListener: () => {},
+      addEventListener(type: string, listener: (event: unknown) => unknown) {
+        if (type === "click") clicks.push(listener);
+      },
       querySelectorAll: () => [],
     },
     window: {
@@ -156,5 +175,20 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
     elements,
     html: (id) => elements.get(id)?.innerHTML ?? "",
     requests,
+    async press(dataset) {
+      const button = element("pressed");
+      Object.assign(button.dataset, dataset);
+      // `[data-venture-run]` is the attribute; `ventureRun` is the dataset key
+      // the page reads. The page only ever uses the one-attribute form.
+      const target = {
+        closest(selector: string) {
+          const attribute = selector.replace(/^\[|\]$/g, "").replace(/^data-/, "");
+          const key = attribute.replace(/-([a-z])/g, (_whole, letter: string) => letter.toUpperCase());
+          return key in button.dataset ? button : null;
+        },
+      };
+      await Promise.all(clicks.map((listener) => listener({ target })));
+      return button;
+    },
   };
 }

@@ -3,6 +3,11 @@
 An autonomous AI company that runs an affiliate operation. Six agent roles, two
 human gates, one config file.
 
+- **`docs/5-project-management/STATUS.md` — read this first, every session.**
+  Where the work is, what to do next and in what order, and the things that live
+  nowhere else (what has never run for real, what needs cleaning up). It is a
+  desk, not a source of truth: when it disagrees with the two below, they win.
+  Update its top two sections before you finish.
 - `docs/1-requirements/requirements.md` — what this must do and why, and what is
   still undecided. Read it before adding a capability.
 - `docs/3-development/architecture.md` — read it before changing anything

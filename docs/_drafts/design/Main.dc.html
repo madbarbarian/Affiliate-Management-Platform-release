@@ -22,10 +22,21 @@
     }
     .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
     header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
-    .head-row { display: flex; align-items: baseline; gap: 8px; }
+    .head-row { display: flex; align-items: center; gap: 10px; }
     h1 { font-size: 17px; margin: 0; font-weight: 650; }
     .muted { color: var(--muted); font-size: 13px; }
-    .step { margin-left: auto; font-variant-numeric: tabular-nums; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .count {
+      margin-left: 8px; font-size: 13px; font-variant-numeric: tabular-nums;
+      color: var(--ink); background: var(--chip); border-radius: 999px;
+      padding: 2px 9px; vertical-align: middle; text-transform: none; letter-spacing: 0;
+    }
     .question { margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
     .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; }
     h2 {
@@ -88,14 +99,16 @@
   <header>
     <div class="head-row">
       <h1>{{ventureName}}</h1>
-      <span class="muted step">みどり として ・ 1 / 2</span>
+      <nav><a class="here">今日</a><a>設定</a></nav>
+      <span class="who">みどり</span>
     </div>
     <p class="question">今日出す企画を選んでください。<br>上の3件は、昨日までの実績からの推奨です。</p>
   </header>
 
   <sc-if value="{{deciding}}" hint-placeholder-val="{{ true }}">
     <div class="scroll">
-      <h2>推奨</h2>
+      <h2>あなたの判断待ち<span class="count">1</span></h2>
+      <h2 style="margin-top: 16px">推奨</h2>
       <sc-for list="{{top}}" as="it" hint-placeholder-count="3">
         <div class="card" style="border-color: {{it.edge}}">
           <div class="item">
