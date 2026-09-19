@@ -123,7 +123,16 @@ jobs:
           #                            an update was ever taken, 2026-09-19.
           #   platform.config.yaml   - your niche, audience, voice and accounts.
           #   .github/               - including this file; see below.
-          rsync -a --delete \
+          # --checksum, because the default quick check is size plus mtime and
+          # both can match while the contents differ. Taking v0.6.0 into a real
+          # copy delivered 26 files and silently skipped `package.json`: the
+          # version string had gone from "0.5.1" to "0.6.0", the same number of
+          # bytes, and two checkouts made seconds apart carried close enough
+          # mtimes. The copy then ran the new code while reporting the old
+          # version. Any same-length change is the same failure - a threshold,
+          # a model id - and it is invisible, which is what makes it worth the
+          # extra read of a few hundred small files.
+          rsync -a --checksum --delete \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='platform.config.yaml' \
