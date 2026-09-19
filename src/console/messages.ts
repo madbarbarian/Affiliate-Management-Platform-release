@@ -39,6 +39,13 @@ const ja = {
   // 置くと、両方とも読み飛ばされる。監査ログにこの名前が永久に残る以上、
   // 押す前に見えている必要がある。
   "page.operatorTitle": "この画面での承認者。承認の記録にこの名前が残ります",
+  // 配色は運用の設定ではなく、その人のブラウザの設定。だから
+  // platform.config.yaml ではなくこのボタンにあり、この端末にだけ残ります。
+  // 既定の「自動」はOSに従います。合わないときに、押して決められます。
+  "page.themeTitle": "画面の配色を切り替えます（自動・明るい・暗い）",
+  "theme.auto": "配色：自動",
+  "theme.light": "配色：明るい",
+  "theme.dark": "配色：暗い",
   // 1日を読み返す入口。毎日の導線ではなく、「なぜこの案が出たのか」を
   // 知りたくなったときだけ開くもの。運用者の30秒は別の画面にある。
   "timeline.open": "この日を見る",
@@ -301,6 +308,10 @@ const en: Messages = {
   "page.refresh": "Refresh",
   "page.waitingCount": "{n} waiting on you",
   "page.operatorTitle": "Who you are approving as. This name goes in the record.",
+  "page.themeTitle": "Switch the colour scheme (auto, light, dark)",
+  "theme.auto": "Theme: auto",
+  "theme.light": "Theme: light",
+  "theme.dark": "Theme: dark",
   "timeline.open": "See this day",
   "timeline.byHuman": "decided by a person",
   "nav.today": "Today",

@@ -34,7 +34,13 @@ import type { ReleaseStamp } from "../src/core/release.ts";
 import { fileState } from "../src/kernel/state.ts";
 import { openPage } from "./page-harness.ts";
 import { renderUnlock, UNLOCK_MISMATCH } from "../src/console/unlock.ts";
-import { waitingIsOver, WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
+import { waitEndedBecause, waitingIsOver, WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
+import {
+  MIN_COLUMN_WIDTH,
+  portfolioColumns,
+  portfolioStackBelow,
+  portfolioTableWidth,
+} from "../src/console/portfolio-columns.ts";
 
 /**
  * A console backed by the test company. `startConsole` only reads `config`,
@@ -861,18 +867,154 @@ test("one long cell cannot crush the rest of the accounts table", () => {
   // operator can drag any border when a particular day needs a different shape.
   const page = renderPage({ companyName: "テスト" });
 
-  const columns = [...page.matchAll(/\{ key: "[a-z]+", label: [^,]+, width: (\d+)/g)];
-  assert.equal(columns.length, 11, "every column in the table needs a declared width");
-  for (const [, width] of columns) {
-    assert.ok(Number(width) >= 48, `a ${width}px column is narrower than its own header`);
+  for (const locale of LOCALES) {
+    const columns = portfolioColumns(MESSAGES[locale]);
+    assert.equal(columns.length, 11, "every column in the table needs a declared width");
+    for (const column of columns) {
+      assert.ok(column.width >= MIN_COLUMN_WIDTH, `${locale}: a ${column.width}px column is narrower than its own header`);
+    }
   }
 
   assert.match(page, /table-layout:\s*fixed/, "auto layout is what let one cell take everything");
   assert.match(page, /<col style="width:/, "the widths have to reach the table as a colgroup");
-  assert.match(page, /table\.grid th \{[^}]*white-space:\s*nowrap/, "a wrapped header reads downwards");
-  assert.match(page, /\.table-wrap \{[^}]*overflow-x:\s*auto/, "wider than the window must scroll, not squeeze");
+  assert.match(page, /\.table-wrap \{[^}]*overflow-x:\s*auto/, "a column dragged wider than the window still has to be reachable");
   assert.match(page, /col-resize/, "the operator adjusts a column by dragging its border");
   assert.match(page, /列の幅をもとに戻す/, "and can undo that without clearing site data");
+});
+
+test("a column is wide enough for its own header in both languages", () => {
+  // The widths were sized against Japanese, where 成果 is two glyphs. In
+  // English the same column says "Conversions" - eleven characters in 62px,
+  // which ran under its neighbour. One set of widths has to hold for both.
+  // Deliberately crude: a lower bound on how much room a string needs, not a
+  // font metric. It catches the order-of-magnitude mistake, which is the one
+  // that has actually happened.
+  const PADDING = 16;
+  const LATIN = 6.4;
+  const CJK = 13;
+  for (const locale of LOCALES) {
+    for (const column of portfolioColumns(MESSAGES[locale])) {
+      const needed = [...column.label].reduce((total, character) =>
+        total + (/[\u3000-\u9fff\uff00-\uffef]/.test(character) ? CJK : LATIN), PADDING);
+      assert.ok(
+        column.width >= needed,
+        `${locale}: ${column.key} is ${column.width}px and its header ${JSON.stringify(column.label)} needs about ${Math.ceil(needed)}px`,
+      );
+    }
+  }
+});
+
+test("the accounts table fits the space it is given, so its last column is never clipped", async () => {
+  // The bug the owner walked into: 開く, the only control in a row, was cut in
+  // half on a 1440px screen and off the edge entirely on anything narrower.
+  //
+  // The cause was two numbers for one fact. The stylesheet said the table was
+  // at least 1180px and the section it sits in is at most 1240px, which reads
+  // as if it fits - but the widths in the colgroup summed to 1378px, and a
+  // fixed-layout table is as wide as its columns say. So the container scrolled
+  // on every screen the console was ever opened on, and what it hid was the
+  // right-hand end.
+  //
+  // Measured off the markup the page actually writes, not off the declaration,
+  // because the declaration was the thing that was wrong.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "portfolio" });
+    const markup = page.html("portfolio");
+    const widths = [...markup.matchAll(/<col style="width:(\d+)px">/g)].map(([, width]) => Number(width));
+    assert.equal(widths.length, 11, "the table has to declare a width per column");
+
+    const sum = widths.reduce((total, width) => total + width, 0);
+    const source = renderPage({ companyName: "テスト" });
+    const section = source.match(/#portfolio-section \{ width: min\((\d+)px/);
+    assert.ok(section, "the accounts section still declares the widest it can be");
+    assert.ok(
+      sum <= Number(section[1]),
+      `the columns add up to ${sum}px inside a section at most ${section[1]}px wide, so ${sum - Number(section[1])}px of the last column is behind the edge`,
+    );
+
+    const declared = source.match(/table\.grid \{[^}]*min-width:\s*(\d+)px/);
+    assert.ok(declared, "the table still declares a minimum width");
+    assert.equal(Number(declared[1]), sum, "the table's minimum width and its columns are the same fact, written twice");
+  });
+});
+
+test("no column is dropped when the accounts table stops being a table", async () => {
+  // Under portfolioStackBelow() the rows become cards, because eleven columns
+  // on a phone meant two and a half of them and a sideways scrollbar for the
+  // rest. Every column still renders: this screen compares accounts, and a
+  // comparison missing a number is a wrong comparison rather than a small one.
+  // The card layout labels each field with the column's own header, so the
+  // cells have to carry the key and the label, and the words stay in
+  // messages.ts for both languages.
+  const columns = portfolioColumns(MESSAGES.ja);
+  assert.ok(
+    portfolioStackBelow(columns) > portfolioTableWidth(columns),
+    "the table would hand over at a width it still fits in",
+  );
+
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "portfolio" });
+    const markup = page.html("portfolio");
+    const rows = markup.split("<tr>").slice(2);
+    assert.ok(rows.length >= 1, "there is no account in the table to check");
+    for (const row of rows) {
+      for (const column of columns) {
+        assert.ok(
+          row.includes(`<td data-col="${column.key}" data-label="${column.label}"`),
+          `the ${column.key} column is not in the row, or is not labelled for the card layout`,
+        );
+      }
+    }
+  });
+
+  const source = renderPage({ companyName: "テスト" });
+  assert.match(
+    source,
+    new RegExp(`@media \\(max-width: ${portfolioStackBelow(columns) - 1}px\\)`),
+    "the breakpoint is derived from the widths, not written next to them",
+  );
+  assert.match(source, /content: attr\(data-label\)/, "a field with no label is a number with no name");
+  // The grip on the last header had no column to its right to give width to,
+  // and its 9px handle sat 4px outside the table - enough on its own to make
+  // the container scroll and take 開く with it.
+  assert.equal(
+    (source.match(/class="grip"/g) ?? []).length,
+    1,
+    "the grip is rendered from one place",
+  );
+  assert.match(source, /index < PORTFOLIO_COLUMNS\.length - 1/, "the last header has no border to drag");
+});
+
+test("the console's dark scheme is a decision, and the operator can overrule it", () => {
+  // It had one prefers-color-scheme block and no way to disagree with it, so an
+  // operator whose machine is dark all day got a dark console whether or not it
+  // read well. Three things have to be true at once, and each of them was the
+  // thing that broke a version of this: the OS's dark still applies by default,
+  // an explicit light beats the OS, and an explicit dark applies whatever the
+  // OS says.
+  const page = renderPage({ companyName: "テスト" });
+  assert.match(
+    page,
+    /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\)/,
+    "the OS is followed unless the operator has said otherwise",
+  );
+  assert.match(page, /:root\[data-theme="dark"\] \{/, "and can be overruled in the other direction");
+  assert.match(page, /:root\[data-theme="dark"\] \{[^}]*color-scheme:\s*dark/, "scrollbars and form controls follow too");
+  // The rule between two rows inside one surface is not the border around the
+  // surface. They were the same grey, which reads on near-white and disappears
+  // on near-black: the accounts table's rows ran together.
+  assert.match(page, /--line-strong:/, "a row rule that survives a dark background");
+  assert.match(page, /table\.grid td \{[^}]*border-bottom: 1px solid var\(--line-strong\)/);
+  assert.match(page, /table\.grid tbody tr:nth-child\(even\)/, "eleven columns is more than the eye tracks unaided");
+  // The choice is this browser's, like the column widths - not the company's.
+  for (const locale of LOCALES) {
+    for (const key of ["theme.auto", "theme.light", "theme.dark", "page.themeTitle"] as const) {
+      assert.ok(MESSAGES[locale][key], `${locale} has no word for ${key}`);
+    }
+  }
+  assert.match(page, /window\.localStorage\.setItem\(THEME_KEY/, "the choice is remembered");
+  assert.match(page, /let theme = savedTheme\(\);/, "and read back when the page is opened again");
+  assert.match(page, /applyTheme\(theme\);\n\$\("theme"\)/, "and applied before the first load, not after it");
 });
 
 test("the operator can start the day themselves, and not only wait for the schedule", async () => {
@@ -1565,7 +1707,13 @@ test("the page carries the deadline, the watch and the words for both", () => {
   assert.match(page, /const SLOW_ACTION_DEADLINE_MS = 20000;/, "the request stops being the work after 20s");
   assert.match(page, /const WATCH_POLL_MS = \d+;/);
   assert.match(page, /const WATCH_LIMIT_MS = \d+;/, "a watch with no bound is the same lie more slowly");
-  assert.match(page, /waitingIsOver\(before, state, ventureId\)/, "the watch has to consult it");
+  assert.match(page, /waitEndedBecause\(\{ answered: answered, before: before, now: state, ventureId: ventureId \}\)/,
+    "the watch has to consult it");
+  // The baseline, before the press. Without it the comparison has nothing to
+  // compare against and answers "not yet" to every poll, forever.
+  assert.match(page, /if \(!state\) await load\(\);/, "there is no comparing against nothing");
+  assert.match(page, /watchUntilItMoves\(before, ventureId, T\["wait\.stillRunning"\], request\)/,
+    "the request is handed over, because its own answer ends the wait");
   assert.match(page, /withDeadline\(/);
   assert.match(page, /<div id="notice" hidden>/, "the line has to outlive the render that rebuilds the card");
 
@@ -1583,6 +1731,34 @@ test("the page carries the deadline, the watch and the words for both", () => {
   assert.match(page, /const sending = resolving\.has\(decision\.id\);/);
   assert.match(page, /if \(resolving\.has\(decisionId\)\) return;/);
   assert.match(page, /if \(runningVentureId === ventureId\) return;/);
+});
+
+test("pressing the button before the page has loaded still ends the wait", () => {
+  // What the owner did on the first real run: opened an account and pressed.
+  // The page had no state yet, so the watcher compared against null - which it
+  // reads as "not finished" - and the screen said the work was still running
+  // for five minutes after it had finished. Reproduced in a browser before this
+  // was written.
+  assert.equal(
+    waitEndedBecause({ answered: true, before: null, now: null, ventureId: "main" }),
+    "answered",
+    "the answer arriving is the end of the wait, with nothing to compare",
+  );
+  assert.equal(
+    waitEndedBecause({ answered: false, before: null, now: { pending: [] }, ventureId: "main" }),
+    null,
+    "and until it does, an absent baseline still cannot say anything",
+  );
+  assert.equal(
+    waitEndedBecause({
+      answered: false,
+      before: { pending: [] },
+      now: { pending: [{ id: "dec_1", ventureId: "main" }] },
+      ventureId: "main",
+    }),
+    "moved",
+    "the comparison still works when there is something to compare",
+  );
 });
 
 test("pressing approve twice sends one answer, not two", async () => {

@@ -8,12 +8,38 @@
 
 import { CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES } from "./labels.ts";
 import { messagesFor, type Locale } from "./messages.ts";
+import {
+  MIN_COLUMN_WIDTH,
+  PAGE_GUTTER,
+  portfolioColumns,
+  portfolioStackBelow,
+  portfolioTableWidth,
+} from "./portfolio-columns.ts";
 import { WAITING_IS_OVER_SOURCE } from "./waiting.ts";
 
 export function renderPage(options: { companyName: string; locale?: Locale }): string {
   const locale = options.locale ?? "ja";
   const T = messagesFor(locale);
   const t = (key: keyof typeof T): string => T[key];
+  // The accounts table's layout is arithmetic on its own column widths, not a
+  // set of round numbers chosen next to them. Every one of the three defects
+  // the owner walked through came from a number that had been written twice.
+  const columns = portfolioColumns(T);
+  const tableWidth = portfolioTableWidth(columns);
+  const stackBelow = portfolioStackBelow(columns);
+  // Two selectors need these, and plain CSS has no way to give one declaration
+  // block two of them when one is inside a media query. One string, used twice,
+  // beats one palette maintained twice.
+  // Joined rather than written as a template literal: the page below is one,
+  // and a third backtick in this file splices source code into the HTML a
+  // browser receives. There is a test that counts them.
+  const dark = [
+    "color-scheme: dark;",
+    "--bg: #14141a; --panel: #1e1e25; --ink: #f0f0ee; --muted: #a8a8a4;",
+    "--line: #35353e; --line-strong: #46464f; --accent: #7fcf9f; --accent-ink: #102016;",
+    "--warn: #efbe6c; --danger: #f08c74; --chip: #2c2c35;",
+    "--row-alt: #232330; --row-hover: #2b2b38;",
+  ].join(" ");
   return `<!doctype html>
 <html lang="${locale}">
 <head>
@@ -21,20 +47,34 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(options.companyName)} — ${escapeHtml(t('page.titleSuffix'))}</title>
 <style>
+  /*
+   * Three schemes, not two: the operating system's, and the two the operator
+   * can insist on. The page used to have only the first - one
+   * prefers-color-scheme block and no way to disagree with it - so an operator
+   * whose machine is dark all day got a dark console whether or not it read
+   * well, and had nowhere to say so.
+   *
+   * The order matters. Light is the default. The OS's dark is honoured unless
+   * the operator has explicitly asked for light; an explicit dark wins whatever
+   * the OS says. Written any other way, one of the two choices is unreachable.
+   *
+   * --line is the border around a surface; --line-strong is the rule between
+   * two rows *inside* one. They were the same colour, which is legible on a
+   * near-white page and nearly invisible on a dark one: the accounts table's
+   * rows ran together into a block of text.
+   */
   :root {
-    color-scheme: light dark;
+    color-scheme: light;
     --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
-    --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+    --line: #e4e4e0; --line-strong: #d3d3cd; --accent: #2f6f4f; --accent-ink: #ffffff;
     --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+    --row-alt: #f6f6f3; --row-hover: #eef1ee;
     --radius: 10px;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16161a; --panel: #1e1e23; --ink: #ececea; --muted: #9a9a96;
-      --line: #33333a; --accent: #6fbf8f; --accent-ink: #14231a;
-      --warn: #e0b060; --danger: #e0806a; --chip: #2a2a31;
-    }
+    :root:not([data-theme="light"]) { ${dark} }
   }
+  :root[data-theme="dark"] { ${dark} }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
@@ -91,8 +131,14 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
    * The accounts table, which has eleven columns and one that can hold a whole
    * API error. Left to itself the browser gave that column everything and
    * squeezed the rest to a character wide, so the headers rendered one letter
-   * per line. Fixed layout plus a colgroup means the widths are decided here
-   * and the container scrolls; nothing is ever crushed by its neighbour.
+   * per line. Fixed layout plus a colgroup means the widths are decided here;
+   * nothing is ever crushed by its neighbour.
+   *
+   * This still scrolls, because the operator can drag a column wider than the
+   * window and that is their business. What it must not do is scroll when
+   * nobody asked: the declared widths add up to ${tableWidth}px and the media
+   * query below hands the table over to the card layout before the window gets
+   * narrower than that, so a table at its default widths always fits.
    */
   .table-wrap { overflow-x: auto; }
   /*
@@ -102,13 +148,48 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
    * centred, still bounded by the window. (No backticks anywhere in this file:
    * the page is one template literal.)
    */
-  #portfolio-section { width: min(1240px, calc(100vw - 32px)); margin-left: 50%; transform: translateX(-50%); }
-  table.grid { table-layout: fixed; min-width: 1180px; }
-  table.grid th { position: relative; white-space: nowrap; vertical-align: bottom; }
-  table.grid td { vertical-align: top; overflow-wrap: anywhere; }
+  #portfolio-section { width: min(1240px, calc(100vw - ${PAGE_GUTTER}px)); margin-left: 50%; transform: translateX(-50%); }
+  /*
+   * A surface of its own, like every .card. On a dark screen a table drawn
+   * straight onto the page background has nothing holding it together: the row
+   * rules were the same grey as a card border, which reads on near-white and
+   * disappears on near-black.
+   */
+  table.grid {
+    table-layout: fixed; min-width: ${tableWidth}px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden;
+  }
+  /*
+   * Headers wrap rather than run under their neighbour. They were nowrap, from
+   * when the columns had no widths of their own and a wrapped header read one
+   * letter per line; with a declared width the risk is the opposite one, and
+   * "Conversions" is eleven characters where 成果 is two.
+   */
+  table.grid th { position: relative; vertical-align: bottom; line-height: 1.35; padding-top: 10px; }
+  table.grid thead th { border-bottom: 1px solid var(--line-strong); }
+  table.grid td { vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--line-strong); }
+  table.grid tbody tr:last-child td { border-bottom: 0; }
+  /* Eleven columns is more than the eye tracks across unaided. */
+  table.grid tbody tr:nth-child(even) { background: var(--row-alt); }
+  table.grid tbody tr:hover { background: var(--row-hover); }
   table.grid th.num, table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
   table.grid .err { font-size: 12px; margin-top: 4px; }
+  /* The second line of a cell is a note on the first, and reads as one. At the
+     same size as the value it doubled the apparent number of columns. */
+  table.grid td .muted { font-size: 12px; line-height: 1.5; }
   table.grid button { padding: 5px 10px; font-size: 12px; margin: 0 4px 4px 0; }
+  /*
+   * The name and the id were the same size and the same line height, stacked
+   * with nothing between them, so a two-line name and its slug read as one
+   * three-line smear - and where an account is also worth a look, four things
+   * in a 176px column with no hierarchy at all. The name is the heading of its
+   * row; everything else under it is smaller and quieter, and the name itself
+   * breaks between words rather than anywhere.
+   */
+  .acct-name { font-weight: 600; overflow-wrap: break-word; }
+  .acct-id { color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 3px; }
+  .acct-review { margin-top: 6px; }
   /* Wide enough to grab on a trackpad, invisible until the pointer is near. */
   .grip {
     position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
@@ -116,6 +197,63 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
   }
   .grip:hover, .grip.dragging { background: var(--accent); opacity: .35; }
   .grid-reset { font-size: 12px; color: var(--muted); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+  /* The control the row exists for. It must never be the thing that is clipped. */
+  table.grid td[data-col="actions"] { white-space: nowrap; }
+  /*
+   * Under ${stackBelow}px the table becomes one card per account.
+   *
+   * Sideways scrolling was what it did before, and on a phone that meant two
+   * and a half of eleven columns with the rest - every number, whether it is
+   * measuring, and 開く - past the right edge with nothing to say so. Nothing
+   * is dropped here: this screen exists to compare accounts, and a comparison
+   * missing a number is a wrong comparison rather than a smaller one. The
+   * columns are laid out instead: name, state and 直近サイクル across the card,
+   * the six figures three to a line with their own headers as labels, then
+   * 計測 and the control.
+   *
+   * The 列の幅をもとに戻す button goes: there are no columns here to reset. The
+   * widths it resets are still remembered, and come back with the table.
+   */
+  @media (max-width: ${stackBelow - 1}px) {
+    #portfolio-section { width: auto; margin-left: 0; transform: none; }
+    .table-wrap { overflow-x: visible; }
+    table.grid { display: block; table-layout: auto; min-width: 0; background: none; border: 0; border-radius: 0; }
+    table.grid colgroup, table.grid thead { display: none; }
+    table.grid tbody { display: block; }
+    table.grid tbody tr, table.grid tbody tr:nth-child(even), table.grid tbody tr:hover {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 0 12px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 12px 14px; margin-bottom: 10px;
+    }
+    table.grid td, table.grid tbody tr:last-child td {
+      display: block; grid-column: span 6; border-bottom: 0; padding: 4px 0; text-align: left;
+    }
+    /* Three figures to a line. Left-aligned like everything else in the card:
+       right alignment is for scanning down a column, and there is no column. */
+    table.grid td.num { grid-column: span 2; text-align: left; }
+    /*
+     * The column's own header, reused as the field's label - so the words are
+     * in messages.ts once and both layouts say the same thing.
+     *
+     * The name is excluded: it is the card's heading, and does not need to be
+     * told it is a name. So is the control, whose header is deliberately blank.
+     */
+    table.grid td[data-label]:not([data-label=""]):not([data-col="name"])::before {
+      content: attr(data-label); display: block; color: var(--muted); font-size: 11px; line-height: 1.4;
+    }
+    table.grid td[data-col="name"] { font-size: 15px; padding-bottom: 8px; }
+    table.grid td[data-col="actions"] { padding-top: 10px; }
+    .grid-reset { display: none; }
+  }
+  /*
+   * A tablet, or a laptop too narrow for eleven columns but far too wide for
+   * three figures to a line. The six figures go back to one line, which is the
+   * shape they are meant to be read in - side by side - without asking for the
+   * width a whole table needs.
+   */
+  @media (min-width: 560px) and (max-width: ${stackBelow - 1}px) {
+    table.grid td.num { grid-column: span 1; }
+  }
   /* The exact text going out, shown at the publishing gate without a click. */
   pre.post { background: var(--panel); border-color: var(--accent); line-height: 1.7; font-size: 14px; }
   /*
@@ -245,6 +383,12 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
        browser's back button should work on them. -->
   <nav><a href="#/">${escapeHtml(t("nav.today"))}</a><a href="#/settings">${escapeHtml(t("nav.settings"))}</a></nav>
   <span class="who" id="who" hidden></span>
+  <!-- The operator's own answer to "is this readable where I am". Next to
+       refresh because it is furniture, not a decision: it changes nothing about
+       the operation and is remembered per browser, like the column widths. The
+       label is here as well as in applyTheme so it is never an empty pill in
+       the frame before the page's script runs. -->
+  <button id="theme" title="${escapeHtml(t("page.themeTitle"))}">${escapeHtml(t("theme.auto"))}</button>
   <button id="refresh">${escapeHtml(t("page.refresh"))}</button>
 </header>
 <main>
@@ -426,13 +570,18 @@ function notice(text, tone) {
  * for has moved, re-rendering each time so the screen is never behind what is
  * on disk. Returns whether it moved before the bound ran out.
  */
-async function watchUntilItMoves(before, ventureId, stillRunningText) {
+async function watchUntilItMoves(before, ventureId, stillRunningText, request) {
   notice(stillRunningText, "");
+  // The request is still in flight and still doing the work. Whenever it comes
+  // back - which it does, long after this page stopped waiting on it - that is
+  // the answer, and it needs no comparison to be believed.
+  let answered = false;
+  if (request) request.then(() => { answered = true; }, () => { answered = true; });
   const stopAt = Date.now() + WATCH_LIMIT_MS;
   while (Date.now() < stopAt) {
     await new Promise((resolve) => setTimeout(resolve, WATCH_POLL_MS));
     await load();
-    if (waitingIsOver(before, state, ventureId)) {
+    if (waitEndedBecause({ answered: answered, before: before, now: state, ventureId: ventureId })) {
       notice(T["wait.changed"], "");
       return true;
     }
@@ -501,31 +650,15 @@ const cycleCell = (last) => {
   return esc(last.date) + " " + esc(cycleStatusLabel(last.status)) + where;
 };
 
-/**
- * The accounts table's columns, and how wide each one starts.
- *
- * Widths are here rather than left to the browser because the content decides
- * nothing sensible: one account with a long API error in its 直近サイクル cell
- * took the whole table and left 投稿 and 中央値 a character wide, headers
- * reading downwards. These are minimums that fit the header plus its usual
- * value; anything longer wraps inside its own column, and the operator can
- * drag any border to suit what they are actually looking at.
+/*
+ * The accounts table's columns, from portfolio-columns.ts rather than written
+ * out again here - the page's layout is arithmetic on these widths, and a
+ * second copy of them is how the last column came to be clipped on every
+ * screen the console was ever opened on.
  */
-const PORTFOLIO_COLUMNS = [
-  { key: "name", label: T["accounts.colName"], width: 170 },
-  { key: "state", label: T["accounts.colState"], width: 120 },
-  { key: "cycle", label: T["accounts.colCycle"], width: 300 },
-  { key: "posts", label: T["accounts.colPosts"], width: 62, numeric: true },
-  { key: "median", label: T["accounts.colMedian"], width: 72, numeric: true },
-  { key: "clicks", label: T["accounts.colClicks"], width: 82, numeric: true },
-  { key: "conversions", label: T["accounts.colConversions"], width: 62, numeric: true },
-  { key: "revenue", label: T["accounts.colRevenue"], width: 110, numeric: true },
-  { key: "playbook", label: T["accounts.colPlaybook"], width: 60, numeric: true },
-  { key: "measurement", label: T["accounts.colMeasurement"], width: 150 },
-  { key: "actions", label: "", width: 190 },
-];
+const PORTFOLIO_COLUMNS = ${JSON.stringify(columns)};
 const COLUMN_WIDTH_KEY = "amp.portfolio.columns";
-const MIN_COLUMN_WIDTH = 48;
+const MIN_COLUMN_WIDTH = ${MIN_COLUMN_WIDTH};
 
 /**
  * Per-viewer, per-browser, and never read back by anything else - so a failure
@@ -545,6 +678,46 @@ function saveColumnWidths(widths) {
     window.localStorage.setItem(COLUMN_WIDTH_KEY, JSON.stringify(widths));
   } catch {
     /* A private window, or site data switched off. The table still works. */
+  }
+}
+
+/*
+ * The colour scheme, and the operator's right to disagree with their OS.
+ *
+ * "auto" is the default and follows prefers-color-scheme; the other two set
+ * data-theme on <html>, which the stylesheet honours over the media query. Kept
+ * in the same localStorage this browser keeps the column widths in, and for the
+ * same reason: it is about this screen on this machine, not about the company,
+ * so it has no business in platform.config.yaml.
+ */
+const THEMES = ["auto", "light", "dark"];
+const THEME_KEY = "amp.console.theme";
+
+function savedTheme() {
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    return THEMES.indexOf(stored) >= 0 ? stored : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+/* Held here, not read back out of storage: in a private window the write is
+   swallowed, and a button that asks storage what it last did would offer the
+   same two choices forever. */
+let theme = savedTheme();
+
+function applyTheme(next) {
+  theme = next;
+  // Removed rather than set to "auto": the stylesheet's media query is written
+  // to fire unless data-theme says light, and an unknown value would silence it.
+  if (theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", theme);
+  $("theme").textContent = T["theme." + theme] || theme;
+  try {
+    window.localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* A private window, or site data switched off. The choice lasts this visit. */
   }
 }
 
@@ -806,40 +979,63 @@ function render() {
   // The section shipped with an empty h2: the heading is the only place that
   // says how many days the numbers under it cover, and nothing ever wrote it.
   $("accounts-head").textContent = fmt("accounts.heading", { days: portfolio.days ?? 30 });
+  /*
+   * One account, keyed by column. Written this way rather than as eleven <td>s
+   * in a row so that the cell, the header above it and the label the card
+   * layout puts beside it all come from the same column - they were three
+   * separate lists, kept in the same order by hand.
+   */
+  const portfolioCells = (row) => ({
+    name: '<div class="acct-name">' + esc(row.name) + '</div><div class="acct-id">' + esc(row.ventureId) + "</div>" +
+      (row.review
+        ? '<div class="acct-review"><span class="chip warn">' + esc(T["accounts.review"]) +
+          '</span><div class="muted">' + esc(row.review) + "</div></div>"
+        : ""),
+    state: stateCell(row) +
+      (row.pendingDecisions > 0 ? '<div class="muted">' + esc(fmt("accounts.waiting", { n: row.pendingDecisions })) + "</div>" : ""),
+    // A failed day is the one thing a comparison view still has to say, so it
+    // says the least that is useful: a verdict chosen by the failure's code,
+    // and one smaller line. The whole reason is behind 開く.
+    cycle: cycleCell(row.lastCycle) +
+      (row.lastCycle?.failureCode ? failureCell(row.lastCycle.failureCode) : ""),
+    posts: String(row.posts),
+    median: String(row.medianScore),
+    clicks: String(row.clicks),
+    conversions: String(row.conversions),
+    revenue: esc(row.approved),
+    playbook: esc(row.playbook),
+    measurement: row.measurement === "closed"
+      ? esc(T["accounts.measurementClosed"])
+      : '<span class="chip warn">' + esc(T["accounts.measurementOpen"]) + "</span>" +
+        // Which step is open, not just that one is. There is no terminal to
+        // run "doctor" in when this is deployed to a host. (No backticks in
+        // here: this file is one big template literal.)
+        (row.measurementStep ? '<div class="muted">' + esc(measurementStepLabel(row.measurementStep)) + "</div>" : ""),
+    // The only control a row keeps. Switching an account off, reactivating it
+    // and running a day all moved to the account screen: a row that is also a
+    // control panel stops reading as a comparison, which is what this table
+    // is for.
+    actions: '<a class="open" href="#/ventures/' + encodeURIComponent(row.ventureId) + '">' + esc(T["accounts.open"]) + "</a>",
+  });
+
   $("portfolio").innerHTML =
     '<div class="table-wrap"><table class="grid"><colgroup>' +
     PORTFOLIO_COLUMNS.map((column) => '<col style="width:' + column.width + 'px">').join("") +
     "</colgroup><thead><tr>" +
-    PORTFOLIO_COLUMNS.map((column) => "<th" + (column.numeric ? ' class="num"' : "") + ">" +
-      esc(column.label) + '<span class="grip" data-grip="' + esc(column.key) + '"></span></th>').join("") +
+    PORTFOLIO_COLUMNS.map((column, index) => "<th" + (column.numeric ? ' class="num"' : "") + ">" +
+      esc(column.label) +
+      // No grip on the last header: there is no column to its right to give
+      // width to, and the 9px handle sat 4px outside the table, which was
+      // enough on its own to make the container scroll and clip 開く.
+      (index < PORTFOLIO_COLUMNS.length - 1 ? '<span class="grip" data-grip="' + esc(column.key) + '"></span>' : "") +
+      "</th>").join("") +
     "</tr></thead><tbody>" +
-    portfolio.rows.map((row) =>
-      "<tr><td>" + esc(row.name) + '<div class="muted">' + esc(row.ventureId) + "</div>" +
-        (row.review ? '<div class="chip warn" style="display:inline-block;margin-top:4px">' + esc(T["accounts.review"]) + '</div><div class="muted">' + esc(row.review) + "</div>" : "") + "</td>" +
-      "<td>" + stateCell(row) +
-        (row.pendingDecisions > 0 ? '<div class="muted">' + esc(fmt("accounts.waiting", { n: row.pendingDecisions })) + "</div>" : "") + "</td>" +
-      "<td>" + cycleCell(row.lastCycle) +
-        // A failed day is the one thing a comparison view still has to say, so
-        // it says the least that is useful: a verdict chosen by the failure's
-        // code, and one smaller line. The whole reason is behind 開く.
-        (row.lastCycle?.failureCode ? failureCell(row.lastCycle.failureCode) : "") +
-        '</td><td class="num">' + row.posts + '</td><td class="num">' + row.medianScore + "</td>" +
-      '<td class="num">' + row.clicks + '</td><td class="num">' + row.conversions +
-        '</td><td class="num">' + esc(row.approved) + "</td>" +
-      '<td class="num">' + esc(row.playbook) + "</td>" +
-      "<td>" + (row.measurement === "closed"
-        ? esc(T["accounts.measurementClosed"])
-        : '<span class="chip warn">' + esc(T["accounts.measurementOpen"]) + "</span>" +
-          // Which step is open, not just that one is. There is no terminal to
-          // run "doctor" in when this is deployed to a host. (No backticks in
-          // here: this file is one big template literal.)
-          (row.measurementStep ? '<div class="muted">' + esc(measurementStepLabel(row.measurementStep)) + "</div>" : "")) + "</td>" +
-      // The only control a row keeps. Switching an account off, reactivating it
-      // and running a day all moved to the account screen: a row that is also a
-      // control panel stops reading as a comparison, which is what this table
-      // is for.
-      '<td><a class="open" href="#/ventures/' + encodeURIComponent(row.ventureId) + '">' + esc(T["accounts.open"]) + "</a>" +
-        "</td></tr>").join("") +
+    portfolio.rows.map((row) => {
+      const cells = portfolioCells(row);
+      return "<tr>" + PORTFOLIO_COLUMNS.map((column) =>
+        '<td data-col="' + esc(column.key) + '" data-label="' + esc(column.label) + '"' +
+        (column.numeric ? ' class="num"' : "") + ">" + (cells[column.key] ?? "") + "</td>").join("") + "</tr>";
+    }).join("") +
     "</tbody></table></div>" +
     '<button class="grid-reset" type="button">' + esc(T["accounts.resetWidths"]) + "</button>";
   // After the innerHTML above, not before: every element the resize handler
@@ -1048,18 +1244,22 @@ document.addEventListener("click", async (event) => {
   target.textContent = T["venture.running"];
   // What the screen knew before the press. Taken now, because load() replaces
   // it, and the watcher below has nothing to compare against without it.
+  //
+  // And loaded first when there is nothing: pressing on a page whose first load
+  // had not landed left the watcher comparing against null, which it reads as
+  // "not yet" forever. The screen then said the work was still running for five
+  // minutes after it had finished.
+  if (!state) await load();
   const before = state;
   notice("", "");
 
-  const outcome = await withDeadline(
-    api("/api/ventures/" + encodeURIComponent(ventureId) + "/run", { method: "POST", body: "{}" }),
-    SLOW_ACTION_DEADLINE_MS,
-  );
+  const request = api("/api/ventures/" + encodeURIComponent(ventureId) + "/run", { method: "POST", body: "{}" });
+  const outcome = await withDeadline(request, SLOW_ACTION_DEADLINE_MS);
 
   if (outcome.timedOut) {
     // The run is still going and everything it has done is saved. The only
     // thing lost is this page's answer, so this page stops asking for one.
-    await watchUntilItMoves(before, ventureId, T["wait.stillRunning"]);
+    await watchUntilItMoves(before, ventureId, T["wait.stillRunning"], request);
     runningVentureId = null;
     // Clearing the flag first, so this render is what puts the button back.
     await load();
@@ -1266,24 +1466,23 @@ document.addEventListener("click", async (event) => {
     target.disabled = true;
     target.textContent = T["gate.sending"];
     const ventureId = decision.ventureId;
+    if (!state) await load();
     const before = state;
     notice("", "");
 
     const ordering = entry.order.filter((id) => entry.selected.has(id));
-    const outcome = await withDeadline(
-      api("/api/decisions/" + encodeURIComponent(decisionId) + "/resolve", {
-        method: "POST",
-        body: JSON.stringify({ selectedIds: ordering, ordering }),
-      }),
-      SLOW_ACTION_DEADLINE_MS,
-    );
+    const request = api("/api/decisions/" + encodeURIComponent(decisionId) + "/resolve", {
+      method: "POST",
+      body: JSON.stringify({ selectedIds: ordering, ordering }),
+    });
+    const outcome = await withDeadline(request, SLOW_ACTION_DEADLINE_MS);
 
     if (outcome.timedOut) {
       // The gate itself was answered the moment the request arrived; what was
       // lost is the reply to it, not the decision. So the draft goes, and the
       // page watches for the post this approval is now writing.
       draft.delete(decisionId);
-      await watchUntilItMoves(before, ventureId, T["wait.gateStillRunning"]);
+      await watchUntilItMoves(before, ventureId, T["wait.gateStillRunning"], request);
       resolving.delete(decisionId);
       await load();
       return;
@@ -1562,6 +1761,12 @@ window.addEventListener("hashchange", () => {
   load();
 });
 $("refresh").addEventListener("click", load);
+// Before the first load, so the page never paints in one scheme and then the
+// other. It is the only thing on this page that runs ahead of the data.
+applyTheme(theme);
+$("theme").addEventListener("click", () => {
+  applyTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]);
+});
 load();
 setInterval(load, 30000);
 // Not awaited and not inside load(): a slow answer must never delay the

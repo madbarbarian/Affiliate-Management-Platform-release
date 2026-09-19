@@ -33,14 +33,17 @@ export type FakeElement = {
   querySelectorAll(): FakeElement[];
   querySelector(): FakeElement | null;
   closest(): FakeElement | null;
-  getAttribute(): string | null;
-  setAttribute(): void;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
   appendChild(): void;
   remove(): void;
   getBoundingClientRect(): { width: number; left: number };
 };
 
 function element(id: string): FakeElement {
+  /** Only what setAttribute wrote. The page reads none of them back today. */
+  const attributes = new Map<string, string>();
   return {
     id,
     innerHTML: "",
@@ -55,8 +58,9 @@ function element(id: string): FakeElement {
     querySelectorAll: () => [],
     querySelector: () => null,
     closest: () => null,
-    getAttribute: () => null,
-    setAttribute: () => {},
+    getAttribute: (name) => attributes.get(name) ?? null,
+    setAttribute: (name, value) => void attributes.set(name, value),
+    removeAttribute: (name) => void attributes.delete(name),
     appendChild: () => {},
     remove: () => {},
     getBoundingClientRect: () => ({ width: 100, left: 0 }),
@@ -125,6 +129,10 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
     // deadline timer it sets on every slow action.
     clearTimeout,
     document: {
+      // <html>, which the page sets data-theme on. It is not addressed by id,
+      // so it is not in `elements`; asking for it by id here would put a
+      // fictional element in what a test reads back.
+      documentElement: element("html"),
       getElementById(id: string) {
         const found = elements.get(id) ?? element(id);
         elements.set(id, found);

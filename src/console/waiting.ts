@@ -87,4 +87,29 @@ export function waitingIsOver(
  * If that ever stopped being true the page would not parse, and the test that
  * parses the page would go red before a licensee saw an inert screen.
  */
-export const WAITING_IS_OVER_SOURCE = waitingIsOver.toString();
+/**
+ * Why the page may stop waiting, or null while it must keep waiting.
+ *
+ * Two reasons, and the first is the one that was missing. **The request is the
+ * authority**: when the answer finally arrives - late, after the deadline - the
+ * work is done and there is nothing left to watch for, whatever the comparison
+ * below can or cannot see.
+ *
+ * The comparison is the fallback, for an answer that never arrives at all, and
+ * it needs a `before` to compare against. Pressing the button on a page that
+ * had not finished loading left it with nothing: `waitingIsOver` answered "not
+ * yet" to every poll and the screen said the work was still running for five
+ * minutes after it had finished. The owner hit exactly that on the first real
+ * run - opened an account and pressed.
+ */
+export function waitEndedBecause(input: {
+  readonly answered: boolean;
+  readonly before: WaitingSnapshot | null | undefined;
+  readonly now: WaitingSnapshot | null | undefined;
+  readonly ventureId: string;
+}): "answered" | "moved" | null {
+  if (input.answered) return "answered";
+  return waitingIsOver(input.before, input.now, input.ventureId) ? "moved" : null;
+}
+
+export const WAITING_IS_OVER_SOURCE = [waitingIsOver.toString(), waitEndedBecause.toString()].join("\n\n");
