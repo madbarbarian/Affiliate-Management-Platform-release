@@ -40,6 +40,10 @@
 #
 #   - `platform.config.yaml` is yours. Your niche, your audience, your voice,
 #     your accounts. Upstream never has an opinion about it.
+#   - `wrangler.jsonc` is yours too, though it did not look it: the Deploy
+#     button wrote your Worker's name and the id of the database it created
+#     for you into it. An update that replaced it took your deploys down with
+#     "binding DB of type d1 must have a valid database_id".
 #   - Secrets are not in this repository at all - they are in Cloudflare's
 #     dashboard - so there is nothing here for an update to disturb.
 #   - `.github/` - including this workflow itself. It cannot write there, for
@@ -107,10 +111,23 @@ jobs:
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
           git checkout -B "${BRANCH}"
+          # Yours, and never replaced from upstream. Each line is something that
+          # exists here with your values in it, so taking ours would take your
+          # operation down:
+          #   wrangler.jsonc         - the Deploy button wrote your Worker's
+          #                            name and the id of the database it made
+          #                            for you. Ours carries our name and a
+          #                            placeholder, and a deploy with that in it
+          #                            fails on "binding DB of type d1 must have
+          #                            a valid database_id". Found the first time
+          #                            an update was ever taken, 2026-09-19.
+          #   platform.config.yaml   - your niche, audience, voice and accounts.
+          #   .github/               - including this file; see below.
           rsync -a --delete \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='platform.config.yaml' \
+            --exclude='wrangler.jsonc' \
             /tmp/upstream/ ./
           git add -A
 
@@ -191,8 +208,38 @@ jobs:
             exit 0
           fi
 
-          gh pr create \
+          # A repository created today does not let Actions open a pull request
+          # - Settings -> Actions -> General -> Workflow permissions, off by
+          # default. The push above has already succeeded at that point, so the
+          # update is sitting on the branch and the only thing missing is the
+          # page to read it on. Ending red here says the opposite: the first
+          # time this was ever run for real, it looked like nothing arrived.
+          #
+          # So: an issue instead, saying where the update is and which checkbox
+          # opens the normal path, and a green run - because the work did
+          # happen. Creating an issue needs no permission beyond the one this
+          # workflow already has.
+          if ! gh pr create \
             --base "${GITHUB_REF_NAME}" \
             --head "${BRANCH}" \
             --title "Take updates from the platform" \
-            --body-file /tmp/pr-body.md
+            --body-file /tmp/pr-body.md; then
+            {
+              echo "### 更新は届いています。開く画面だけがありません"
+              echo
+              echo "このリポジトリでは、GitHub Actions が Pull request を作ることが"
+              echo "許可されていません（新しいリポジトリの既定）。更新そのものは"
+              echo "\`${BRANCH}\` ブランチに届いています。"
+              echo
+              echo "**いま開くには:** <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${GITHUB_REF_NAME}...${BRANCH}>"
+              echo
+              echo "**次回から自動で開くには:** Settings → Actions → General →"
+              echo "Workflow permissions → **Allow GitHub Actions to create and"
+              echo "approve pull requests** にチェックを入れてください。1回だけです。"
+            } > /tmp/issue-body.md
+            gh issue create \
+              --title "更新が届いています（Pull request を作れませんでした）" \
+              --body-file /tmp/issue-body.md
+            cat /tmp/issue-body.md >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi

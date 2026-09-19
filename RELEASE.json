@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.5.0",
-  "commit": "19155a8",
-  "builtAt": "2026-09-19T01:56:28.911Z",
+  "version": "0.5.1",
+  "commit": "7b050ce",
+  "builtAt": "2026-09-19T02:20:44.908Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": ".github/workflows/take-updates.yml",
-      "bytes": 8967,
-      "sha256": "42b1d440eb79e08cab7e77017ab3206d9525556654325a2d0ccadee075597dce"
+      "bytes": 12116,
+      "sha256": "a47a61dae30857ab4e3b9543c7ff93d8220f60f9693e34e342ac3aebfeae661d"
     },
     {
       "path": ".gitignore",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 32055,
-      "sha256": "6ec59b54e1b93b9a7d4bd8cd32718e204981a6f4ff2cc277ce0d9d596a3235c0"
+      "bytes": 34483,
+      "sha256": "569f6e8c77cb6c714b8399b7020889dfaa9b4d4d99980cd6df5913299df490d7"
     },
     {
       "path": "CLAUDE.md",
@@ -313,7 +313,7 @@
     {
       "path": "package.json",
       "bytes": 1902,
-      "sha256": "863fb1e65393f227a7b5dc881fa8796c762901337e085feebbd7bc398375bd37"
+      "sha256": "9b574bec3b7c2ee7eca6f3dfcb6a9b30d094fbb48bc7480189c2c6a01805abb2"
     },
     {
       "path": "platform.config.example.yaml",
@@ -1002,8 +1002,8 @@
     },
     {
       "path": "update-workflow.yml",
-      "bytes": 8967,
-      "sha256": "42b1d440eb79e08cab7e77017ab3206d9525556654325a2d0ccadee075597dce"
+      "bytes": 12116,
+      "sha256": "a47a61dae30857ab4e3b9543c7ff93d8220f60f9693e34e342ac3aebfeae661d"
     },
     {
       "path": "wrangler.jsonc",
