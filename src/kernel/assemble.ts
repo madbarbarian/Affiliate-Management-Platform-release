@@ -247,6 +247,14 @@ export function guardWithStop(inner: Orchestrator, services: Services, state: St
     expireStaleGates() {
       return inner.expireStaleGates();
     },
+
+    // Not gated on the stop either, and for a sharper version of the same
+    // reason: this runs *because* the operator switched an account off, so
+    // refusing it while the platform is stopped would leave the account off
+    // with its gate still asking to be answered.
+    closeOpenGates(ventureId, request) {
+      return inner.closeOpenGates(ventureId, request);
+    },
   };
 }
 

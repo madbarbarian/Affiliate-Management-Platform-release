@@ -57,52 +57,69 @@
       border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
       font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
     }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
   </style>
 </helmet>
 <div class="frame">
   <header>
-    <div class="crumb">セットアップ ・ ステップ 5 / 9</div>
-    <h1>1日を通す</h1>
-    <p class="lede">1日分の流れを丸ごと通します。実際には何も投稿されません。鍵もまだ1つも要りません。</p>
+    <div class="crumb">セットアップ ・ ステップ 3 / 9</div>
+    <h1>文体を決める</h1>
+    <p class="lede">入力し終わった瞬間に、その文体で3行のサンプルが出ます。お試しの模擬データなので、モデルの費用はかかりません。</p>
   </header>
   <main>
     <div class="card">
-      <pre>✓ 分析      型 5件を読み込み（参考投稿から）
-✓ リサーチ  候補 12件 → 再現できる型 3件
-✓ 企画      10案。うち2案は探索枠（まだ試していない型を試す枠）
-⏸ あなたの判断 ──────────────────────────────
-✓ 執筆      2本
-✓ 検品      AIっぽさ 18 と 9 ・ 指摘 1件（修正済み）
-✓ 枠決め    07:30 と 12:15
-⏸ あなたの判断 ──────────────────────────────
-✓ 投稿      2本 <span class="warnc">（練習モード。実際には出ていません）</span>
-
-モデル呼び出し 9回 ・ 実費 0円</pre>
+      <div class="row2">
+        <div>
+          <label>一人称</label>
+          <div class="field filled">僕</div>
+        </div>
+        <div>
+          <label>人物像 <span class="hint">誰として書くか</span></label>
+          <div class="field filled">元編集者。ツールを試しては失敗している当事者。</div>
+        </div>
+      </div>
+      <label>トーン</label>
+      <div class="chips" style="margin-bottom:14px">
+        <span class="chip on">率直</span><span class="chip on">自嘲気味</span><span class="chip on">具体的</span>
+        <span class="chip">断定的</span><span class="chip">やわらかい</span><span class="chip">分析的</span>
+      </div>
+      <label>絶対に使わない言い回し <span class="hint">AIっぽく読める原因は、たいていこの言い回しです</span></label>
+      <div class="chips">
+        <span class="chip on">皆さん</span><span class="chip on">〜ではないでしょうか</span>
+        <span class="chip on">いかがでしたか</span><span class="chip">ぜひ参考に</span>
+      </div>
     </div>
 
+    <h2>この文体だと、こう書かれます</h2>
     <div class="card">
-      <h2 style="margin-bottom:8px">実際に動かすと、1日あたり</h2>
-      <p class="note">
-        入力 約 38,000 トークン ・ 出力 約 4,200 トークン<br>
-        <b style="color:var(--ink)">今ここで測った数字</b>です。
-        次のステップで鍵を入れると、ここからモデルの1か月ぶんの目安が出ます。
-      </p>
-    </div>
+      <pre>僕が3日で捨てたツールの話。
 
-    <div class="card" style="border-color: var(--accent)">
-      <p class="note" style="margin:0">
-        <b class="ok">ここでやめられます。</b>
-        気に入らなければ、Meta開発者コンソールを一度も開かずに終えられます。
+朝30分をやめて、3週間なにも起きなかった。
+
+見積もりを2倍にした。3件断られた。</pre>
+      <p class="note" style="margin-top:10px">
+        気に入らなければ、上を直すとここも変わります。<br>
+        <b style="color:var(--ink)">文体は、実際の投稿を見ないと決められません。</b>
+        だから鍵を入れる前の、この画面で決めておきます。
       </p>
     </div>
   </main>
   <div class="bar">
-    <span class="stepcount">5 / 9 ・ 鍵やトークンはまだ不要</span>
+    <span class="stepcount">3 / 9 ・ 鍵やトークンはまだ不要</span>
     <span class="spacer"></span>
-    <button class="ghost">もう一度見る</button>
-    <button class="primary">実際に動かす準備をする</button>
+    <button class="ghost">戻る</button>
+    <button class="primary">この文体で進む</button>
   </div>
 </div>
+<div class="proposal-mark">提案（未実装）</div>
 </x-dc>
 
 <script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>

@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --danger: #a13a2a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 760px; height: 1180px; display: flex; overflow: hidden; }
+    main { width: 640px; margin: 36px auto 0; }
+    h1 { font-size: 24px; margin: 0 0 8px; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+    section {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 18px 20px; margin-bottom: 18px;
+    }
+    h2 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
+    .h2sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+    .state { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .state:last-child { border-bottom: 0; }
+    .badge {
+      flex: none; width: 5.8em; text-align: center; border-radius: 999px;
+      font-size: 12px; font-weight: 700; padding: 3px 0; line-height: 1.6;
+      align-self: flex-start; margin-top: 1px;
+    }
+    .badge.done { background: #e8f2ec; color: var(--accent); border: 1px solid #cbe1d5; }
+    .badge.now { background: #fceeea; color: var(--danger); border: 1px solid #f2d3c9; }
+    .badge.later { background: #f2f2ef; color: var(--muted); border: 1px solid var(--line); }
+    .state .lbl { font-weight: 600; font-size: 14px; }
+    .state .sub { color: var(--muted); font-size: 14px; }
+    .state .sub b { color: var(--ink); font-weight: 600; }
+    code {
+      background: #f0f0ec; border-radius: 5px; padding: 1px 5px; font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .field { margin-bottom: 12px; }
+    .field .lab { display: block; font-size: 14px; font-weight: 600; }
+    .field .help { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .field .help b { color: var(--ink); font-weight: 600; }
+    .in {
+      border: 1px solid #d3d3cd; border-radius: 7px; background: var(--panel);
+      color: var(--muted); font-size: 13px; padding: 6px 10px;
+    }
+    .in.sel::after { content: "▾"; float: right; color: var(--muted); }
+    .submit {
+      font: inherit; font-size: 15px; font-weight: 600; padding: 9px 22px; margin-top: 4px;
+      background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    }
+    .addr { font-size: 14px; margin: 0 0 6px; }
+    .note { color: var(--muted); font-size: 13px; margin: 0; }
+    footer { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <main>
+    <h1>あと1つ、決めるだけです</h1>
+    <p class="lede">置き場所はできました。決まっていないのは「何を書くアカウントなのか」だけです。</p>
+
+    <section>
+      <h2>いまの状態</h2>
+      <div class="h2sub"></div>
+      <div class="state">
+        <span class="badge done">済</span>
+        <div><div class="lbl">データの保管場所</div><div class="sub">つながっています</div></div>
+      </div>
+      <div class="state">
+        <span class="badge done">済</span>
+        <div><div class="lbl">承認画面の合言葉</div><div class="sub">設定されています</div></div>
+      </div>
+      <div class="state">
+        <span class="badge later">あとで</span>
+        <div><div class="lbl">AIモデルの鍵</div><div class="sub">いまは無くて構いません。練習用の文章で一巡できます。本物の文章にしたくなったら、<b>Cloudflare の Workers &amp; Pages → この Worker → Settings → Variables and Secrets</b> で <code>ANTHROPIC_API_KEY</code> を足してください</div></div>
+      </div>
+      <div class="state">
+        <span class="badge now">これから</span>
+        <div><div class="lbl">設定</div><div class="sub">これから作ります。下のフォームに答えてください</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>どんなアカウントですか</h2>
+      <p class="h2sub">答えると、設定ファイルができあがります。あとから直せます。</p>
+
+      <div class="field">
+        <span class="lab">会社の名前</span>
+        <span class="help">承認画面のいちばん上に出ます</span>
+        <div class="in">みどり商店</div>
+      </div>
+      <div class="field">
+        <span class="lab">あなたのお名前</span>
+        <span class="help">承認するたびに、この名前が記録に残ります。<b>あとから書き換えられません</b></span>
+        <div class="in">みどり</div>
+      </div>
+      <div class="field">
+        <span class="lab">アカウントの名前</span>
+        <span class="help">複数運用したときに見分けるための呼び名です</span>
+        <div class="in">コスメ</div>
+      </div>
+      <div class="field">
+        <span class="lab">アカウントの id</span>
+        <span class="help">半角英小文字・数字・ハイフン。<b>あとから変えられません</b></span>
+        <div class="in">cosme</div>
+      </div>
+      <div class="field">
+        <span class="lab">何について書きますか</span>
+        <span class="help">狭いほどうまくいきます</span>
+        <div class="in">敏感肌向けのスキンケア</div>
+      </div>
+      <div class="field">
+        <span class="lab">誰に読ませますか</span>
+        <span class="help">年齢・状況・困っていること</span>
+        <div class="in">季節の変わり目に肌が荒れる30代。値段より成分を見る。</div>
+      </div>
+      <div class="field">
+        <span class="lab">書き手はどんな人ですか</span>
+        <span class="help">専門家より、当事者のほうが読まれます</span>
+        <div class="in">元美容部員。自分の肌で失敗してきた当事者。</div>
+      </div>
+      <div class="field">
+        <span class="lab">一人称</span>
+        <span class="help">この言葉で全部の投稿が書かれます</span>
+        <div class="in">わたし</div>
+      </div>
+      <div class="field">
+        <span class="lab">読者がいる国</span>
+        <span class="help"><b>広告のルールはここで決まります。</b>販売元の国ではなく、読む人の国です。いまは jp だけ選べます — 同梱の案件がその市場向けだからです</span>
+        <div class="in sel">jp</div>
+      </div>
+
+      <button class="submit">設定を作る</button>
+    </section>
+
+    <section>
+      <h2>ここが、あなたのアドレスです</h2>
+      <div class="h2sub"></div>
+      <p class="addr">https://amp-midori.midori.workers.dev</p>
+      <p class="note">投稿に入るリンクもここを通ります。ドメインを用意する必要はありません。上のフォームで作った設定には、このアドレスがすでに入っています。書き換える必要はありません。</p>
+    </section>
+
+    <footer>この画面は、設定が入っていないときだけ出ます。入ったあとは承認画面になります。</footer>
+  </main>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":760,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -119,6 +119,7 @@ const ja = {
   "today.activityEmpty": "まだ記録がありません。",
   "today.activityFailed": "{step}で止まりました — {reason}",
   "today.activityExpired": "{day} の判断は、答えのないまま日が変わりました",
+  "today.activityClosed": "{day} の判断は、アカウントを止めたので閉じました",
   // 公開ではないので、公開と同じ見た目にしない。1つの投稿がこの欄に2回出る
   // （渡したとき・押したとき）以上、どちらがどちらか読めなければ意味がない。
   "today.activityHandedOver": "あなたが投稿する番です — {hook}",
@@ -268,12 +269,16 @@ const ja = {
   "switch.activate": "再開する",
   "switch.activateWhy": "再開すると、次の朝から通常どおり動きます。止めていた間に承認済みだった投稿があれば、そのとき出ます。",
   "switch.configInactive": "設定ファイルで active: true にすると動きます。",
+  "switch.closedGates": "開いていた判断 {n} 件を閉じました。再開しても開き直しません。",
   "switch.heldApproved": "承認済み {n} 件は保留され、再開時に出ます。",
   "switch.beyondRecall": "チャネル側の予約に渡った {n} 件は、このままだと出ます。チャネル側で消してください。",
 
-  // The weekly proposals
-  "scout.heading": "探索の提案 — 週に1回の判断",
-  "scout.empty": "提案はありません。<code>amp scout</code> で探索担当に次のアカウント候補を出させられます。",
+  // The scout's proposals. Not "the weekly decision": company.exploration.enabled
+  // ships false, and the daemon's exploreIfDue is the only thing that ever runs
+  // the scout - so on a default install this heading promised a rhythm that
+  // never happened once.
+  "scout.heading": "探索の提案",
+  "scout.empty": "いまは提案がありません。新しいアカウントの候補は、探索担当が見つけしだいここに並びます。設定ファイルで <code>company.exploration.enabled</code> を true にするまで探索担当は動かないので、それまでここは空のままです。",
   "scout.offers": "案件 {ids}",
   "scout.noOffers": "この市場に使える案件なし",
   "scout.names": "名前の候補",
@@ -285,8 +290,13 @@ const ja = {
   "scout.accept": "採用する",
   "scout.dismiss": "見送る",
   "scout.appended": "採用しました。このブロックを設定ファイルの ventures: の下に active: false で追記しました（元のファイルは .amp/config-backups/ に控えがあります）。文体を読んで直し、active: true にして、デーモンを再起動してください。それまで何も動きません。",
-  "scout.notAppended": "採用しましたが、設定ファイルには追記できていません。下のブロックを platform.config.yaml の ventures: の下に手で貼ってください。",
-  "scout.showLater": "あとで見るには <code>amp scout show {id}</code>。",
+  // Not "could not be written": on Workers the config is baked into the bundle,
+  // so the append never succeeds and this is the ordinary path, not a fault.
+  // The place to paste is named the way src/worker/setup.ts names it.
+  "scout.notAppended": "採用しました。下のブロックを、設定ファイル platform.config.yaml の ventures: の下に貼り付けて、保存してください。貼り付けるまで、このアカウントは動きません。",
+  // The card is gone a week after acceptance and the block goes with it, so the
+  // deadline is the message. "下の" because the <pre> is rendered after this.
+  "scout.showLater": "この内容は、採用した日から1週間このページに残ります。下のブロックは、その間に貼り付けてください。",
   "scout.writeError": "追記できなかった理由: {error}",
 } as const;
 
@@ -372,6 +382,7 @@ const en: Messages = {
   "today.activityEmpty": "Nothing recorded yet.",
   "today.activityFailed": "Stopped at {step} — {reason}",
   "today.activityExpired": "The gate for {day} lapsed unanswered",
+  "today.activityClosed": "The gate for {day} was closed when the account was switched off",
   "today.activityHandedOver": "Your turn to post — {hook}",
   "gate.proposalLabel": "Proposals",
   "gate.publishLabel": "Posts and their order",
@@ -496,11 +507,12 @@ const en: Messages = {
   "switch.activate": "Start it again",
   "switch.activateWhy": "It runs normally from the next morning. Anything approved while it was off publishes then.",
   "switch.configInactive": "Set active: true in the config file to run it.",
+  "switch.closedGates": "{n} decision(s) that were waiting have been closed. Switching it back on does not reopen them.",
   "switch.heldApproved": "{n} approved post(s) are held and will publish when it starts again.",
   "switch.beyondRecall": "{n} post(s) already handed to the channel's own scheduler will still publish. Delete them there.",
 
-  "scout.heading": "Proposals — the weekly decision",
-  "scout.empty": "No proposals. <code>amp scout</code> asks the scout for the next account to try.",
+  "scout.heading": "Proposals",
+  "scout.empty": "No proposals yet. New account ideas appear here as the scout finds them. The scout does not run until <code>company.exploration.enabled</code> is true in your config file, so until then this stays empty.",
   "scout.offers": "Offers {ids}",
   "scout.noOffers": "No permitted offer in this market",
   "scout.names": "Name candidates",
@@ -512,8 +524,8 @@ const en: Messages = {
   "scout.accept": "Accept",
   "scout.dismiss": "Dismiss",
   "scout.appended": "Accepted. The block was appended under ventures: in your config with active: false, and the previous file is kept in .amp/config-backups/. Read the voice, fix it, set active: true and restart the daemon — nothing runs until you do.",
-  "scout.notAppended": "Accepted, but the config could not be written. Paste the block below under ventures: in platform.config.yaml by hand.",
-  "scout.showLater": "To see it later: <code>amp scout show {id}</code>.",
+  "scout.notAppended": "Accepted. Paste the block below under ventures: in your config file, platform.config.yaml, and save it. This account does not run until you do.",
+  "scout.showLater": "This stays on the page for a week from the day you accepted it. Paste the block below before then.",
   "scout.writeError": "Could not append: {error}",
 };
 

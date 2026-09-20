@@ -1,0 +1,1376 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ライセンシーの最初の1時間 — 画面設計</title>
+<style>
+    :root {
+      --paper: #f2f2ee; --ink: #1a1a19; --muted: #6b6b66; --line: #dededa;
+      --note: #fdf6dd; --note-line: #e6d9a4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--paper); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .page-head {
+      position: sticky; left: 0; top: 0; z-index: 2;
+      width: 100vw; padding: 12px 20px; background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+    .page-head h1 { font-size: 16px; font-weight: 650; margin: 0; }
+    .page-head p { font-size: 13px; color: var(--muted); margin: 3px 0 0; }
+    .page-head code { font-size: 12px; background: #f0f0ec; border-radius: 4px; padding: 1px 5px; }
+    .overview { display: none; }
+    .overview-label {
+      display: inline-block; margin-top: 8px; font-size: 13px; color: var(--muted);
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; cursor: pointer;
+    }
+    .overview:checked ~ .page-head .overview-label { color: var(--ink); border-color: var(--muted); }
+    .stage { position: relative; overflow: hidden; }
+    .canvas {
+      position: relative; transform-origin: 0 0;
+      background-image: radial-gradient(#d9d9d3 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .board { position: absolute; margin: 0; }
+    .board figcaption {
+      height: 28px; display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--muted); white-space: nowrap;
+    }
+    .board .live {
+      font-size: 11px; color: var(--muted); background: #ffffff;
+      border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+    }
+    .board iframe {
+      display: block; border: 1px solid var(--line); border-radius: 12px;
+      background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, .06); overflow: hidden;
+    }
+    .note {
+      position: absolute; background: var(--note); border: 1px solid var(--note-line);
+      border-radius: 8px; padding: 14px;
+      font-size: 13px; line-height: 21px; color: #4a4634;
+    }
+    .note p { margin: 0 0 12px; }
+    .note p:last-child { margin-bottom: 0; }
+    .note strong { color: #2c2a1f; font-weight: 650; }
+  
+    /* The overview toggle. CSS transform rather than the zoom property:
+       zoom re-lays-out an iframe's contents at the shrunken width, and these
+       boards are fixed-width frames, so they would be cropped, not scaled. */
+    .stage { width: 4540px; height: 4220px; }
+    .canvas { width: 4540px; height: 4220px; }
+    .overview:checked ~ .stage { width: 1362px; height: 1266px; }
+    .overview:checked ~ .stage .canvas { transform: scale(0.3); }
+</style>
+</head>
+<body>
+<input class="overview" type="checkbox" id="overview">
+<div class="page-head">
+  <h1>ライセンシーの最初の1時間 — 画面設計</h1>
+  <p>生成物です。正本は同じディレクトリの <code>canvas.json</code> と <code>*.dc.html</code>。<code>npm run build:canvas</code> で作り直します。</p>
+  <label class="overview-label" for="overview">全体を縮小して見る</label>
+</div>
+<div class="stage"><div class="canvas">
+<figure class="board" style="left:120px;top:292px;width:900px"><figcaption>全体 — 最初の1時間 ・ 提案（未実装）</figcaption><iframe title="全体 — 最初の1時間 ・ 提案（未実装）" style="width:900px;height:1180px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    /* 承認画面 (src/console/ui.ts) と同じトークン。写しであって近似ではない。 */
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 900px; height: 1180px; padding: 30px 34px; overflow: hidden; }
+    h1 { font-size: 21px; margin: 0 0 4px; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+    .band {
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--panel); padding: 14px 16px; margin-bottom: 20px;
+    }
+    .band.free { border-color: var(--accent); }
+    .band-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+    .band-title { font-weight: 650; font-size: 15px; }
+    .band.free .band-title { color: var(--accent); }
+    .band-note { color: var(--muted); font-size: 13px; }
+    .step { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
+    .step + .step { border-top: 1px solid var(--line); }
+    .num {
+      width: 22px; height: 22px; border-radius: 999px; flex: none;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 650; background: var(--chip); color: var(--muted);
+    }
+    .band.free .num { background: var(--accent); color: var(--accent-ink); }
+    .what { flex: 1; }
+    .what b { font-weight: 650; }
+    .what .sub { color: var(--muted); font-size: 13px; }
+    .cost { flex: none; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .cost .hard { color: var(--danger); font-weight: 600; }
+    .gate {
+      margin: 22px 0; padding: 12px 16px; border-left: 3px solid var(--accent);
+      background: var(--chip); border-radius: 0 8px 8px 0; font-size: 14px;
+    }
+    .gate b { color: var(--accent); }
+    .foot { margin-top: 22px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+    .foot b { color: var(--ink); }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;h1&gt;最初の1時間&lt;/h1&gt;
+  &lt;p class=&quot;lede&quot;&gt;メールのボタンを押すところから、1本目を出すところまでです。ソフトを取ってくる作業も、文字だけの画面もありません。&lt;/p&gt;
+
+  &lt;div class=&quot;band&quot;&gt;
+    &lt;div class=&quot;band-head&quot;&gt;
+      &lt;span class=&quot;band-title&quot;&gt;押すと、置き場所ができます&lt;/span&gt;
+      &lt;span class=&quot;band-note&quot;&gt;控えを作るところから配置まで、自動で進みます&lt;/span&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;1&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;メールのボタンを押す&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — Cloudflare に登録し（Workers Paid 月$5。カードが要ります）、名前と合言葉を決めるだけです。あなた専用のアドレスができます&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;5分&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;band free&quot;&gt;
+    &lt;div class=&quot;band-head&quot;&gt;
+      &lt;span class=&quot;band-title&quot;&gt;鍵なしで、中身を決めます&lt;/span&gt;
+      &lt;span class=&quot;band-note&quot;&gt;AIモデルの鍵はまだ要りません。ここまでの費用は Cloudflare の月$5だけです&lt;/span&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;2&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;名乗る／運用アカウントを決める&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — ニッチ、読者、市場、時間帯です。ここだけは、あなたにしか分からない情報です&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;10分&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;3&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;文体を決める → その場で3行出ます&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — 「動いた」と分かる最初の30秒です&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;5分&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;4&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;参考投稿を5つ貼る&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — 良いと思う投稿を5つ。初日から手がかりを持って始めるためです&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;10分&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;5&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;1日を通す&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — 企画10案 → 承認 → 執筆 → 検品 → 枠決め → 投稿（実際には出ません）&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;2分&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;gate&quot;&gt;
+    &lt;b&gt;ここでやめられます。&lt;/b&gt; 気に入らなければ、外部サービスの手続きを一度もせずに終えられます。
+  &lt;/div&gt;
+
+  &lt;div class=&quot;band&quot;&gt;
+    &lt;div class=&quot;band-head&quot;&gt;
+      &lt;span class=&quot;band-title&quot;&gt;ここから、実際に出すための作業です&lt;/span&gt;
+      &lt;span class=&quot;band-note&quot;&gt;製品が自分に合うと分かってから取りかかります&lt;/span&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;6&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;できた設定を、自分の控えに貼る&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — コピーして、開いて、貼って、保存。1〜2分で反映されます&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;3分&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;7&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;AIモデルの鍵&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — Cloudflare の月$5に、モデルの費用が加わります。ステップ5で測った1日分の目安を、先にお見せします&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;3分&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;8&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;投稿先をつなぐ&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — Threads の長期トークンを貼ります。貼った瞬間に確認し、うまくいかないときは何が原因かを具体的に示します&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;&lt;span class=&quot;hard&quot;&gt;20〜40分&lt;/span&gt;&lt;br&gt;いちばんつまずきやすい&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;step&quot;&gt;
+      &lt;span class=&quot;num&quot;&gt;9&lt;/span&gt;
+      &lt;span class=&quot;what&quot;&gt;&lt;b&gt;案件を登録する&lt;/b&gt;&lt;span class=&quot;sub&quot;&gt; — 読者の国と商品の国が違うときは、必要になる注意書きとその理由をその場で示します&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;cost&quot;&gt;15分&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;foot&quot;&gt;
+    &lt;b&gt;リンクのドメインを用意する作業は、無くなりました。&lt;/b&gt;
+    ステップ1でできるアドレスがそのまま公開されているので、&lt;b&gt;クリックは初日から記録されます&lt;/b&gt;。&lt;br&gt;
+    時間はおおよその目安です。8は外部サービス側の手続きが入るので、人によって大きく前後します。
+    途中でやめても、ここまでの入力は無駄になりません。
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1140px;top:292px;width:760px"><figcaption>1 ボタンを押す（実装済 v0.3.0）</figcaption><iframe title="1 ボタンを押す（実装済 v0.3.0）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 1 / 9&lt;/div&gt;
+    &lt;h1&gt;ボタンを押すと、置き場所ができます&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;メールのボタンから来た画面です。ここでの入力は2つだけで、あとは自動で進みます。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--accent)&quot;&gt;
+      &lt;h2 style=&quot;color: var(--accent); margin-bottom: 8px&quot;&gt;押すと自動でこうなります&lt;/h2&gt;
+      &lt;pre&gt;&lt;span class=&quot;ok&quot;&gt;1&lt;/span&gt; あなたの GitHub に、このソフトの控えができます
+&lt;span class=&quot;ok&quot;&gt;2&lt;/span&gt; データの保管場所が作られ、つながります
+&lt;span class=&quot;ok&quot;&gt;3&lt;/span&gt; 組み立てて配置されます
+&lt;span class=&quot;ok&quot;&gt;4&lt;/span&gt; あなた専用のアドレスが生まれます
+
+&lt;span class=&quot;ok&quot;&gt;これ以降、控えを保存するたびに、自動で反映されます。&lt;/span&gt;&lt;/pre&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;label&gt;名前 &lt;span class=&quot;hint&quot;&gt;アドレスの一部になります。あとから変えられます&lt;/span&gt;&lt;/label&gt;
+      &lt;div class=&quot;field filled&quot;&gt;amp-morning-toolroom&lt;/div&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0 0 4px&quot;&gt;
+        できあがるアドレス: &lt;code&gt;https://amp-morning-toolroom.&lt;b style=&quot;color:var(--ink)&quot;&gt;あなた&lt;/b&gt;.workers.dev&lt;/code&gt;
+      &lt;/p&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0 0 10px&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;独自のドメインは要りません。&lt;/b&gt;
+        このアドレスは公開されていて、投稿に入るリンクもここを通ります。
+        つまり&lt;b style=&quot;color:var(--ink)&quot;&gt;初日から数字が記録されます&lt;/b&gt;。
+        育ってから自分のドメインに移すこともできます。
+      &lt;/p&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        同じ画面の&lt;b style=&quot;color:var(--ink)&quot;&gt;「控えを非公開にする」にチェックを入れてください&lt;/b&gt;。
+        既定では入っていません。控えにはあなたの設定 — 何を、誰に、どんな文体で —
+        が入ります。鍵は入りませんが、&lt;b style=&quot;color:var(--ink)&quot;&gt;やり方は入ります&lt;/b&gt;。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;h2&gt;鍵を入れる欄は1つだけです&lt;/h2&gt;
+      &lt;label&gt;承認画面の合言葉 &lt;span class=&quot;hint&quot;&gt;必須&lt;/span&gt;&lt;/label&gt;
+      &lt;div class=&quot;field filled&quot;&gt;•••••••••••••••••••••••••&lt;/div&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0 0 12px&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;作るボタンはありません。&lt;/b&gt;
+        推測されない20文字以上を自分で決めて入力し、控えておいてください。
+        パスワード管理アプリの「強力なパスワードを作る」が確実です。
+        これが無いと、アドレスを知っている人が承認画面を開けてしまいます。
+      &lt;/p&gt;
+      &lt;label&gt;AIモデルの鍵 &lt;span class=&quot;hint&quot;&gt;この画面では訊かれません&lt;/span&gt;&lt;/label&gt;
+      &lt;div class=&quot;field empty&quot;&gt;あとから入れられます&lt;/div&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b class=&quot;ok&quot;&gt;鍵は要りません。承認画面も、鍵なしで開きます。&lt;/b&gt;
+        練習用の文章で1日ぶんが一巡するので、モデルの費用はかかりません。
+        本物の文章にしたくなったら入れてください（3分・画面にリンクがあります）。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;1 / 9&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;note&quot;&gt;だいたい5分。待っている間に何もすることはありません&lt;/span&gt;
+    &lt;button class=&quot;primary&quot;&gt;配置する&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1980px;top:292px;width:760px"><figcaption>3 文体を決める ・ 提案（未実装）</figcaption><iframe title="3 文体を決める ・ 提案（未実装）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 3 / 9&lt;/div&gt;
+    &lt;h1&gt;文体を決める&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;入力し終わった瞬間に、その文体で3行のサンプルが出ます。お試しの模擬データなので、モデルの費用はかかりません。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;row2&quot;&gt;
+        &lt;div&gt;
+          &lt;label&gt;一人称&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;僕&lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;人物像 &lt;span class=&quot;hint&quot;&gt;誰として書くか&lt;/span&gt;&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;元編集者。ツールを試しては失敗している当事者。&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;label&gt;トーン&lt;/label&gt;
+      &lt;div class=&quot;chips&quot; style=&quot;margin-bottom:14px&quot;&gt;
+        &lt;span class=&quot;chip on&quot;&gt;率直&lt;/span&gt;&lt;span class=&quot;chip on&quot;&gt;自嘲気味&lt;/span&gt;&lt;span class=&quot;chip on&quot;&gt;具体的&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;断定的&lt;/span&gt;&lt;span class=&quot;chip&quot;&gt;やわらかい&lt;/span&gt;&lt;span class=&quot;chip&quot;&gt;分析的&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;label&gt;絶対に使わない言い回し &lt;span class=&quot;hint&quot;&gt;AIっぽく読める原因は、たいていこの言い回しです&lt;/span&gt;&lt;/label&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip on&quot;&gt;皆さん&lt;/span&gt;&lt;span class=&quot;chip on&quot;&gt;〜ではないでしょうか&lt;/span&gt;
+        &lt;span class=&quot;chip on&quot;&gt;いかがでしたか&lt;/span&gt;&lt;span class=&quot;chip&quot;&gt;ぜひ参考に&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;この文体だと、こう書かれます&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;pre&gt;僕が3日で捨てたツールの話。
+
+朝30分をやめて、3週間なにも起きなかった。
+
+見積もりを2倍にした。3件断られた。&lt;/pre&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin-top:10px&quot;&gt;
+        気に入らなければ、上を直すとここも変わります。&lt;br&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;文体は、実際の投稿を見ないと決められません。&lt;/b&gt;
+        だから鍵を入れる前の、この画面で決めておきます。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;3 / 9 ・ 鍵やトークンはまだ不要&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;戻る&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;この文体で進む&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:2820px;top:292px;width:760px"><figcaption>4 参考投稿を5つ貼る ・ 提案（未実装）</figcaption><iframe title="4 参考投稿を5つ貼る ・ 提案（未実装）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 4 / 9&lt;/div&gt;
+    &lt;h1&gt;参考投稿を5つ貼る&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;良いと思う投稿を5つ貼ります。初日から手がかりを持って始めるためです。自分の過去の投稿でも、他人のものでも構いません。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;label&gt;投稿を貼る &lt;span class=&quot;hint&quot;&gt;URL でも本文でも&lt;/span&gt;&lt;/label&gt;
+      &lt;div class=&quot;field filled&quot;&gt;https://www.threads.net/@… &amp;nbsp;・&amp;nbsp; 「外注を全部やめた月」&lt;/div&gt;
+      &lt;div class=&quot;field filled&quot;&gt;https://www.threads.net/@… &amp;nbsp;・&amp;nbsp; 「通知を切った2週間」&lt;/div&gt;
+      &lt;div class=&quot;field filled&quot;&gt;貼り付けた本文：会議を3つ消した。誰も困らなかった。…&lt;/div&gt;
+      &lt;div class=&quot;field filled&quot;&gt;https://www.threads.net/@… &amp;nbsp;・&amp;nbsp; 「無料プランで足りた話」&lt;/div&gt;
+      &lt;div class=&quot;field empty&quot;&gt;あと1つ（4つでも進めます）&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;参考投稿から取り出した型&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;pre&gt;pat_seed_1  「やめた」から始める一人称
+            自分がやめた具体的な数を先に出し、理由を後に置く
+            由来 参考投稿から取り込み ・ 信頼度 0.35 ・ 証拠 3件
+
+pat_seed_2  何も起きなかったことを結果として書く
+            由来 参考投稿から取り込み ・ 信頼度 0.30 ・ 証拠 2件&lt;/pre&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin-top:10px&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;初日から、5つの手がかりを持って始められます。&lt;/b&gt;
+        貼らずに始めると、最初の提案は手がかりゼロから作られるので、品質はいちばん低くなります。
+        初日は「使えるか」を判断する日でもあるので、ここで貼っておく価値があります。&lt;br&gt;&lt;br&gt;
+        参考投稿から取り込んだ型は、&lt;span class=&quot;ok&quot;&gt;自分の実績ではないものとして記録されます&lt;/span&gt;。
+        自分の実績が溜まると自然に置き換わり、アカウントを売るときには
+        「取り込んだ型のうち何件が残っているか」を数えられます。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;4 / 9 ・ 鍵やトークンはまだ不要&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;今は飛ばす&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;この5つで始める&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:3660px;top:292px;width:760px"><figcaption>5 1日を通す ・ 提案（未実装）</figcaption><iframe title="5 1日を通す ・ 提案（未実装）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 5 / 9&lt;/div&gt;
+    &lt;h1&gt;1日を通す&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;1日分の流れを丸ごと通します。実際には何も投稿されません。鍵もまだ1つも要りません。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;pre&gt;✓ 分析      型 5件を読み込み（参考投稿から）
+✓ リサーチ  候補 12件 → 再現できる型 3件
+✓ 企画      10案。うち2案は探索枠（まだ試していない型を試す枠）
+⏸ あなたの判断 ──────────────────────────────
+✓ 執筆      2本
+✓ 検品      AIっぽさ 18 と 9 ・ 指摘 1件（修正済み）
+✓ 枠決め    07:30 と 12:15
+⏸ あなたの判断 ──────────────────────────────
+✓ 投稿      2本 &lt;span class=&quot;warnc&quot;&gt;（練習モード。実際には出ていません）&lt;/span&gt;
+
+モデル呼び出し 9回 ・ 実費 0円&lt;/pre&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;h2 style=&quot;margin-bottom:8px&quot;&gt;実際に動かすと、1日あたり&lt;/h2&gt;
+      &lt;p class=&quot;note&quot;&gt;
+        入力 約 38,000 トークン ・ 出力 約 4,200 トークン&lt;br&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;今ここで測った数字&lt;/b&gt;です。
+        次のステップで鍵を入れると、ここからモデルの1か月ぶんの目安が出ます。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--accent)&quot;&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b class=&quot;ok&quot;&gt;ここでやめられます。&lt;/b&gt;
+        気に入らなければ、Meta開発者コンソールを一度も開かずに終えられます。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;5 / 9 ・ 鍵やトークンはまだ不要&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;もう一度見る&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;実際に動かす準備をする&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1140px;top:1352px;width:760px"><figcaption>6 設定を貼る（実装済 v0.4.0）</figcaption><iframe title="6 設定を貼る（実装済 v0.4.0）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 6 / 9&lt;/div&gt;
+    &lt;h1&gt;できた設定を、自分の控えに貼ります&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;ここまでの答えが、下の1枚になりました。これを自分の控えに貼ると、いまの内容で動き始めます。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div style=&quot;display:flex; align-items:center; gap:10px; margin-bottom:10px&quot;&gt;
+        &lt;h2 style=&quot;margin:0; flex:1&quot;&gt;platform.config.yaml&lt;/h2&gt;
+        &lt;button class=&quot;ghost&quot;&gt;コピーする&lt;/button&gt;
+      &lt;/div&gt;
+      &lt;pre&gt;company:
+  name: &quot;モーニング工房&quot;
+  operator: &quot;あなたの名前&quot;
+
+ventures:
+  - id: main
+    name: &quot;朝の道具&quot;
+    niche: &quot;朝の支度が10分速くなる道具&quot;
+    audience: &quot;6時台に起きる共働き世帯&quot;
+    market: jp          &lt;span class=&quot;note&quot;&gt;# 日本の広告規制に従います&lt;/span&gt;
+    timezone: Asia/Tokyo
+    voice:
+      person: &quot;です・ます&quot;
+      avoid: [&quot;神&quot;, &quot;革命&quot;, &quot;圧倒的&quot;]
+    cadence:
+      postsPerDay: 1    &lt;span class=&quot;note&quot;&gt;# 最初の3日は1本です&lt;/span&gt;
+      cycleStartsAt: &quot;06:30&quot;
+
+tracking:
+  &lt;span class=&quot;ok&quot;&gt;baseUrl: &quot;https://amp-….workers.dev&quot;&lt;/span&gt;  &lt;span class=&quot;note&quot;&gt;# ← あなたのアドレス&lt;/span&gt;&lt;/pre&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--danger)&quot;&gt;
+      &lt;h2 style=&quot;color: var(--danger); margin-bottom: 8px&quot;&gt;1行だけ、書き換えです&lt;/h2&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;code&gt;tracking:&lt;/code&gt; の &lt;code&gt;baseUrl:&lt;/code&gt; は元の設定にもうあります。
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;足すのではなく、書き換えてください。&lt;/b&gt;
+        同じ名前が2つあると設定が読めません。&lt;br&gt;
+        ここを書き換えるまで、投稿のリンクは押されても&lt;b style=&quot;color:var(--ink)&quot;&gt;記録されません&lt;/b&gt;。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--accent)&quot;&gt;
+      &lt;h2 style=&quot;color: var(--accent); margin-bottom: 8px&quot;&gt;貼る場所&lt;/h2&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0 0 10px&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;この画面はあなたの設定を勝手に書き換えません。&lt;/b&gt;
+        設定はあなたのもので、変更の履歴もあなたの控えに残ります。だから、貼るのはあなたです。
+      &lt;/p&gt;
+      &lt;pre&gt;&lt;span class=&quot;ok&quot;&gt;1&lt;/span&gt; 上の「コピーする」を押します
+&lt;span class=&quot;ok&quot;&gt;2&lt;/span&gt; &lt;b style=&quot;color:var(--ink)&quot;&gt;あなたの控えを開く&lt;/b&gt; を押します（新しいタブで開きます）
+&lt;span class=&quot;ok&quot;&gt;3&lt;/span&gt; 貼り付けて、保存します
+&lt;span class=&quot;ok&quot;&gt;4&lt;/span&gt; 1〜2分で、この画面が新しい設定で開き直します&lt;/pre&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;あとから変えられます。&lt;/b&gt;
+        ニッチも文体も投稿数も、同じ控えを開いて直して保存するだけです。
+        ここで完璧にする必要はありません。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;6 / 9&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;まだ貼らない&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;あなたの控えを開く&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1980px;top:1352px;width:760px"><figcaption>8 投稿先をつなぐ ・ 提案（未実装）</figcaption><iframe title="8 投稿先をつなぐ ・ 提案（未実装）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 8 / 9&lt;/div&gt;
+    &lt;h1&gt;投稿先（Threads）をつなぐ&lt;/h1&gt;
+    &lt;!-- ここは長く「途中でやめても、端末で打つ再開コマンドで続きから再開できます」と
+         書いていた。ライセンシーは端末を持たない（要件3.1）うえに、中断と再開の実装が
+         そもそも無い（進捗を残す `.amp/setup.json` も、それを読む CLI の入口もコードに
+         存在しない）。コマンドを消すだけでは足りず、約束そのものを取り下げてある。 --&gt;
+    &lt;p class=&quot;lede&quot;&gt;いちばんつまずきやすいステップです。トークンを貼ると、その場で使えるかどうかを確かめて、だめだった理由をそのままお伝えします。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;label&gt;Threads の長期アクセストークン&lt;/label&gt;
+      &lt;div class=&quot;field filled&quot; style=&quot;margin-bottom:6px&quot;&gt;THAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…&lt;/div&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin-bottom:12px&quot;&gt;
+        &lt;span class=&quot;ok&quot;&gt;✓ 確認できました&lt;/span&gt; ・ @morning_toolroom ・ プロアカウント ・ 有効期限まで 58日&lt;br&gt;
+        &lt;span class=&quot;ok&quot;&gt;✓ 投稿権限あり&lt;/span&gt; &amp;nbsp; &lt;span class=&quot;warnc&quot;&gt;△ キーワード検索の権限なし&lt;/span&gt;
+        &lt;span class=&quot;hint&quot;&gt;— リサーチ担当の検索は使えませんが、ほかは動きます&lt;/span&gt;
+      &lt;/p&gt;
+      &lt;div class=&quot;field&quot; style=&quot;background: var(--panel); border-color: var(--line); margin-bottom: 0&quot;&gt;
+        &lt;b style=&quot;font-size:13px&quot;&gt;トークンを取るまでの手順&lt;/b&gt;
+        &lt;p class=&quot;note&quot; style=&quot;margin:6px 0 0&quot;&gt;
+          1. Meta開発者コンソールでアプリを作ります（用途は Threads API）&lt;br&gt;
+          2. 権限に Threads Basic と Threads Content Publishing を追加します&lt;br&gt;
+          3. 自分のプロアカウントを接続して、短期トークンを取ります&lt;br&gt;
+          4. 長期トークンに交換します（有効期限は60日）&lt;br&gt;
+          &lt;span class=&quot;hint&quot;&gt;4の交換ページは、この画面のリンクから直接開けます。&lt;/span&gt;
+        &lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;h2 style=&quot;margin-bottom:8px&quot;&gt;よくある失敗&lt;/h2&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;span class=&quot;bad&quot;&gt;個人アカウントのまま&lt;/span&gt; — プロアカウントに切り替える必要があります&lt;br&gt;
+        &lt;span class=&quot;bad&quot;&gt;短期トークンを貼った&lt;/span&gt; — 1時間で切れます。長期トークンに交換してください&lt;br&gt;
+        &lt;span class=&quot;bad&quot;&gt;権限が足りない&lt;/span&gt; — 上の手順のどれが欠けているかを具体的に示します
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--warn)&quot;&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b class=&quot;warnc&quot;&gt;トークンは &lt;code&gt;.env.local&lt;/code&gt; にだけ保存されます。&lt;/b&gt;
+        設定ファイルにも、この画面にも残りません。
+        &lt;code&gt;.env.local&lt;/code&gt; は、コードを共有しても一緒には配られないファイルです。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;8 / 9&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;あとで続ける&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;次へ&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:2820px;top:1352px;width:760px"><figcaption>9 案件 ・ 提案（未実装）</figcaption><iframe title="9 案件 ・ 提案（未実装）" style="width:760px;height:900px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ ステップ 9 / 9&lt;/div&gt;
+    &lt;h1&gt;案件を登録する&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;読者の国と商品の国が違うときは、その場で必須項目が増えます。理由も一緒に表示します。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;row2&quot;&gt;
+        &lt;div&gt;
+          &lt;label&gt;ASP&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;Impact&lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;案件名&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;Notion 年間プラン&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;row2&quot;&gt;
+        &lt;div&gt;
+          &lt;label&gt;商品の国 &lt;span class=&quot;hint&quot;&gt;どこの会社の商品か&lt;/span&gt;&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;US&lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;読者の国 &lt;span class=&quot;hint&quot;&gt;運用アカウントの市場から&lt;/span&gt;&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;JP ・ このアカウントの設定&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;row2&quot;&gt;
+        &lt;div&gt;
+          &lt;label&gt;報酬&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;売上の30%（revshare）・ USD&lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;label&gt;ランディングURL&lt;/label&gt;
+          &lt;div class=&quot;field filled&quot;&gt;https://…&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--warn)&quot;&gt;
+      &lt;h2 style=&quot;margin-bottom:8px; color: var(--warn)&quot;&gt;読者の国と商品の国が違うので、注意書きが3つ必須になりました&lt;/h2&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin-bottom:10px&quot;&gt;
+        米国の商品を、日本の読者に紹介します。&lt;b style=&quot;color:var(--ink)&quot;&gt;従うのは日本の規則&lt;/b&gt;（景表法とステマ規制）です。
+        規則は商品の国ではなく、読者がいる国で決まります。&lt;br&gt;
+        読者がクリックする前に知っておくべきことを、日本語で書きます。
+      &lt;/p&gt;
+      &lt;div class=&quot;field filled&quot;&gt;決済は米ドルです&lt;/div&gt;
+      &lt;div class=&quot;field filled&quot;&gt;サポートは英語のみです&lt;/div&gt;
+      &lt;div class=&quot;field filled&quot;&gt;販売元は Notion Labs, Inc. です&lt;/div&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        書き忘れても、投稿の末尾に自動で付きます。&lt;span class=&quot;ok&quot;&gt;入っているかどうかを機械的に確認する&lt;/span&gt;ので、
+        AIが「書いたつもり」でも見逃しません。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;この案件をこのアカウントで扱えるか&lt;/b&gt;も、いま確認します。
+        ASPが許可していない国の読者に案件を出すのは、アフィリエイトで最も高くつく間違いです。
+        数か月後に、報酬が全額取り消されることがあります。該当する場合は、設定を読み込む時点で登録できません。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;9 / 9&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;戻る&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;登録する&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:3660px;top:1352px;width:760px"><figcaption>最後の確認 ・ 提案（未実装）</figcaption><iframe title="最後の確認 ・ 提案（未実装）" style="width:760px;height:1220px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); flex: none; }
+    .crumb { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    h1 { font-size: 19px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    main { flex: 1; overflow: hidden; padding: 20px 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+    .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .field {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      padding: 9px 11px; font-size: 14px; margin-bottom: 12px;
+    }
+    .field.filled { color: var(--ink); }
+    .field.empty { color: var(--muted); }
+    .row2 { display: flex; gap: 12px; }
+    .row2 &gt; div { flex: 1; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
+    .bar { flex: none; padding: 14px 24px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .primary { font: inherit; font-weight: 600; padding: 10px 20px; border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); }
+    .ghost { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+    .spacer { flex: 1; }
+    .stepcount { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .warnc { color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+      font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
+    }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;crumb&quot;&gt;セットアップ ・ 最後の確認&lt;/div&gt;
+    &lt;h1&gt;数字が全部返ってくるか、確認します&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;投稿・クリック・報酬。この3つがつながっていないと、あとから測り直せません。&lt;/p&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--accent)&quot;&gt;
+      &lt;label&gt;リンクのアドレス &lt;span class=&quot;hint&quot;&gt;読者が実際に開きます&lt;/span&gt;&lt;/label&gt;
+      &lt;div class=&quot;field filled&quot;&gt;https://amp-morning-toolroom.あなた.workers.dev&lt;/div&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b class=&quot;ok&quot;&gt;用意する作業はありません。&lt;/b&gt;
+        ステップ1でできたアドレスがそのまま使われます。
+        投稿に入るリンクは &lt;code&gt;…/go/&amp;lt;code&amp;gt;&lt;/code&gt; の形で、&lt;code&gt;/go&lt;/code&gt; は自動で付きます。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--danger)&quot;&gt;
+      &lt;h2 style=&quot;margin-bottom:8px; color: var(--danger)&quot;&gt;合言葉を空にしないでください&lt;/h2&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;同じアドレスで、承認画面も開きます。&lt;/b&gt;
+        リンクの転送（&lt;code&gt;/go/&lt;/code&gt;）と承認画面は、同じところが配っているためです。
+        つまりアドレスを知っている人は、承認画面の入口までは来られます。&lt;br&gt;&lt;br&gt;
+        守っているのはステップ1で決めた合言葉ひとつです。空にしたり、人に見せたりしないでください。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;計測経路 — 投稿・クリック・報酬が全部戻ってくるか&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;pre&gt;&lt;span class=&quot;ok&quot;&gt;✓&lt;/span&gt; 投稿が Threads に届く         Threads API
+&lt;span class=&quot;ok&quot;&gt;✓&lt;/span&gt; Threads が数字を返す          本物の接続です（模擬データではありません）
+&lt;span class=&quot;ok&quot;&gt;✓&lt;/span&gt; 読者がリンクをたどれる        amp-morning-toolroom.….workers.dev
+&lt;span class=&quot;ok&quot;&gt;✓&lt;/span&gt; ASPが成果を返す               Impact のCSVを45日分
+&lt;span class=&quot;ok&quot;&gt;✓&lt;/span&gt; 成果に金額がつく              売上の30%（revshare）/ USD
+
+&lt;span class=&quot;ok&quot;&gt;measurement: closed&lt;/span&gt;（計測経路はつながっています）— 投稿・クリック・報酬が全部返ってきます&lt;/pre&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin-top:10px&quot;&gt;
+        計測経路が切れたまま1か月運用すると、その1か月分は&lt;b style=&quot;color:var(--ink)&quot;&gt;あとから測り直せません&lt;/b&gt;。
+        クリックは「ゼロだった」のではなく「記録されなかった」ので、取り戻す手段がないからです。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;更新を受け取る口 — いま1回だけ作ります&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0 0 10px&quot;&gt;
+        直った不具合は、承認画面のいちばん上に1行で出ます。探しに行く必要はありません。
+        &lt;b style=&quot;color:var(--ink)&quot;&gt;取り込むほうだけ、最初に1回だけ準備が要ります。&lt;/b&gt;
+        ボタンで作られた控えには、この仕組みを動かすファイルが入らないためです。
+      &lt;/p&gt;
+      &lt;pre&gt;1. &lt;span class=&quot;ok&quot;&gt;update-workflow.yml&lt;/span&gt; を開いて、中身を全部コピー
+2. Add file → Create new file
+3. 名前を &lt;span class=&quot;ok&quot;&gt;.github/workflows/take-updates.yml&lt;/span&gt; にする
+4. 貼って、Commit changes&lt;/pre&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:10px 0 0&quot;&gt;
+        2分で終わります。&lt;b style=&quot;color:var(--ink)&quot;&gt;やるのはこの1回だけです。&lt;/b&gt;
+        以降は更新があるとプルリクエストが立ちます。中身を読んで、納得したら統合してください。
+        設定ファイルは、そこには入りません。
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot; style=&quot;border-color: var(--accent)&quot;&gt;
+      &lt;p class=&quot;note&quot; style=&quot;margin:0&quot;&gt;
+        &lt;b class=&quot;ok&quot;&gt;明日の朝 06:30 に、最初の1日分が動きます。&lt;/b&gt;
+        最初の3日は1日1本です（&lt;code&gt;postsPerDay: 1&lt;/code&gt;）。&lt;br&gt;
+        止めたくなったら、承認画面のいちばん上にある「止める」を押してください。
+        理由を言葉にできる前でも構いません。あとから書けます。
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/main&gt;
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;span class=&quot;stepcount&quot;&gt;あと1つ&lt;/span&gt;
+    &lt;span class=&quot;spacer&quot;&gt;&lt;/span&gt;
+    &lt;button class=&quot;ghost&quot;&gt;設定を見る&lt;/button&gt;
+    &lt;button class=&quot;primary&quot;&gt;運用を始める&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;proposal-mark&quot;&gt;提案（未実装）&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1140px;top:2892px;width:760px"><figcaption>2 いまの状態（実装済 v0.5.0）</figcaption><iframe title="2 いまの状態（実装済 v0.5.0）" style="width:760px;height:1180px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --danger: #a13a2a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 760px; height: 1180px; display: flex; overflow: hidden; }
+    main { width: 640px; margin: 36px auto 0; }
+    h1 { font-size: 24px; margin: 0 0 8px; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+    section {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 18px 20px; margin-bottom: 18px;
+    }
+    h2 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
+    .h2sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+    .state { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .state:last-child { border-bottom: 0; }
+    .badge {
+      flex: none; width: 5.8em; text-align: center; border-radius: 999px;
+      font-size: 12px; font-weight: 700; padding: 3px 0; line-height: 1.6;
+      align-self: flex-start; margin-top: 1px;
+    }
+    .badge.done { background: #e8f2ec; color: var(--accent); border: 1px solid #cbe1d5; }
+    .badge.now { background: #fceeea; color: var(--danger); border: 1px solid #f2d3c9; }
+    .badge.later { background: #f2f2ef; color: var(--muted); border: 1px solid var(--line); }
+    .state .lbl { font-weight: 600; font-size: 14px; }
+    .state .sub { color: var(--muted); font-size: 14px; }
+    .state .sub b { color: var(--ink); font-weight: 600; }
+    code {
+      background: #f0f0ec; border-radius: 5px; padding: 1px 5px; font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .field { margin-bottom: 12px; }
+    .field .lab { display: block; font-size: 14px; font-weight: 600; }
+    .field .help { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .field .help b { color: var(--ink); font-weight: 600; }
+    .in {
+      border: 1px solid #d3d3cd; border-radius: 7px; background: var(--panel);
+      color: var(--muted); font-size: 13px; padding: 6px 10px;
+    }
+    .in.sel::after { content: &quot;▾&quot;; float: right; color: var(--muted); }
+    .submit {
+      font: inherit; font-size: 15px; font-weight: 600; padding: 9px 22px; margin-top: 4px;
+      background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    }
+    .addr { font-size: 14px; margin: 0 0 6px; }
+    .note { color: var(--muted); font-size: 13px; margin: 0; }
+    footer { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;main&gt;
+    &lt;h1&gt;あと1つ、決めるだけです&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;置き場所はできました。決まっていないのは「何を書くアカウントなのか」だけです。&lt;/p&gt;
+
+    &lt;section&gt;
+      &lt;h2&gt;いまの状態&lt;/h2&gt;
+      &lt;div class=&quot;h2sub&quot;&gt;&lt;/div&gt;
+      &lt;div class=&quot;state&quot;&gt;
+        &lt;span class=&quot;badge done&quot;&gt;済&lt;/span&gt;
+        &lt;div&gt;&lt;div class=&quot;lbl&quot;&gt;データの保管場所&lt;/div&gt;&lt;div class=&quot;sub&quot;&gt;つながっています&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;state&quot;&gt;
+        &lt;span class=&quot;badge done&quot;&gt;済&lt;/span&gt;
+        &lt;div&gt;&lt;div class=&quot;lbl&quot;&gt;承認画面の合言葉&lt;/div&gt;&lt;div class=&quot;sub&quot;&gt;設定されています&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;state&quot;&gt;
+        &lt;span class=&quot;badge later&quot;&gt;あとで&lt;/span&gt;
+        &lt;div&gt;&lt;div class=&quot;lbl&quot;&gt;AIモデルの鍵&lt;/div&gt;&lt;div class=&quot;sub&quot;&gt;いまは無くて構いません。練習用の文章で一巡できます。本物の文章にしたくなったら、&lt;b&gt;Cloudflare の Workers &amp;amp; Pages → この Worker → Settings → Variables and Secrets&lt;/b&gt; で &lt;code&gt;ANTHROPIC_API_KEY&lt;/code&gt; を足してください&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;state&quot;&gt;
+        &lt;span class=&quot;badge now&quot;&gt;これから&lt;/span&gt;
+        &lt;div&gt;&lt;div class=&quot;lbl&quot;&gt;設定&lt;/div&gt;&lt;div class=&quot;sub&quot;&gt;これから作ります。下のフォームに答えてください&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+
+    &lt;section&gt;
+      &lt;h2&gt;どんなアカウントですか&lt;/h2&gt;
+      &lt;p class=&quot;h2sub&quot;&gt;答えると、設定ファイルができあがります。あとから直せます。&lt;/p&gt;
+
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;会社の名前&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;承認画面のいちばん上に出ます&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;みどり商店&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;あなたのお名前&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;承認するたびに、この名前が記録に残ります。&lt;b&gt;あとから書き換えられません&lt;/b&gt;&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;みどり&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;アカウントの名前&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;複数運用したときに見分けるための呼び名です&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;コスメ&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;アカウントの id&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;半角英小文字・数字・ハイフン。&lt;b&gt;あとから変えられません&lt;/b&gt;&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;cosme&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;何について書きますか&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;狭いほどうまくいきます&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;敏感肌向けのスキンケア&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;誰に読ませますか&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;年齢・状況・困っていること&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;季節の変わり目に肌が荒れる30代。値段より成分を見る。&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;書き手はどんな人ですか&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;専門家より、当事者のほうが読まれます&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;元美容部員。自分の肌で失敗してきた当事者。&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;一人称&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;この言葉で全部の投稿が書かれます&lt;/span&gt;
+        &lt;div class=&quot;in&quot;&gt;わたし&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;読者がいる国&lt;/span&gt;
+        &lt;span class=&quot;help&quot;&gt;&lt;b&gt;広告のルールはここで決まります。&lt;/b&gt;販売元の国ではなく、読む人の国です。いまは jp だけ選べます — 同梱の案件がその市場向けだからです&lt;/span&gt;
+        &lt;div class=&quot;in sel&quot;&gt;jp&lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;button class=&quot;submit&quot;&gt;設定を作る&lt;/button&gt;
+    &lt;/section&gt;
+
+    &lt;section&gt;
+      &lt;h2&gt;ここが、あなたのアドレスです&lt;/h2&gt;
+      &lt;div class=&quot;h2sub&quot;&gt;&lt;/div&gt;
+      &lt;p class=&quot;addr&quot;&gt;https://amp-midori.midori.workers.dev&lt;/p&gt;
+      &lt;p class=&quot;note&quot;&gt;投稿に入るリンクもここを通ります。ドメインを用意する必要はありません。上のフォームで作った設定には、このアドレスがすでに入っています。書き換える必要はありません。&lt;/p&gt;
+    &lt;/section&gt;
+
+    &lt;footer&gt;この画面は、設定が入っていないときだけ出ます。入ったあとは承認画面になります。&lt;/footer&gt;
+  &lt;/main&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<aside class="note" id="note-thesis" style="left:120px;top:120px;width:900px"><p>設計の核: 鍵やトークンを1つも持たずに、製品が動くところまで行けること。外部サービスの手続きは、役に立つと分かってから。</p></aside>
+<aside class="note" id="note-old-flow" style="left:120px;top:1540px;width:900px"><p>以前の流れ（この設計の逆）: リポジトリの招待 → clone → 428行のYAML。開いた瞬間がいちばん脱落する場所だった。鍵が無いと doctor が最初に止めていた。</p></aside>
+<aside class="note" id="note-no-domain" style="left:120px;top:1660px;width:900px"><p>旧ステップ9（リンクのドメインを用意する、30分〜、脱落率が最も高い）は消えた。workers.dev のアドレスが無料で公開されるので、計測経路が初日に閉じる。Cloudflare 自身は workers.dev を事業の中核には勧めていないので、案内は「始めるには十分、育ったら独自ドメインへ」。</p></aside>
+<aside class="note" id="note-new-impl" style="left:120px;top:1820px;width:900px"><p>実装として要るもの: Deploy to Cloudflare ボタン（wrangler.jsonc / .env.example / package.json の説明文 / README 1行）、設定が無い状態で起動してこの画面を出せる Worker、設定の穴埋め生成器、参考投稿からの初期化。文体のプレビュー・鍵の検証・計測経路はすでにある。</p></aside>
+<aside class="note" id="note-free-band" style="left:1980px;top:190px;width:900px"><p>この3枚は、鍵もアカウントも要らない。測り方はひとつ: ステップ5に着いた人のうち何人が最後まで行くか。5に着いた人は製品を理解しているので、そこから落ちるなら原因は製品ではなく手順にある。</p></aside>
+<aside class="note" id="note-key-later" style="left:1140px;top:190px;width:760px"><p>AIモデルの鍵をこの画面で必須にしない。必須にすると「鍵なしで製品が動くところまで行ける」という設計の核が、最初の画面で壊れる。2026-09-08 まではここが半分嘘で、出荷している例の設定が llm.provider: anthropic だったため、鍵を入れるまで承認画面が開かなかった。実デプロイの1画面目で発覚。例を mock にして、いまは本当に鍵なしで一巡する。合言葉だけは必須 — 同じアドレスで承認画面が開くため。</p><p>そしてその合言葉を作るボタンは、Cloudflare の画面に無い。2026-09-11 の実デプロイで確認した — 欄と説明文は出るが、値は自分で入力する。ここは長く「右の『作る』で押せます」と書いていて、押すものが無いまま必須の欄の前に立たせていた。説明文は package.json の cloudflare.bindings にあり、この板と licensee-guide と3つで同じことを言う必要がある。</p></aside>
+<aside class="note" id="note-paste-why" style="left:1140px;top:2310px;width:760px"><p>承認画面は設定を保存しない。Workers のファイルシステムは読み取り専用だが、それ以前に設定はライセンシーのもので、変更の履歴は本人の控えに残るべき。探索担当の提案を採用したときも同じ経路。baseUrl は「足す」ではなく「書き換える」。元の設定に同じ名前があるので、足すと読めなくなる — コードレビューで見つかった。</p></aside>
+<aside class="note" id="note-swipe-why" style="left:2820px;top:1250px;width:760px"><p>参考投稿が無いと、初日は型ゼロ・実績ゼロで分析担当が走る。提案品質は初日が最も悪く、しかも初日こそ使えるかを判断する日。だから4は任意だが強く勧める。</p></aside>
+<aside class="note" id="note-hard-band" style="left:1980px;top:2310px;width:900px"><p>残る難所は8だけになった。ここで詰まる人が最も多いので、中断と再開が要件になる。手順4（長期トークンへの交換）のURLは押せるリンクにする。</p></aside>
+<aside class="note" id="note-console-exposure" style="left:3660px;top:2640px;width:760px"><p>承認画面がリンクのアドレスに露出する件は、実際のセキュリティレビューで見つかった。/go/ と承認画面は同じところが配る。「計測不能」という期間の記録は実装に無い — 記録されなかったクリックは単に無い。</p></aside>
+<aside class="note" id="note-updates-one-step" style="left:3660px;top:2780px;width:760px"><p>初日に手作業を1つ足す判断。足したくて足したのではなく、他の選択肢が構造的に閉じている — 判断の全文は docs/3-development/taking-updates.md。</p><p>ボタンが作るのは複製でフォークではないので Sync fork が無く、そして GitHub は App に .github/workflows/ を書かせないので、ワークフローは複製に入らない（実デプロイで Actions タブが空だったことで確認）。残る書き手は「本人がブラウザで」か「私たちが全ライセンシーのリポジトリに書き込み権限を持つ」かの2つで、後者はこの製品が売っている「自分で持って監査する」を裏返すので却下した。</p><p>ここに置いたのは、初日の最後だから。承認画面が「更新があります」と言えるのは実装済で、それは経路に依存しない。言われた人が動けないことだけが残るので、その1手順を、動ける場所に置く。</p></aside>
+<aside class="note" id="note-setup-badges" style="left:1140px;top:2700px;width:760px"><p><strong>ステップ2 — ボタンを押した人が最初に見る画面（v0.7.0 で実装済）。</strong>上の板は流れの設計で、これは実物の写し。</p><p><strong>バッジは3語しかない。</strong>`済` ・ `これから` ・ `あとで`。「あとで」が付くのは<strong>AIモデルの鍵だけ</strong>で、残りの3行は未達なら必ず赤い「これから」になる。3色に見えて、意味は「あなたがいま動くのはどれか」の1つだけを指している。</p><p><strong>鍵の行が「あとで」であることが、この製品の設計の核。</strong>鍵を必須にすると「鍵なしで製品が動くところまで行ける」が最初の画面で壊れる。だからここは注意色ではなく灰色で、しかも足し方（Cloudflare のどの画面か）をその場で書いてある。</p><p><strong>見出しは状態で変わる。</strong>設定が無ければ「あと1つ、決めるだけです」、入っていれば「もう少しで、承認画面になります」。<strong>残っている作業の数を見出しが言う</strong>ので、押すたびに減っていくのが読める。</p><p>設定を読み込めなかったときだけ、いちばん上に赤い節（`設定を読み込めませんでした`）が挟まる。</p></aside>
+</div></div>
+</body>
+</html>

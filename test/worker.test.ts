@@ -23,6 +23,7 @@ import { createWorkerRuntime } from "../src/worker/runtime.ts";
 import worker from "../src/worker/index.ts";
 import { createWorker, licenseeProblem } from "../src/worker/handler.ts";
 import { configSource } from "../src/worker/bundled.generated.ts";
+import { cycleIdFor } from "../src/kernel/orchestrator.ts";
 
 /** The handlers as a licensee's deploy has them: a config of their own. */
 async function configuredWorker() {
@@ -595,4 +596,56 @@ test("the screen that says what is broken has a way to ask again", () => {
 
   assert.match(page, /<a class="again" href="\/">/, "a way back to the same question");
   assert.match(page, /直したら/);
+});
+
+test("the hourly cron does not restart a day that has already given up", async () => {
+  // The band this project's elementary bugs live in, and the one the unit
+  // tests are structurally blind to: a fresh isolate, a config read off disk,
+  // D1 underneath, and the real `scheduled` handler dispatching on the cron
+  // string. The tick's memory of "already tried" was always empty here, which
+  // is why a dead day was re-run - and re-billed - every hour until midnight.
+  const db = fakeD1();
+  const env = { DB: db, ANTHROPIC_API_KEY: "sk-ant-not-a-real-key" };
+
+  // 09:00 in Asia/Tokyo, which is past the example account's 06:30 start, so
+  // nothing but the judgement can be what stops this.
+  const scheduledTime = Date.UTC(2026, 8, 19, 0, 0);
+  const seeded = await createWorkerRuntime({ env, configText: await exampleConfig(), prompts: {} });
+  assert.ok(seeded.ok, seeded.ok ? "" : seeded.error.message);
+  const store = await seeded.value.services.stores.for("ai-tools");
+  const cycleId = cycleIdFor("ai-tools", "2026-09-19");
+  await store.cycles.put({
+    id: cycleId,
+    ventureId: "ai-tools",
+    date: "2026-09-19",
+    createdAt: "2026-09-18T21:30:00Z",
+    updatedAt: "2026-09-18T21:35:00Z",
+    status: "failed",
+    nextStep: "plan",
+    completed: [],
+    artifacts: {},
+    attempts: 2,
+    failure: { step: "plan", message: "the output hit the cap", code: "llm.truncated", retryable: false },
+  } as never);
+  await seeded.value.close();
+
+  const worker = await configuredWorker();
+  await worker.scheduled({ cron: "0 * * * *", scheduledTime }, env);
+
+  const after = await createWorkerRuntime({ env, configText: await exampleConfig(), prompts: {} });
+  assert.ok(after.ok, after.ok ? "" : after.error.message);
+  const read = await (await after.value.services.stores.for("ai-tools")).cycles.get(cycleId);
+  assert.equal(read?.status, "failed", "the dead day was started again");
+  assert.equal(read?.updatedAt, "2026-09-18T21:35:00Z", "and something wrote to it");
+  assert.equal(read?.attempts, 2, "the attempt count moved, so a step ran");
+
+  // And it said so, once: a day that stops quietly is a company that stops
+  // quietly, and on this host there is no log anyone reads.
+  const events = await (await after.value.services.stores.for("ai-tools")).audit.recent(10, { cycleId });
+  assert.ok(
+    events.some((event) => event.type === "cycle.retry_abandoned"),
+    "giving up on the day was never recorded",
+  );
+  await after.value.close();
+  await db.close();
 });

@@ -30,6 +30,21 @@ import { createCompanyContext, type Services } from "./role.ts";
 /** The audit event that marks a completed run - including one with no proposals. */
 export const SCOUT_COMPLETED_EVENT = "role.scout.completed";
 
+/**
+ * The audit event that marks a run the scout could not finish.
+ *
+ * Durable on purpose. The scheduler's "do not ask again for ten minutes" used
+ * to live in the tick's in-memory state, which on a host is discarded between
+ * every cron fire - so a scout whose model call kept failing was asked again a
+ * minute later, and every minute after that. This is the mark that survives.
+ *
+ * It is a *different type* from the completed one, and the scheduler caps how
+ * many are written per day, because `lastScoutAt` reads a bounded window: a
+ * failure written every ten minutes would push the last completed run out of
+ * that window inside a day and leave the platform believing it had never run.
+ */
+export const SCOUT_FAILED_EVENT = "role.scout.failed";
+
 export type ScoutRunOptions = {
   readonly count?: number;
   /** The stop and deactivation switches, for the portfolio's state column. */
@@ -293,10 +308,10 @@ function oneLine(text: string): string {
  * in-tree YAML reader turns a bare `no` into false and `on` stays a string
  * only by luck, so a language code or a market id must never be emitted
  * bare. Only the escapes that reader understands are produced; control
- * characters a model might emit become spaces rather than ``, which the
+ * characters a model might emit become spaces rather than `\f`, which the
  * reader would refuse and the paste would fail to load.
  */
 export function yamlString(value: string): string {
-  const cleaned = value.replace(/[\r\n\t]/g, " ").replace(/[ -]/g, "");
+  const cleaned = value.replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "");
   return `"${cleaned.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }

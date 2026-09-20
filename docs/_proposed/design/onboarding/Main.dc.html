@@ -52,6 +52,15 @@
     .gate b { color: var(--accent); }
     .foot { margin-top: 22px; font-size: 13px; color: var(--muted); line-height: 1.7; }
     .foot b { color: var(--ink); }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
   </style>
 </helmet>
 
@@ -139,6 +148,7 @@
     途中でやめても、ここまでの入力は無駄になりません。
   </div>
 </div>
+<div class="proposal-mark">提案（未実装）</div>
 </x-dc>
 
 <script data-dc-script data-props='{"$preview":{"width":900,"height":1180}}'>

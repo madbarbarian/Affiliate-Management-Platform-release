@@ -53,6 +53,14 @@ company:
       afterPosts: 20
       belowShareOfMedian: 0.5
 
+  # 失敗した日を、その日のうちに何回まで動かし直すか（最初の1回を含む）。
+  # 1増やすごとに、失敗した日にかかる費用がおおよそ1サイクル分増えます。
+  # やり直しは失敗した手順を丸ごともう一度やるので、執筆なら承認した案の数
+  # だけ、検品なら下書きの数だけモデルを呼びます。1〜5。
+  # Cloudflare で動かしている場合、ここを変えても配置し直すまで反映されません。
+  retry:
+    maxCycleAttempts: 2
+
   # How much rope the machine gets.
   #   manual   — both gates wait for you, with nothing pre-selected.
   #   assisted — both gates wait for you, pre-filled with the platform's

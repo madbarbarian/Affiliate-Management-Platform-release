@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: center; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px;
+    }
+    .card.handover { border-color: var(--accent); }
+    .card.handover h3 { font-size: 15px; margin: 0 0 6px; font-weight: 650; }
+    .muted { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+    .part { margin: 0 0 12px; }
+    .part .lab { color: var(--muted); font-size: 11px; display: block; margin-bottom: 4px; }
+    pre.post {
+      margin: 0 0 6px; background: var(--chip); border-radius: 8px; padding: 10px 12px;
+      font: 13px/1.75 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .copy {
+      font: inherit; font-size: 12px; padding: 4px 10px; background: var(--panel);
+      color: var(--ink); border: 1px solid var(--line-strong, #d3d3cd); border-radius: 999px;
+    }
+    .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+    .primary {
+      font: inherit; font-size: 14px; font-weight: 600; padding: 9px 18px;
+      background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
+    }
+    .open {
+      font-size: 13px; color: var(--ink); text-decoration: none;
+      border: 1px solid #d3d3cd; border-radius: 8px; padding: 8px 14px;
+    }
+    .after { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
+      border-bottom: 1px solid var(--line); padding: 6px 8px 6px 0;
+    }
+    td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); }
+    tr:last-child td { border-bottom: 0; }
+    .sep { height: 22px; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <h1>朝のツール部屋</h1>
+    <nav><a class="here">今日</a><a>設定</a></nav>
+    <span class="who">みどり</span>
+    <button class="theme">配色：自動</button>
+  </header>
+
+  <div class="scroll">
+    <h2>予約中の投稿</h2>
+
+    <div class="card handover">
+      <h3>あなたが投稿する番です — 朝のツール部屋</h3>
+      <p class="muted">この投稿は、あなたのアカウントから手で出してください。文面をコピーして、アプリを開いて、貼って投稿します。</p>
+      <p class="muted">予定していた時刻：2026-09-19 06:30 ・ threads</p>
+
+      <div class="part">
+        <span class="lab">本文 1/2</span>
+        <pre class="post">朝、湯を沸かす2分で決まることがある。
+手回しミルを1年使ってみて、粗さより「挽く時間」のほうが味を動かしていた。
+30秒で止めた日と、90秒かけた日の差が、いちばん分かりやすい。</pre>
+        <button class="copy">コピー</button>
+      </div>
+
+      <div class="part">
+        <span class="lab">本文 2/2</span>
+        <pre class="post">使っているのはこれ。#PR 広告を含みます
+https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f21</pre>
+        <button class="copy">コピー</button>
+      </div>
+
+      <p class="muted">アフィリエイトリンクはこのコメントに入っています。投稿したあと、最初の返信として貼ってください。</p>
+
+      <div class="part">
+        <span class="lab">最初のコメント（affiliate）</span>
+        <pre class="post">挽き目の話はここに書きました。#PR 広告を含みます
+https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22</pre>
+        <button class="copy">コピー</button>
+      </div>
+
+      <div class="row">
+        <button class="primary">投稿しました</button>
+        <a class="open">アプリを開く</a>
+      </div>
+
+      <p class="after">このチャンネルでは、いいね・返信は取得できません。クリックと報酬はこれまでどおり記録されます。</p>
+    </div>
+
+    <div class="sep"></div>
+
+    <table>
+      <tr><th>時刻</th><th>投稿</th><th>状態</th></tr>
+      <tr><td>12:10</td><td>保温マグ、3年目の話</td><td>予約中</td></tr>
+      <tr><td>19:40</td><td>ケトルを買い替えなかった理由</td><td>予約中</td></tr>
+    </table>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

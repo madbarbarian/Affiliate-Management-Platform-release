@@ -47,6 +47,23 @@ const STEP_ORDER: readonly CycleStep[] = [
   "dispatch",
 ];
 
+/**
+ * A gate the operator ended rather than answered. Its own event type, and its
+ * own reason word, because every screen that says what happened reads these
+ * two rather than guessing from a decision that is merely no longer pending.
+ */
+export const DECISION_CLOSED_EVENT = "decision.closed";
+export const VENTURE_DEACTIVATED_REASON = "venture_deactivated";
+
+/**
+ * The failure code a day closed by deactivation carries.
+ *
+ * The same code `guardWithStop` refuses a run with, on purpose: the operator
+ * already has words for it on every screen, and a second code for the same
+ * fact is a second place to keep them in step.
+ */
+const VENTURE_DEACTIVATED_CODE = "venture.deactivated";
+
 type StepOutcome =
   | { kind: "advance"; note: string; artifacts: Partial<CycleArtifacts> }
   | { kind: "await"; decisionId: string; note: string; artifacts: Partial<CycleArtifacts> }
@@ -89,6 +106,19 @@ export type DispatchOptions = {
   readonly skipVentures?: readonly VentureId[];
 };
 
+/**
+ * The id of one account's day. Derived rather than generated, so asking twice
+ * resumes rather than opening a second company day.
+ *
+ * Exported because three callers need the same answer - the orchestrator that
+ * creates it, the scheduler that reads yesterday's before deciding whether to
+ * try again, and the test fixtures that write one by hand. Two copies of a
+ * string that must match is how they come to differ.
+ */
+export function cycleIdFor(ventureId: VentureId, date: string): string {
+  return `cyc_${ventureId}_${date}`;
+}
+
 export type Orchestrator = {
   /** Starts today's cycle, or resumes it, running until a gate or the end. */
   runCycle(ventureId: VentureId, options?: RunCycleOptions): Promise<Result<Cycle, PlatformError>>;
@@ -116,6 +146,20 @@ export type Orchestrator = {
    * are kept; only the invitation to act on them is withdrawn.
    */
   expireStaleGates(): Promise<Result<{ readonly expired: readonly DecisionId[] }, PlatformError>>;
+  /**
+   * Closes every gate an account still has open, because the operator switched
+   * the account off.
+   *
+   * Deliberately *not* the same thing as `expireStaleGates`. That one cancels
+   * the cycle as well, and a cancelled cycle is one `advance` returns from
+   * before it does anything - so a day closed that way cannot be started again
+   * even by hand. Switching an account off is reversible by design; the day it
+   * happened on has to stay reachable from the console's 今日のサイクルを動かす.
+   */
+  closeOpenGates(
+    ventureId: VentureId,
+    request: { readonly reason: string; readonly by: string },
+  ): Promise<Result<{ readonly closed: readonly DecisionId[] }, PlatformError>>;
 };
 
 export function createOrchestrator(services: Services): Orchestrator {
@@ -157,7 +201,7 @@ export function createOrchestrator(services: Services): Orchestrator {
 
   async function loadOrCreateCycle(venture: Venture, date: string): Promise<Cycle> {
     const store = await stores.for(venture.id);
-    const id = `cyc_${venture.id}_${date}`;
+    const id = cycleIdFor(venture.id, date);
     const existing = await store.cycles.get(id);
     if (existing) return existing;
     const nowIso = clock.nowIso();
@@ -171,6 +215,11 @@ export function createOrchestrator(services: Services): Orchestrator {
       nextStep: "analyze",
       completed: [],
       artifacts: {},
+      // Written before the first step runs, not after it: the scheduler reads
+      // this to decide whether the day has had its tries, and a crash between
+      // "started" and "recorded that it started" would otherwise hand it a day
+      // that looks untouched every hour forever.
+      attempts: 1,
     };
     await store.cycles.put(created);
     return created;
@@ -225,7 +274,18 @@ export function createOrchestrator(services: Services): Orchestrator {
       // is stored, so a day that recovered on the next hourly retry went on
       // saying 実行できませんでした next to its own approval gate. The record of
       // the failure lives in the audit log now, which is where history belongs.
-      cycle = { ...cycle, status: "running", failure: undefined };
+      //
+      // `attempts` is deliberately NOT counted here. Deciding to spend money on
+      // a day is the scheduler's decision, and this is only the resumption that
+      // follows one - `advance` is also where a gate carries on and where a
+      // person's press lands, neither of which is a new try. Counted here, the
+      // gap was the shape of the record rather than the shape of the decision:
+      // a day left `running` by a dead isolate never passes through this branch
+      // at all, so the limit could not see it and it resumed every hour
+      // forever. `src/scheduler/tick.ts` counts instead, once, for every state
+      // it restarts.
+      cycle = { ...cycle, status: "running", failure: undefined, updatedAt: clock.nowIso() };
+      await store.cycles.put(cycle);
     }
 
     while (cycle.nextStep) {
@@ -242,7 +302,18 @@ export function createOrchestrator(services: Services): Orchestrator {
       } catch (cause) {
         // A role throwing is a bug, not a business outcome - but it must not
         // take the process down or lose the day's completed work.
-        outcome = fail("internal", "cycle.step_threw", `Step "${step}" threw: ${errorText(cause)}`, { cause });
+        //
+        // Marked retryable, against `fail()`'s default, because on a host this
+        // is not mostly bugs. A D1 connection dropped mid-query, `fetch`
+        // raising a TypeError, a prompt file that did not load - they all
+        // arrive here, and they all clear by themselves. Left at the default
+        // the scheduler would read "do not try again today" and the most
+        // common recoverable failure on Cloudflare would stop recovering. The
+        // attempt limit is what bounds a genuine bug's cost, not this flag.
+        outcome = fail("internal", "cycle.step_threw", `Step "${step}" threw: ${errorText(cause)}`, {
+          cause,
+          retryable: true,
+        });
       }
 
       if (!outcome.ok) {
@@ -250,7 +321,16 @@ export function createOrchestrator(services: Services): Orchestrator {
           ...cycle,
           status: "failed",
           updatedAt: clock.nowIso(),
-          failure: { step, message: outcome.error.message, code: outcome.error.code },
+          // `retryable` travels with the failure because the scheduler's next
+          // decision is made from the stored cycle and nothing else: on a host
+          // with no process, the error object this came from is gone by the
+          // time anyone asks whether to try again.
+          failure: {
+            step,
+            message: outcome.error.message,
+            code: outcome.error.code,
+            retryable: outcome.error.retryable,
+          },
         };
         await store.cycles.put(cycle);
         logger.error(`step ${step} failed`, { error: describeError(outcome.error) });
@@ -1185,6 +1265,59 @@ export function createOrchestrator(services: Services): Orchestrator {
         }
       }
       return ok({ expired });
+    },
+
+    async closeOpenGates(ventureId, request) {
+      const store = await stores.for(ventureId);
+      const closed: DecisionId[] = [];
+
+      for (const decision of await store.decisions.find((entry) => entry.status === "pending")) {
+        await store.decisions.put({ ...decision, status: "expired" });
+        const cycle = await store.cycles.get(decision.cycleId);
+        if (cycle) {
+          // `failed`, never `cancelled`: see `closeOpenGates` on the port. The
+          // day stops by itself - `judgeCycleStart` skips a failure marked
+          // `retryable: false` - and stays startable by hand, which is the only
+          // way left to run the day an account was switched off and back on in.
+          const { pendingDecisionId: _dropped, ...rest } = cycle;
+          await store.cycles.put({
+            ...rest,
+            status: "failed",
+            updatedAt: clock.nowIso(),
+            failure: {
+              step: cycle.nextStep ?? decision.gate,
+              code: VENTURE_DEACTIVATED_CODE,
+              message:
+                `The account was switched off by ${request.by}, so the gate for ${cycle.date} was closed ` +
+                `unanswered. Switching it back on does not reopen it; run the day from the console to open a new one.`,
+              retryable: false,
+            },
+          });
+        }
+
+        // Its own type, not `decision.expired`. The two read the same on a
+        // screen and mean opposite things: one is a day nobody answered, the
+        // other is a day the operator ended on purpose, and telling an operator
+        // they missed a gate they closed themselves is how a record stops being
+        // believed.
+        await recordEvent({
+          id: services.ids.next("evt"),
+          at: clock.nowIso(),
+          ventureId: decision.ventureId,
+          cycleId: decision.cycleId,
+          type: DECISION_CLOSED_EVENT,
+          actor: request.by,
+          summary: `The gate for ${cycle?.date ?? "an unknown day"} was closed: ${request.reason}`,
+          data: {
+            decisionId: decision.id,
+            gate: decision.gate,
+            day: cycle?.date ?? "",
+            reason: request.reason,
+          },
+        });
+        closed.push(decision.id);
+      }
+      return ok({ closed });
     },
 
     async pendingDecisions(ventureId) {

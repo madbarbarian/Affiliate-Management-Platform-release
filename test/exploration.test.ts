@@ -367,3 +367,40 @@ test("a day that failed carries its reason, not only the step it stopped at", as
   assert.match(row.lastCycle?.failure ?? "", /credit balance is too low/);
   assert.match(renderPortfolio(portfolio), /credit balance is too low/, "and the terminal view says it too");
 });
+
+test("an account that is switched off is not reported as having a decision waiting", async () => {
+  // `isVentureActive` is this codebase's one definition of "is this account
+  // running", and this row was the only reader that did not consult it. Two
+  // readers depend on the answer: the CLI's table, which is what an operator on
+  // a machine sees, and the scout, which is shown these aggregates as evidence
+  // for what the company should try next - and was being told an account that
+  // does nothing is busy with a decision.
+  const dir = await mkdtemp(join(tmpdir(), "amp-portfolio-"));
+  try {
+    const company = createTestCompany();
+    unwrap(await company.orchestrator.runCycle("main"));
+    const state = fileState(dir);
+
+    const on = await buildPortfolio({
+      config: company.config,
+      stores: company.stores,
+      nowMs: company.clock.now(),
+      days: 30,
+      state,
+    });
+    assert.equal(on.rows[0]?.pendingDecisions, 1, "a running account with a gate open");
+
+    await deactivateVenture(state, "main", { at: "2026-04-02T00:00:00Z", by: "tester", reason: "no clicks" });
+    const off = await buildPortfolio({
+      config: company.config,
+      stores: company.stores,
+      nowMs: company.clock.now(),
+      days: 30,
+      state,
+    });
+    assert.equal(off.rows[0]?.active, false);
+    assert.equal(off.rows[0]?.pendingDecisions, 0, "an account that is off cannot be waiting on anybody");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

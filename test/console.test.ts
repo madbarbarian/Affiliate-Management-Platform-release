@@ -21,9 +21,11 @@ import { createMockProvider, type MockProvider } from "../src/llm/mock.ts";
 import { createDemoHandlers } from "../src/llm/demo.ts";
 import type { Lock } from "../src/storage/lock.ts";
 import { CYCLES_LOCK } from "../src/scheduler/tick.ts";
+import { cycleIdFor } from "../src/kernel/orchestrator.ts";
+import { localDate } from "../src/core/clock.ts";
 import { CYCLE_FAILURE_CODES, CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES } from "../src/console/labels.ts";
 import { renderPage } from "../src/console/ui.ts";
-import { LOCALES, MESSAGES } from "../src/console/messages.ts";
+import { LOCALES, MESSAGES, type Locale } from "../src/console/messages.ts";
 import { readFileSync } from "node:fs";
 import { repoRoot } from "../src/config/load.ts";
 import { CYCLE_STEPS } from "../src/core/types.ts";
@@ -32,7 +34,11 @@ import { runScout } from "../src/kernel/exploration.ts";
 import type { Runtime } from "../src/runtime.ts";
 import type { ReleaseStamp } from "../src/core/release.ts";
 import { fileState } from "../src/kernel/state.ts";
+import { deactivateVenture } from "../src/kernel/venture-state.ts";
 import { openPage } from "./page-harness.ts";
+// Shared with test/canvas.test.ts: the design canvases ship to licensees too,
+// and two copies of this pattern would let one of them drift.
+import { TERMINAL_COMMAND } from "./terminal-command.ts";
 import { renderUnlock, UNLOCK_MISMATCH } from "../src/console/unlock.ts";
 import { waitEndedBecause, waitingIsOver, WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
 import {
@@ -48,7 +54,9 @@ import {
  */
 async function withConsole(
   env: Record<string, string | undefined>,
-  body: (base: string, handle: ConsoleHandle, company: TestCompany) => Promise<void>,
+  // `runtime` is here for the tests that have to reach past the HTTP surface -
+  // the state file the CLI writes, which the console re-reads every request.
+  body: (base: string, handle: ConsoleHandle, company: TestCompany, runtime: Runtime) => Promise<void>,
   options: {
     llm?: MockProvider;
     lock?: Lock;
@@ -100,7 +108,7 @@ async function withConsole(
   assert.ok(started.ok, started.ok ? "" : started.error.message);
   const port = (started.value.server.address() as { port: number }).port;
   try {
-    await body(`http://127.0.0.1:${port}`, started.value, company);
+    await body(`http://127.0.0.1:${port}`, started.value, company, runtime);
   } finally {
     await started.value.close();
     for (const [key, value] of previous) {
@@ -820,6 +828,71 @@ test("the screen's language is never the disclosure's language", () => {
   assert.match(renderPage({ companyName: "x" }), /setup\.market\.disclosureText/);
 });
 
+test("no message on the screen can only be carried out from a terminal", () => {
+  // Every offender is collected before failing: the first one found was
+  // `scout.empty`, and stopping there hid the three behind it.
+  const offenders: string[] = [];
+  for (const locale of LOCALES) {
+    for (const [key, value] of Object.entries(MESSAGES[locale])) {
+      if (TERMINAL_COMMAND.test(value)) offenders.push(`${locale}.${key}: ${value}`);
+    }
+  }
+  if (offenders.length > 0) {
+    assert.fail(
+      "the console hands the licensee a command they have no way to run:\n  " +
+        offenders.join("\n  ") +
+        "\nSay what this screen does, or name the setting in the config file.",
+    );
+  }
+});
+
+test("nor does the page's own source splice one in", () => {
+  // The message table is not the only place copy is written. `ui.ts` builds
+  // strings inline and carries comments about them, and a scan of the table
+  // alone walks past both.
+  //
+  // Deliberately not widened to `src/**`: `src/worker/bundled.generated.ts`
+  // holds a whole config file as one string, commands and all.
+  const source = readFileSync(join(repoRoot(), "src", "console", "ui.ts"), "utf8");
+
+  // One exception, and only one. The console has no resume - the router has no
+  // pause/resume route at all - so the stop card has nothing to offer but the
+  // command. Fixing that is a route, not a sentence. The assertion below is
+  // what stops this excuse from outliving the command it excuses.
+  const NO_RESUME_IN_THE_CONSOLE = /"amp resume"/;
+  assert.match(
+    source,
+    NO_RESUME_IN_THE_CONSOLE,
+    "the stop card no longer hands over a command - delete this exception with it",
+  );
+
+  for (const [index, line] of source.split("\n").entries()) {
+    if (!TERMINAL_COMMAND.test(line) || NO_RESUME_IN_THE_CONSOLE.test(line)) continue;
+    assert.fail(`src/console/ui.ts:${index + 1} puts a terminal command on the screen: ${line.trim()}`);
+  }
+});
+
+test("the proposals heading does not promise a rhythm the default never keeps", () => {
+  // `company.exploration.enabled` ships false (`src/config/schema.ts`), and the
+  // only thing that ever runs the scout is the daemon's `exploreIfDue`
+  // (`src/scheduler/tick.ts`), which returns early when it is off. A heading
+  // reading "the weekly decision" therefore promises a cadence that, out of the
+  // box, never happens once. No regex can see that in the sentence - this is
+  // the named case that holds it.
+  const cadenceWord: Record<Locale, RegExp> = {
+    ja: /毎|週|隔|[0-9０-９]\s*日/,
+    en: /\b(?:weekly|daily|monthly|every|each)\b/i,
+  };
+  for (const locale of LOCALES) {
+    assert.doesNotMatch(
+      MESSAGES[locale]["scout.heading"],
+      cadenceWord[locale],
+      `${locale}.scout.heading claims a cadence: "${MESSAGES[locale]["scout.heading"]}". ` +
+        "Exploration is off by default, so the heading names the thing, not when it happens.",
+    );
+  }
+});
+
 test("the accounts list compares, and the only control it keeps is 開く", () => {
   // Deactivate, reactivate and run moved to the account screen. A row that is
   // also a control panel stops reading as a comparison - which is how a whole
@@ -1369,6 +1442,121 @@ test("the cap on a gate is a thing you cannot exceed, not a thing you are told a
   });
 });
 
+/**
+ * The gate as the page reads it: which ideas are there, and what opens.
+ *
+ * Taken from /api/state rather than from the store, because the `<details>` is
+ * drawn from this payload and keyed off these two ids - a test built on the
+ * store's own shape could agree with itself while the page keyed off something
+ * else entirely.
+ */
+async function openGate(base: string, token: string) {
+  const state = (await (await fetch(`${base}/api/state`, {
+    headers: { authorization: `Bearer ${token}` },
+  })).json()) as { pending: { id: string; items: { id: string; preview?: string }[] }[] };
+  const gate = state.pending[0];
+  assert.ok(gate, "this test needs a gate standing open");
+  const withReasons = gate.items.filter((item) => (item.preview ?? "") !== "");
+  assert.ok(withReasons.length >= 2, "and at least two ideas that have 開く to open");
+  return { id: gate.id, items: withReasons };
+}
+
+test("the reasons an operator opened survive the page redrawing itself", async () => {
+  // Reported from the running operation: "ねらいと根拠とかを開いていると、定期的に
+  // 画面がリフレッシュされるのか、開いた部分が閉じたりしている". render() replaces
+  // the whole list through innerHTML, so the <details> went with it.
+  await withConsole({ AMP_TEST_TOKEN: "tok-details" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await openGate(base, handle.token);
+    const panel = { decision: gate.id, item: gate.items[0]!.id };
+
+    assert.equal(page.detailsOpen("decision-list", panel), false, "it starts closed");
+    await page.toggleDetails("decision-list", panel, true);
+    // Any redraw will do - this is the one the 30-second poll ends in too.
+    await page.press({ act: "none", decision: gate.id });
+    assert.equal(page.detailsOpen("decision-list", panel), true, "and is still open afterwards");
+
+    // The other half of it: putting the panel back must not mean always
+    // opening it, or nothing could ever be closed again.
+    await page.toggleDetails("decision-list", panel, false);
+    await page.press({ act: "none", decision: gate.id });
+    assert.equal(page.detailsOpen("decision-list", panel), false, "closed stays closed");
+  });
+});
+
+test("ticking a box does not shut the reasons the operator is ticking it from", async () => {
+  // The 30 seconds were never the whole story: toggle, 推奨を選ぶ, すべて外す and
+  // the arrows all re-render, so reading a rationale and acting on it closed it
+  // under the operator's hand, immediately.
+  await withConsole({ AMP_TEST_TOKEN: "tok-details-tick" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await openGate(base, handle.token);
+    const panel = { decision: gate.id, item: gate.items[0]!.id };
+
+    await page.toggleDetails("decision-list", panel, true);
+    await page.press({ act: "toggle", decision: gate.id, item: gate.items[0]!.id });
+    assert.equal(page.detailsOpen("decision-list", panel), true);
+  });
+});
+
+test("two rationales can be read side by side", async () => {
+  // A single remembered id would close the first one the moment the second
+  // opened, which is the comparison the operator is here to make.
+  await withConsole({ AMP_TEST_TOKEN: "tok-details-two" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await openGate(base, handle.token);
+    const first = { decision: gate.id, item: gate.items[0]!.id };
+    const second = { decision: gate.id, item: gate.items[1]!.id };
+
+    await page.toggleDetails("decision-list", first, true);
+    await page.toggleDetails("decision-list", second, true);
+    await page.press({ act: "none", decision: gate.id });
+
+    assert.equal(page.detailsOpen("decision-list", first), true);
+    assert.equal(page.detailsOpen("decision-list", second), true);
+  });
+});
+
+test("reordering the ideas carries the open rationale with the idea, not the slot", async () => {
+  // The operator can move an idea up the list. Remembering "the second one is
+  // open" would leave the panel behind on whatever moved into second place -
+  // and they would be reading the wrong idea's reasons without being told.
+  await withConsole({ AMP_TEST_TOKEN: "tok-details-order" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await openGate(base, handle.token);
+    // As drawn, so "the one above it" is the one the operator sees above it.
+    const drawnOrder = (): string[] => {
+      const seen: string[] = [];
+      for (const match of page.html("decision-list").matchAll(/data-item="([^"]*)"/g)) {
+        if (!seen.includes(match[1]!)) seen.push(match[1]!);
+      }
+      return seen;
+    };
+    const before = drawnOrder();
+    const lift = gate.items[gate.items.length - 1]!.id;
+    const above = before[before.indexOf(lift) - 1];
+    assert.ok(above, "the idea being lifted has to have one above it to swap with");
+
+    await page.toggleDetails("decision-list", { decision: gate.id, item: lift }, true);
+    await page.press({ act: "up", decision: gate.id, item: lift });
+
+    const after = drawnOrder();
+    assert.ok(after.indexOf(lift) < after.indexOf(above), "the idea actually moved, or this proves nothing");
+    assert.equal(
+      page.detailsOpen("decision-list", { decision: gate.id, item: lift }), true,
+      "the idea kept its panel",
+    );
+    assert.equal(
+      page.detailsOpen("decision-list", { decision: gate.id, item: above }), false,
+      "and the slot it left did not gain one",
+    );
+  });
+});
+
 test("a day can be read back from the console, and only that account's", async () => {
   await withConsole({ AMP_TEST_TOKEN: "tok-timeline" }, async (base, _handle, company) => {
     const auth = { cookie: "amp_console=tok-timeline" };
@@ -1900,11 +2088,251 @@ test("stopping an account stops it asking to be approved", async () => {
     });
     assert.equal(stopped.status, 200);
 
-    assert.equal(await asking(), 0, "a stopped account does not");
+    assert.equal(await asking(), 0, "a switched-off account does not");
 
-    // And the record is untouched: the decision is still pending, to be closed
-    // by the day-turn lapse like any gate nobody answered.
-    const pending = await company.orchestrator.pendingDecisions();
-    assert.equal(pending.length, 1, "stopping is not answering, and the trail says so");
+    // And the record is closed rather than left pending. Leaving it was the
+    // half-measure: the page stopped offering the gate and the decision went on
+    // saying somebody owed it an answer, which is a row nobody could ever
+    // reconcile. It closes with a reason, and `decision.closed` is its own
+    // event - a day the operator ended is not a day they missed.
+    assert.equal((await company.orchestrator.pendingDecisions()).length, 0, "the gate is still asking");
+    const closed = (await company.store.audit.recent(20)).filter((event) => event.type === "decision.closed");
+    assert.equal(closed.length, 1, "a gate that vanished without a record is a gate that vanished");
+    assert.equal(closed[0]?.data["reason"], "venture_deactivated");
+  });
+});
+
+test("the button a person presses is not the scheduler, and does not take its advice", async () => {
+  // `judgeCycleStart` exists to stop the *hourly cron* paying for a day that
+  // cannot succeed. A person pressing 今日のサイクルを動かす has decided
+  // something the scheduler cannot know - they fixed the key, the outage is
+  // over - and this route deliberately does not go through the judgement.
+  // Routing it through would leave a licensee, who has no terminal, with a day
+  // nothing on earth could restart.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const date = localDate(company.clock.now(), "Asia/Tokyo");
+    await company.store.cycles.put({
+      id: cycleIdFor("main", date),
+      ventureId: "main",
+      date,
+      createdAt: "2026-04-01T21:00:00Z",
+      updatedAt: "2026-04-01T21:00:00Z",
+      status: "failed",
+      nextStep: "analyze",
+      completed: [],
+      artifacts: {},
+      // Both of the scheduler's reasons to refuse, at once.
+      attempts: 99,
+      failure: { step: "analyze", message: "the output hit the cap", code: "llm.truncated", retryable: false },
+    } as never);
+
+    const response = await fetch(`${base}/api/ventures/main/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${handle.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    const text = await response.text();
+    assert.equal(response.status, 200, text);
+    assert.equal((JSON.parse(text) as { status: string }).status, "awaiting_approval", "the press did nothing");
+    // And it did not spend one of the scheduler's tries. Those count what the
+    // machine decided to pay for; a person deciding to is not the same budget.
+    assert.equal((await company.store.cycles.all())[0]?.attempts, 99, "a press was counted as a retry");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The gate, on the account's own screen
+// ---------------------------------------------------------------------------
+
+/** Deactivates an account through the real route, the way the page does. */
+async function switchOff(base: string, token: string, ventureId: string, note = "今日はここまで"): Promise<Response> {
+  return fetch(`${base}/api/ventures/${ventureId}/deactivate`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+}
+
+async function switchOn(base: string, token: string, ventureId: string): Promise<Response> {
+  return fetch(`${base}/api/ventures/${ventureId}/activate`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: "{}",
+  });
+}
+
+test("the account's own screen shows the gate that is waiting on it", async () => {
+  // The operator clicks into an account *because* something needs doing there,
+  // and the one thing that needed doing was on the other screen. Read off the
+  // page the browser actually runs, because "the payload contains it" and "the
+  // operator can act on it" have been different things in this project before.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const decision = (await company.orchestrator.pendingDecisions())[0]!;
+
+    const page = await openPage({
+      base,
+      token: handle.token,
+      hash: "#/ventures/main",
+      until: "venture-cycle",
+    });
+    const block = page.html("venture-decisions");
+    assert.ok(block.includes(decision.id), "the gate is not on the account's screen");
+    assert.match(block, /data-act="submit"/, "there is nothing to press");
+    assert.ok(
+      block.includes(decision.items[0]!.title.replace(/&/g, "&amp;")),
+      "the ideas being approved are not on the screen",
+    );
+  });
+});
+
+test("and the day's list is empty there, so no gate is drawn twice", async () => {
+  // Both would render `id="err-<decisionId>"` twice. `#decision-list` comes
+  // first in the document, so `getElementById` would hand a refused approval
+  // the copy inside the hidden view - the error would be written somewhere
+  // nobody can see, on the one press where an error matters.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({
+      base,
+      token: handle.token,
+      hash: "#/ventures/main",
+      until: "venture-cycle",
+    });
+    assert.equal(page.html("decision-list"), "", "the day's list still drew the same gate");
+  });
+});
+
+test("approving from the account's screen actually approves", async () => {
+  // Two names, because they measure two different things and only the second
+  // one is proof. `page.press` ignores `disabled`, and the harness's
+  // querySelectorAll answers with an empty list, so a press on its own would
+  // pass against a screen with no working controls at all.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const decision = (await company.orchestrator.pendingDecisions())[0]!;
+
+    const page = await openPage({
+      base,
+      token: handle.token,
+      hash: "#/ventures/main",
+      until: "venture-cycle",
+    });
+    // (a) the control exists, and belongs to this gate
+    const block = page.html("venture-decisions");
+    assert.match(block, new RegExp(`data-act="submit" data-decision="${decision.id}"`));
+
+    // (b) and pressing it reaches the store
+    await page.press({ act: "submit", decision: decision.id });
+    const after = await company.store.decisions.get(decision.id);
+    assert.equal(after?.status, "approved", "the press did not reach the decision");
+  });
+});
+
+test("the badge and the block agree, even on an account that is switched off", async () => {
+  // 判断待ち1件 above a screen with nothing on it. The count came from the
+  // portfolio row, which counted every pending decision; the block comes from
+  // the day's list, which drops accounts that are off. One number, one source.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { portfolio: { rows: { ventureId: string; pendingDecisions: number }[] } };
+    assert.equal(state.portfolio.rows[0]?.pendingDecisions, 1, "a running account with a gate waiting");
+
+    // Switched off the way `amp venture deactivate` does it: straight into the
+    // state file, which the console re-reads on every request. That path does
+    // not close the gate, so the decision stays `pending` - which is exactly
+    // the case where the two counts used to disagree.
+    await deactivateVenture(runtime.state, "main", { at: company.clock.nowIso(), by: "tester", reason: "no clicks" });
+    // Deliberately without `forgetPortfolio`: the accounts table is memoised
+    // for thirty seconds and the switch was not thrown through the route that
+    // clears it, so the row is a stale answer to the same question the gate
+    // list answers freshly. Counting the badge off the gate list is what makes
+    // the two agree no matter which of them is older.
+
+    const off = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { pending: unknown[]; portfolio: { rows: { pendingDecisions: number }[] } };
+    assert.equal(off.pending.length, 0);
+    assert.equal(off.portfolio.rows[0]?.pendingDecisions, 0, "the table still says something is waiting");
+
+    const page = await openPage({
+      base,
+      token: handle.token,
+      hash: "#/ventures/main",
+      until: "venture-cycle",
+    });
+    assert.doesNotMatch(page.html("venture-head"), /判断待ち/, "a badge over an empty screen");
+    assert.doesNotMatch(page.html("venture-decisions"), /data-act="submit"/);
+  });
+});
+
+test("switching an account off closes its gate, with a reason and without cancelling the day", async () => {
+  // `expireStaleGates` cancels the cycle as well, and `advance` returns from a
+  // cancelled cycle before it does anything - so closing this one the same way
+  // would make the day unreachable even by hand. It is marked failed instead:
+  // the scheduler leaves a `retryable: false` day alone, and the console's
+  // 今日のサイクルを動かす still reaches it.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const decision = (await company.orchestrator.pendingDecisions())[0]!;
+
+    assert.equal((await switchOff(base, handle.token, "main")).status, 200);
+
+    assert.equal((await company.store.decisions.get(decision.id))?.status, "expired");
+    const cycle = (await company.store.cycles.all())[0];
+    assert.notEqual(cycle?.status, "cancelled", "a cancelled day can never be started again");
+    assert.equal(cycle?.status, "failed");
+    assert.equal(cycle?.failure?.retryable, false, "the scheduler would start it again every hour");
+    assert.equal(cycle?.pendingDecisionId, undefined, "something still points at the closed gate");
+
+    const closed = (await company.store.audit.recent(20)).filter((event) => event.type === "decision.closed");
+    assert.equal(closed.length, 1, "the gate closed with no record of it");
+    assert.equal(closed[0]?.data["day"], cycle?.date);
+    assert.equal(closed[0]?.data["gate"], decision.gate);
+  });
+});
+
+test("switched off and back on the same day, the run button still opens a new gate", async () => {
+  // Where the two halves of this work meet. The gate is closed and not
+  // reopened, the scheduler will not start the day again by itself, and the
+  // only way left to run it is the button - so the button has to work. It
+  // returned 200 and did nothing when the cycle was cancelled.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const first = (await company.orchestrator.pendingDecisions())[0]!;
+
+    assert.equal((await switchOff(base, handle.token, "main")).status, 200);
+    assert.equal((await switchOn(base, handle.token, "main")).status, 200);
+
+    const run = await fetch(`${base}/api/ventures/main/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${handle.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    const text = await run.text();
+    assert.equal(run.status, 200, text);
+    assert.equal((JSON.parse(text) as { status: string }).status, "awaiting_approval");
+
+    const open = await company.orchestrator.pendingDecisions();
+    assert.equal(open.length, 1, "the day could not be started again");
+    assert.notEqual(open[0]?.id, first.id, "the closed gate was reopened rather than a new one asked");
+  });
+});
+
+test("a gate the operator closed does not read as a gate they missed", async () => {
+  // Both end with a decision marked `expired`, and the screen used to have one
+  // sentence for that: 答えのないまま日が変わりました. Told to an operator who
+  // had just switched the account off themselves, it is wrong in the way that
+  // stops a record being believed.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    assert.equal((await switchOff(base, handle.token, "main")).status, 200);
+
+    const page = await openPage({ base, token: handle.token, until: "activity" });
+    const feed = page.html("activity");
+    assert.match(feed, /アカウントを止めたので閉じました/);
+    assert.doesNotMatch(feed, /答えのないまま日が変わりました/);
   });
 });

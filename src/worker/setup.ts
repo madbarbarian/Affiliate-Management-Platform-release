@@ -3,7 +3,7 @@
  *
  * The Worker boots on the example config when the fork has none of its own,
  * and serves this instead of running a stranger's example account. It is the
- * first screen of the onboarding design (`docs/_drafts/design/onboarding/`),
+ * first screen of the onboarding design (`docs/_proposed/design/onboarding/`),
  * reduced to what actually exists: where to put the config, and what is already
  * working.
  *

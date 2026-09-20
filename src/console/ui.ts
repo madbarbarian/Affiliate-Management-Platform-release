@@ -449,6 +449,13 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
 -->
 <div id="view-venture" hidden>
   <p><a class="back" href="#/">${escapeHtml(t("venture.back"))}</a></p>
+  <!-- The gate, on the screen the operator opened to deal with this account.
+       Above everything else here for the same reason it is at the top of the
+       day's page: it is the only thing on either screen that is waiting on a
+       person. Filled by render(), never by renderVenture() - the tick, the
+       reorder and the select-all buttons all call render() alone, and a gate
+       drawn anywhere else would freeze the moment one was pressed. -->
+  <div id="venture-decisions"></div>
   <div id="venture-head"></div>
   <section>
     <h2>${escapeHtml(t("venture.lastCycle"))}</h2>
@@ -782,6 +789,66 @@ function ensureDraft(decision) {
   return entry;
 }
 
+/**
+ * Which 「開く」 panels on the gates are open, so a re-render can put them back.
+ *
+ * Same defect the timeline had below, in the other half of this screen: the
+ * list is thrown away and rebuilt by innerHTML, so an open <details> was being
+ * shut under whoever was reading it. Not only by the 30-second poll - ticking a
+ * box, reordering, 推奨を選ぶ and すべて外す all re-render, so the reasons closed
+ * the moment the operator acted on them.
+ *
+ * A Set rather than one key, for the same reason resolving below is a Set: two
+ * gates can stand open at once, and one gate holds several ideas, so several
+ * panels are genuinely open together.
+ */
+const openDetails = new Set();
+
+/**
+ * The key a panel is remembered by: the gate it belongs to and the item inside
+ * it. Both survive a re-render. The position in the list does not - the
+ * operator can reorder, and an index would then carry the open panel to
+ * whatever idea moved into that slot.
+ *
+ * Built with JSON rather than joining on a separator because both halves are
+ * ids from elsewhere, and nothing here gets to promise what is not in them.
+ */
+function detailsKey(decisionId, itemId) {
+  return JSON.stringify([decisionId, itemId]);
+}
+
+/**
+ * Drops the panels of gates that are no longer on the screen.
+ *
+ * Answering a gate takes it out of the list without ever closing its <details>,
+ * so without this the Set only grows for as long as the page is open - and an
+ * id that came back would come back already open.
+ */
+function forgetGoneDetails(pending) {
+  const here = new Set();
+  pending.forEach((decision) =>
+    decision.items.forEach((item) => here.add(detailsKey(decision.id, item.id))));
+  openDetails.forEach((key) => {
+    if (!here.has(key)) openDetails.delete(key);
+  });
+}
+
+// One delegated listener in the capture phase, rather than one wired to every
+// <details> after every rebuild. A toggle event does not bubble, so an ancestor
+// only ever sees it on the way down - without the capture flag this listener
+// would never run at all. And the gates are replaced wholesale several times a
+// minute, so per-element wiring would have to be redone after each innerHTML
+// and would lapse silently the first time a new render path forgot to.
+document.addEventListener("toggle", (event) => {
+  const panel = event.target;
+  const decisionId = panel && panel.dataset ? panel.dataset.decision : undefined;
+  const itemId = panel && panel.dataset ? panel.dataset.item : undefined;
+  if (!decisionId || !itemId) return;
+  const key = detailsKey(decisionId, itemId);
+  if (panel.open) openDetails.add(key);
+  else openDetails.delete(key);
+}, true);
+
 function renderDecision(decision) {
   const entry = ensureDraft(decision);
   const ordered = entry.order
@@ -823,7 +890,9 @@ function renderDecision(decision) {
               : item.hasOffer
                 ? '<div class="pr-missing">' + esc(T["gate.disclosureMissing"]) + "</div>"
                 : '<div class="pr-none">' + esc(T["gate.disclosureNotNeeded"]) + "</div>") : ""}
-            \${item.preview ? '<details><summary>' + (item.post ? T["gate.openPost"] : T["gate.openIdea"]) + '</summary><pre>' + esc(item.preview) + "</pre></details>" : ""}
+            \${item.preview ? '<details data-decision="' + esc(decision.id) + '" data-item="' + esc(item.id) + '"' +
+              (openDetails.has(detailsKey(decision.id, item.id)) ? " open" : "") +
+              '><summary>' + (item.post ? T["gate.openPost"] : T["gate.openIdea"]) + '</summary><pre>' + esc(item.preview) + "</pre></details>" : ""}
           </div>
           <div class="order">
             <span class="rank">\${rank}</span>
@@ -904,6 +973,9 @@ function renderHandOver(post) {
 
 function render() {
   if (!state) return;
+  // Before the gates are drawn, so a panel is only put back if its gate is
+  // still there to put it back into.
+  forgetGoneDetails(state.pending);
   // Whose passphrase this is. The audit log records this name against
   // everything approved here, so it has to be visible before pressing, not
   // discoverable afterwards.
@@ -940,9 +1012,22 @@ function render() {
       "</div>" +
     "</div>").join("");
 
-  $("decision-list").innerHTML = state.pending.length === 0
-    ? '<p class="empty">' + esc(T["today.decisionsEmpty"]) + "</p>"
-    : state.pending.map(renderDecision).join("");
+  // One gate, one place. Never both: the cards carry id="err-<decisionId>",
+  // and with the same decision drawn twice getElementById hands back the copy
+  // that is higher in the document - which on the account screen is the hidden
+  // one, so a refused approval reported itself into a box nobody could see.
+  const routed = routedVentureId();
+  const mine = routed ? state.pending.filter((d) => d.ventureId === routed) : [];
+  $("venture-decisions").innerHTML = !routed
+    ? ""
+    : mine.length === 0
+      ? '<p class="empty">' + esc(T["today.decisionsEmpty"]) + "</p>"
+      : mine.map(renderDecision).join("");
+  $("decision-list").innerHTML = routed
+    ? ""
+    : state.pending.length === 0
+      ? '<p class="empty">' + esc(T["today.decisionsEmpty"]) + "</p>"
+      : state.pending.map(renderDecision).join("");
 
   const handOver = state.handOver ?? [];
   $("hand-over").innerHTML = handOver.map(renderHandOver).join("");
@@ -1068,6 +1153,12 @@ function activityText(entry) {
   if (entry.type === "decision.expired") {
     return "<b>" + esc(fmt("today.activityExpired", { day: entry.day ?? "" })) + "</b>";
   }
+  // Not the same line, and not bold. The operator closed this one themselves
+  // by switching the account off; telling them they missed it is how a record
+  // stops being believed.
+  if (entry.type === "decision.closed") {
+    return esc(fmt("today.activityClosed", { day: entry.day ?? "" }));
+  }
   // Handing a post over and a person posting it both land here, and with only
   // the stored summary the two read as the same line twice about the same post.
   if (entry.type === "post.handed_over") {
@@ -1083,7 +1174,8 @@ function activityText(entry) {
 
 function renderProposal(proposal) {
   // The server carries the block for a week after acceptance, so it survives
-  // the thirty-second poll and a reload. "amp scout show <id>" has it after.
+  // the thirty-second poll and a reload. After that the card goes and the block
+  // goes with it: the proposal is kept, but no screen renders it again.
   const accepted = proposal.status === "accepted" ? proposal.block : undefined;
   return \`
     <div class="card">
@@ -1206,13 +1298,16 @@ document.addEventListener("click", async (event) => {
       body: JSON.stringify({ note }),
     });
     await load();
-    if (act === "deactivate" && result && (result.heldApproved > 0 || result.beyondRecall > 0)) {
-      const box = $("verr-" + ventureId);
-      if (box) {
-        box.textContent =
-          (result.heldApproved > 0 ? fmt("switch.heldApproved", { n: result.heldApproved }) : "") +
-          (result.beyondRecall > 0 ? fmt("switch.beyondRecall", { n: result.beyondRecall }) : "");
-      }
+    // What switching off reached, and what it did not. The closed gate belongs
+    // here with the rest: the operator just lost the question that was on the
+    // screen, and finding that out by noticing it gone is not being told.
+    if (act === "deactivate" && result) {
+      const said =
+        (result.closedGates > 0 ? fmt("switch.closedGates", { n: result.closedGates }) : "") +
+        (result.heldApproved > 0 ? fmt("switch.heldApproved", { n: result.heldApproved }) : "") +
+        (result.beyondRecall > 0 ? fmt("switch.beyondRecall", { n: result.beyondRecall }) : "");
+      const box = said === "" ? null : $("verr-" + ventureId);
+      if (box) box.textContent = said;
     }
   } catch (error) {
     const box = $("verr-" + ventureId);
@@ -1521,6 +1616,11 @@ function routedVentureId() {
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
+/** How many gates this account has open, from the day's own list. */
+function waitingHere(ventureId) {
+  return (state?.pending ?? []).filter((d) => d.ventureId === ventureId).length;
+}
+
 function renderVenture(v) {
   const stateLabel = v.stopped ? T["accounts.stateStopped"]
     : v.deactivated ? T["accounts.stateDeactivated"]
@@ -1534,7 +1634,12 @@ function renderVenture(v) {
           state: v.measurementClosed ? T["venture.measurementOk"] : T["accounts.measurementOpen"],
         })) + "</span>" +
       (v.setup.market ? '<span class="chip">' + esc(v.setup.market.name) + "</span>" : "") +
-      (v.pendingDecisions > 0 ? '<span class="chip">' + esc(fmt("accounts.waiting", { n: v.pendingDecisions })) + "</span>" : "") +
+      // Counted off the same list the block above this screen is drawn from,
+      // not off the account payload. Two sources for one number is how a badge
+      // reading 判断待ち1件 came to sit above a page with no gate on it.
+      (waitingHere(v.ventureId) > 0
+        ? '<span class="chip">' + esc(fmt("accounts.waiting", { n: waitingHere(v.ventureId) })) + "</span>"
+        : "") +
     "</div>" +
     (v.review ? '<div class="card" style="margin-top:12px"><b>' + esc(T["accounts.review"]) + "</b> " + esc(v.review) +
       '<div class="why">' + esc(T["venture.reviewWhy"]) + "</div></div>" : "");

@@ -210,6 +210,7 @@ async function rowFor(
   const lastCycle = scope.cycles
     .filter((cycle) => cycle.ventureId === venture.id)
     .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  const active = isVentureActive(venture, scope.ventureState);
 
   return {
     ventureId: venture.id,
@@ -217,10 +218,18 @@ async function rowFor(
     niche: venture.niche,
     audience: venture.audience,
     market: venture.market,
-    active: isVentureActive(venture, scope.ventureState),
+    active,
     ...(deactivated ? { deactivated } : {}),
     stopped: isPaused(scope.pause, venture.id),
-    pendingDecisions: scope.decisions.filter((decision) => decision.ventureId === venture.id).length,
+    // Only what somebody can still be asked. `isVentureActive` is this
+    // codebase's one definition of "is this account running", and this row was
+    // the one reader that did not consult it: an account that was switched off
+    // went on reporting decisions waiting, on a screen that had already
+    // stopped offering them and a CLI table that said the same. The scout
+    // reads this number too, and was being told an idle account was busy.
+    pendingDecisions: active
+      ? scope.decisions.filter((decision) => decision.ventureId === venture.id).length
+      : 0,
     ...(lastCycle
       ? {
           lastCycle: {

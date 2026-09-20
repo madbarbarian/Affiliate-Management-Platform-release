@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { repoRoot } from "../src/config/load.ts";
+import { cycleIdFor } from "../src/kernel/orchestrator.ts";
 
 const run = promisify(execFile);
 const ROOT = repoRoot();
@@ -440,7 +441,9 @@ test("a data directory from before the split is carried across by the real binar
       join(dataDir, "cycles.json"),
       JSON.stringify([
         {
-          id: `cyc_${EXAMPLE_VENTURE}_2026-09-01`,
+          // Built rather than spelled out: this was the third hand-written copy
+          // of the cycle id's shape, and the one nothing would have caught.
+          id: cycleIdFor(EXAMPLE_VENTURE, "2026-09-01"),
           ventureId: EXAMPLE_VENTURE,
           date: "2026-09-01",
           createdAt: "2026-09-01T00:00:00Z",
@@ -509,6 +512,42 @@ test("the by-hand channel in the shipped example wires up, and doctor says what 
     assert.match(outcome.stdout, /Clicks, conversions and revenue are unaffected/);
     assert.doesNotMatch(outcome.stdout, /Their engagement numbers are simulated/);
     assert.ok(!looksLikeACrash(outcome), outcome.stderr);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("deactivating from the terminal closes the gate, exactly as the button does", async () => {
+  // Switching an account off was two sequences - one here, one in
+  // `console/router.ts` - and they had already diverged: the button closed the
+  // gate the account still had open and this did not, so the same decision
+  // left a question nobody could answer depending on which surface reached for
+  // it. Both call one operation now, and this is the half that had no test.
+  const { dir, config, cleanup } = await scratchConfig();
+  try {
+    assert.equal((await amp(["cycle", "run", "--config", config])).code, 0);
+    const decisions = join(dir, ".amp", "ventures", EXAMPLE_VENTURE, "decisions.json");
+    const openGate = JSON.parse(await readFile(decisions, "utf8")) as { id: string; status: string }[];
+    assert.ok(
+      openGate.some((decision) => decision.status === "pending"),
+      "the cycle is supposed to have stopped at a gate",
+    );
+
+    const off = await amp(["venture", "deactivate", EXAMPLE_VENTURE, "--reason", "no clicks", "--config", config]);
+    assert.equal(off.code, 0, off.stderr);
+    assert.match(off.stdout, /decision\(s\) that were waiting have been closed/, "it closed one and did not say so");
+
+    const after = JSON.parse(await readFile(decisions, "utf8")) as { status: string }[];
+    assert.equal(after.filter((decision) => decision.status === "pending").length, 0, "the gate is still asking");
+
+    // And the day is still startable by hand. Closing it the way a lapsed gate
+    // is closed would cancel the cycle, and a cancelled cycle is one nothing
+    // can restart - not the tick, not the button, not this command.
+    const cycles = JSON.parse(
+      await readFile(join(dir, ".amp", "ventures", EXAMPLE_VENTURE, "cycles.json"), "utf8"),
+    ) as { status: string; failure?: { code: string } }[];
+    assert.equal(cycles[0]?.status, "failed");
+    assert.equal(cycles[0]?.failure?.code, "venture.deactivated");
   } finally {
     await cleanup();
   }

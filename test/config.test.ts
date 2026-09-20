@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ConfigError, parseConfig } from "../src/config/schema.ts";
-import { interpolate } from "../src/config/load.ts";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { ConfigError, DEFAULT_MAX_CYCLE_ATTEMPTS, parseConfig } from "../src/config/schema.ts";
+import { buildConfig, interpolate, repoRoot } from "../src/config/load.ts";
 import { BASE_CONFIG, testConfig } from "./helpers.ts";
 
 test("accepts the shipped shape and fills in defaults", () => {
@@ -199,4 +202,34 @@ test("two operators cannot share a name or a passphrase", () => {
   assert.deepEqual(fine.console.operators, [{ name: "みどり", tokenEnv: "AMP_MIDORI" }]);
   // And a config that names nobody is still a config.
   assert.deepEqual(parseConfig(BASE_CONFIG, "test").console.operators, []);
+});
+
+test("the example a licensee edits carries the retry limit, with what it costs", async () => {
+  // "Anything a licensee might want to change belongs in config" is only true
+  // once it is *in* the file. A key that exists in the schema and nowhere in
+  // the example is a key nobody finds: the default runs, the bill moves, and
+  // the setting is discoverable only by reading `src/`, which a licensee on
+  // Cloudflare has no way to do.
+  const example = await readFile(join(repoRoot(), "platform.config.example.yaml"), "utf8");
+  const { config } = buildConfig(example, join(repoRoot(), "platform.config.example.yaml"), {});
+  assert.equal(config.company.retry.maxCycleAttempts, DEFAULT_MAX_CYCLE_ATTEMPTS);
+  assert.match(example, /^\s*maxCycleAttempts: 2$/m, "the value has to be written, not merely defaulted");
+
+  // And the two things a reader cannot work out from the number alone.
+  const comment = example.slice(0, example.indexOf("maxCycleAttempts"));
+  assert.match(comment.slice(-400), /費用/, "nothing says this setting costs money");
+  assert.match(comment.slice(-400), /Cloudflare/, "nothing says a redeploy is needed there");
+});
+
+test("the retry limit is refused with the fix in the message, not only the bound", async () => {
+  // `.number({ min, max })` answers "must be at most 5, got 20", which names
+  // the problem and not the repair. This is a number whose only effect is on
+  // the licensee's bill, so being told what to write instead is the point.
+  const example = await readFile(join(repoRoot(), "platform.config.example.yaml"), "utf8");
+  const tooMany = example.replace(/maxCycleAttempts: 2/, "maxCycleAttempts: 20");
+  assert.notEqual(tooMany, example, "the example no longer carries this key - update this test");
+  assert.throws(
+    () => buildConfig(tooMany, join(repoRoot(), "platform.config.example.yaml"), {}),
+    (error: Error) => /between 1 and 5/.test(error.message) && /write 2/.test(error.message),
+  );
 });

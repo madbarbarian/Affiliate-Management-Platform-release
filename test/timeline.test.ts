@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { buildTimeline, type Timeline } from "../src/console/timeline.ts";
 import { unwrap } from "../src/core/result.ts";
 import { createTestCompany, type TestCompany } from "./helpers.ts";
+import type { Cycle, Decision } from "../src/core/types.ts";
 
 /** Runs a day to the first gate, answers both, and reads the day back. */
 async function ranADay(company: TestCompany, options: { approveAll?: boolean } = {}): Promise<Timeline> {
@@ -195,4 +196,55 @@ test("a gate the machine resolved is not reported as a person's decision", async
   assert.ok(gate);
   assert.equal(gate.byHuman, false, "the machine decided this one");
   assert.match(gate.said.join(" "), /自動/, "and the sentence says so");
+});
+
+test("the day read back says which of the two ways its gate ended", () => {
+  // `expired` is the only status either can take, so the decision alone cannot
+  // tell them apart. The cycle's failure code is what does.
+  const decision: Decision = {
+    id: "dec_1",
+    cycleId: "cyc_main_2026-04-01",
+    ventureId: "main",
+    gate: "proposal_approval",
+    createdAt: "2026-04-01T00:00:00Z",
+    items: [{ id: "di_1", refId: "idea_1", title: "案", summary: "", recommended: true, detail: {} }],
+    selectionHint: { min: 0, max: 2 },
+    status: "expired",
+    autoResolved: false,
+  };
+  const cycleWith = (failure?: Cycle["failure"]): Cycle => ({
+    id: "cyc_main_2026-04-01",
+    ventureId: "main",
+    date: "2026-04-01",
+    createdAt: "2026-04-01T00:00:00Z",
+    updatedAt: "2026-04-01T00:00:00Z",
+    status: failure ? "failed" : "cancelled",
+    completed: [
+      {
+        step: "proposal_approval",
+        startedAt: "2026-04-01T00:00:00Z",
+        finishedAt: "2026-04-01T00:00:00Z",
+        durationMs: 0,
+        note: "",
+      },
+    ],
+    artifacts: { proposal_approval: { decisionId: "dec_1", approvedIdeaIds: [] } },
+    ...(failure ? { failure } : {}),
+  });
+  const said = (failure?: Cycle["failure"]) =>
+    buildTimeline({
+      cycle: cycleWith(failure),
+      ideas: [],
+      drafts: [],
+      inspections: [],
+      posts: [],
+      decisions: [decision],
+    }).entries[0]?.said.join(" ") ?? "";
+
+  assert.match(said(), /日付が変わり/, "a day nobody answered");
+  assert.match(
+    said({ step: "proposal_approval", message: "switched off", code: "venture.deactivated", retryable: false }),
+    /アカウントを止めたので/,
+    "and a day the operator ended",
+  );
 });

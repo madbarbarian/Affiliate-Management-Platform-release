@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --danger: #a13a2a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 560px; height: 620px; display: flex; overflow: hidden; }
+    main { width: 480px; margin: 48px auto 0; }
+    h1 { font-size: 22px; margin: 0 0 8px; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+    section {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 20px;
+    }
+    .formerr {
+      border: 1px solid var(--danger); color: var(--danger); font-size: 14px;
+      border-radius: 8px; padding: 9px 12px; margin: 0 0 16px;
+    }
+    .lab { display: block; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .help { display: block; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .help b { color: var(--ink); font-weight: 600; }
+    input {
+      width: 100%; font: inherit; font-size: 15px; padding: 9px 11px;
+      border: 1px solid #d3d3cd; border-radius: 8px; background: var(--panel);
+      letter-spacing: .25em;
+    }
+    button {
+      margin-top: 14px; font: inherit; font-size: 15px; font-weight: 600;
+      padding: 9px 22px; background: var(--accent); color: #fff;
+      border: 0; border-radius: 8px;
+    }
+    footer { color: var(--muted); font-size: 13px; margin: 18px 0 0; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <main>
+    <h1>合言葉を入力してください</h1>
+    <p class="lede">この画面は、合言葉を知っている人だけが開けます。</p>
+
+    <section>
+      <div class="formerr">合言葉が違いました。もう一度入力してください。</div>
+
+      <span class="lab">合言葉</span>
+      <span class="help">設定したものを、そのまま貼り付けてください。<b>記号や空白が入っていても、そのままで届きます。</b></span>
+      <input type="password" value="••••••••••••">
+      <button>開く</button>
+    </section>
+
+    <footer>一度入力すると、この端末では30日間そのまま開けます。合言葉をアドレスの末尾に付ける必要はありません。</footer>
+  </main>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":560,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

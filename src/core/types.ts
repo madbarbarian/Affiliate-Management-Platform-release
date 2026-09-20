@@ -565,7 +565,28 @@ export type Cycle = {
   readonly completed: readonly CycleStepRecord[];
   readonly artifacts: CycleArtifacts;
   readonly pendingDecisionId?: DecisionId;
-  readonly failure?: { readonly step: CycleStep; readonly message: string; readonly code: string };
+  readonly failure?: {
+    readonly step: CycleStep;
+    readonly message: string;
+    readonly code: string;
+    /**
+     * Whether running the same step again could work. Optional, and it has to
+     * be: every cycle written before this field existed has no opinion, and a
+     * required `boolean` would force a guess onto records that never carried
+     * one. A scheduler reading this treats "absent" as unknown - see
+     * `judgeCycleStart` - and only an explicit `false` as a dead end.
+     */
+    readonly retryable?: boolean;
+  };
+  /**
+   * How many times this day's cycle has been started, counting the first.
+   * Absent on records written before it existed, which read as one - they have
+   * run at least once, or they would not be here.
+   *
+   * This is what bounds the cost of a failing day: the scheduler retries while
+   * this is under `company.retry.maxCycleAttempts` and then leaves it alone.
+   */
+  readonly attempts?: number;
 };
 
 // ---------------------------------------------------------------------------

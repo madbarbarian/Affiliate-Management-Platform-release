@@ -57,13 +57,26 @@
       border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
       font-size: 13px; margin: 0; font-family: inherit; line-height: 1.7;
     }
+    /* この板は提案で、製品にはまだ無い。canvas.html の題名にも同じ語が付くが、
+       板だけを開いた人には題名が見えないので、板そのものにも印を置く。
+       画面コピーと混ざらないよう、枠の外に浮かせて破線で囲む。 */
+    .proposal-mark {
+      position: fixed; top: 12px; right: 12px; z-index: 50;
+      background: #fceeea; color: var(--danger); border: 1px dashed #f2d3c9;
+      border-radius: 999px; padding: 3px 12px;
+      font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    }
   </style>
 </helmet>
 <div class="frame">
   <header>
     <div class="crumb">セットアップ ・ ステップ 8 / 9</div>
     <h1>投稿先（Threads）をつなぐ</h1>
-    <p class="lede">いちばんつまずきやすいステップです。途中でやめても、<code>amp setup --resume</code> で続きから再開できます。</p>
+    <!-- ここは長く「途中でやめても、端末で打つ再開コマンドで続きから再開できます」と
+         書いていた。ライセンシーは端末を持たない（要件3.1）うえに、中断と再開の実装が
+         そもそも無い（進捗を残す `.amp/setup.json` も、それを読む CLI の入口もコードに
+         存在しない）。コマンドを消すだけでは足りず、約束そのものを取り下げてある。 -->
+    <p class="lede">いちばんつまずきやすいステップです。トークンを貼ると、その場で使えるかどうかを確かめて、だめだった理由をそのままお伝えします。</p>
   </header>
   <main>
     <div class="card">
@@ -110,6 +123,7 @@
     <button class="primary">次へ</button>
   </div>
 </div>
+<div class="proposal-mark">提案（未実装）</div>
 </x-dc>
 
 <script data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>

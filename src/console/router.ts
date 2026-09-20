@@ -27,8 +27,9 @@ import { latestMetricByPost } from "../domain/performance.ts";
 import { buildPortfolio } from "../domain/portfolio.ts";
 import { findMarket, resolveCompliance } from "../domain/market.ts";
 import { appendVentureBlock, listProposals, markAppended, renderVentureBlock, resolveProposal } from "../kernel/exploration.ts";
-import { deactivateVenture, reactivateVenture } from "../kernel/venture-state.ts";
 import { CYCLES_LOCK } from "../scheduler/tick.ts";
+import { DECISION_CLOSED_EVENT } from "../kernel/orchestrator.ts";
+import { switchVentureOff, switchVentureOn } from "../kernel/venture-switch.ts";
 import type { Operator } from "./operators.ts";
 import type { Runtime } from "../runtime.ts";
 import { buildTimeline, type Timeline } from "./timeline.ts";
@@ -312,30 +313,34 @@ export async function handleRequest(
     const body = await readJson(request);
     if (!body.ok) return json(400, { error: body.error.message });
     const payload = body.value as { note?: unknown };
+    // The whole of switching off - the state file, the gate that is still
+    // open, the line in the account's trail - is one call, and `amp venture
+    // deactivate` makes the same one. They were two sequences here and in
+    // `cli.ts`, and they had already diverged: the command left the gate
+    // standing, so the same decision produced a question nobody could answer
+    // depending on which surface the operator had used.
+    const switching = {
+      services: runtime.services,
+      state: runtime.state,
+      orchestrator: runtime.orchestrator,
+      ventureId: ventureId as VentureId,
+      by: actor,
+    };
+    let closedGates = 0;
     if (switchMatch[2] === "deactivate") {
-      await deactivateVenture(runtime.state, ventureId, {
-        at: runtime.services.clock.nowIso(),
-        by: actor,
+      const off = await switchVentureOff({
+        ...switching,
         reason: typeof payload.note === "string" ? payload.note.trim() : "",
       });
+      if (!off.ok) return json(500, { error: describeError(off.error) });
+      closedGates = off.value.closedGates;
     } else {
-      await reactivateVenture(runtime.state, ventureId);
+      const on = await switchVentureOn(switching);
+      if (!on.ok) return json(500, { error: describeError(on.error) });
     }
-    const store = await runtime.services.stores.for(ventureId);
-    await store.audit.append({
-      id: runtime.services.ids.next("evt"),
-      at: runtime.services.clock.nowIso(),
-      ventureId,
-      type: switchMatch[2] === "deactivate" ? "venture.deactivated" : "venture.activated",
-      actor,
-      summary:
-        switchMatch[2] === "deactivate"
-          ? `Deactivated "${venture.name}"${typeof payload.note === "string" && payload.note.trim() ? `: ${payload.note.trim()}` : ""}.`
-          : `Reactivated "${venture.name}".`,
-      data: {},
-    });
     forgetPortfolio(runtime);
     // What deactivating does and does not reach, so the page can say so.
+    const store = await runtime.services.stores.for(ventureId);
     const nowMs = runtime.services.clock.now();
     const posts = await store.posts.all();
     return json(200, {
@@ -344,6 +349,7 @@ export async function handleRequest(
       configActive: venture.active,
       heldApproved: posts.filter((post) => post.status === "approved").length,
       beyondRecall: posts.filter((post) => post.status === "scheduled" && post.scheduledFor > nowMs).length,
+      closedGates,
     });
   }
 
@@ -463,6 +469,16 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   const decisions = (await runtime.orchestrator.pendingDecisions()).filter((decision) =>
     runningVentures.has(decision.ventureId as string),
   );
+
+  // The accounts table's 判断待ち column is counted from *this* list and not
+  // from the portfolio's own tally. They were two answers to one question, and
+  // they disagreed: the table counted every pending decision while the list
+  // above counted only the ones a person can still answer, so a switched-off
+  // account showed a badge of 1 next to a screen with nothing on it.
+  const pendingByVenture = new Map<string, number>();
+  for (const decision of decisions) {
+    pendingByVenture.set(decision.ventureId, (pendingByVenture.get(decision.ventureId) ?? 0) + 1);
+  }
 
   // Which day each one belongs to.
   //
@@ -620,9 +636,12 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       ? { failureCode: String(event.data["code"] ?? ""), failureStep: String(event.data["step"] ?? "") }
       : {}),
     // The day, so the page can say it in the operator's language rather than
-    // showing the stored English. Which day lapsed is the whole content of
-    // this entry.
-    ...(event.type === "decision.expired" ? { day: String(event.data["day"] ?? "") } : {}),
+    // showing the stored English. Which day lapsed - or was closed - is the
+    // whole content of these two entries, and they are two entries on purpose:
+    // one is a gate nobody answered, the other is one the operator ended.
+    ...(event.type === "decision.expired" || event.type === DECISION_CLOSED_EVENT
+      ? { day: String(event.data["day"] ?? "") }
+      : {}),
   }));
 
   // Surfaced so the console cannot show a calm list of scheduled posts while
@@ -692,7 +711,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
         state: row.stopped ? "stopped" : row.deactivated ? "deactivated" : row.active ? "active" : "inactive",
         ...(row.deactivated ? { deactivated: row.deactivated } : {}),
         ...(row.review ? { review: row.review } : {}),
-        pendingDecisions: row.pendingDecisions,
+        pendingDecisions: pendingByVenture.get(row.ventureId) ?? 0,
         // Sent in parts, not as a sentence. The page is Japanese and these
         // three values are the platform's own English vocabulary; the words
         // the operator reads are chosen there, next to every other label.

@@ -48,7 +48,7 @@ src/
 prompts/       Role prompts as Markdown. Editing these is a supported action.
 docs/          The dev_base 7-category layout:
                1-requirements 2-setup 3-development 4-operations
-               5-project-management 6-testing 7-references _drafts
+               5-project-management 6-testing 7-references _proposed
 ```
 
 Follows `dev_base`. Deviations, and why:
@@ -58,6 +58,15 @@ Follows `dev_base`. Deviations, and why:
   is ports → domain → roles → kernel.
 - **`src/` has no `types/` directory.** The domain vocabulary is one file,
   `src/core/types.ts`, because every role shares it.
+
+**`docs/_proposed/` is `_drafts/` in `dev_base` — ahead of it, not away from
+it.** What lives there is written to be shown, and it ships to licensees, so
+"draft" was the wrong word and it was being used as a reason the product's own
+standards did not apply. The proposal to rename it upstream is
+`docs/7-references/dev_base-proposal-drafts-vs-proposed.md`. If `dev_base`
+takes it, the two agree; if it does not, *that* is when this gets written down
+as a deviation. Recording it as one now is what makes the next repository
+inherit the same problem.
 
 ## Rules that are not negotiable
 
@@ -129,8 +138,8 @@ The decision can be reopened; re-deriving it by accident cannot.
 - **Time is injected.** `services.clock`, never `Date.now()`. Ids are injected.
   Both exist so a cycle replays identically in a test.
 - **Prompts are files.** Never inline a role's instructions in a `.ts` file.
-- **The design canvases move with the code.** `docs/_drafts/design/` (the
-  operator's daily screens) and `docs/_drafts/design/onboarding/` (the
+- **The design canvases move with the code.** `docs/_proposed/design/` (the
+  operator's daily screens) and `docs/_proposed/design/onboarding/` (the
   licensee's first hour) are the picture of what the requirements and the
   console actually do. A change to a requirement, a console section, a gate,
   a command the screens mention, or a term in the glossary is not finished

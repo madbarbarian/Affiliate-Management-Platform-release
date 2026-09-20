@@ -252,6 +252,12 @@ function gate(
 ): { said: readonly string[]; items?: readonly TimelineItem[]; byHuman: boolean } {
   const decision = sources.decisions.find((entry) => entry.id === decisionId);
   if (!decision) return { said: [], byHuman: false };
+  // Two ways a gate ends without an answer, and they are not the same event.
+  // A day that turned is something that happened to the operator; an account
+  // switched off is something they did. The decision record cannot tell them
+  // apart - `expired` is the only status either can take - so the cycle's own
+  // failure code is what distinguishes them.
+  const closedBySwitch = sources.cycle.failure?.code === "venture.deactivated";
 
   // Built from the decision's own items rather than re-derived from the ideas
   // or posts they point at. That record *is* what was put in front of the
@@ -270,8 +276,10 @@ function gate(
   }));
   const who = !byHuman ? "自動で " : decision.resolution?.decidedBy ? `${decision.resolution.decidedBy} が` : "";
   const said =
-    decision.status === "expired"
-      ? ["誰も答えないまま日付が変わり、この日は取り消された"]
-      : [`${who}${all.length} 件のうち ${approved.length} 件を選んだ`];
+    decision.status !== "expired"
+      ? [`${who}${all.length} 件のうち ${approved.length} 件を選んだ`]
+      : closedBySwitch
+        ? ["アカウントを止めたので、この承認は閉じられた"]
+        : ["誰も答えないまま日付が変わり、この日は取り消された"];
   return { said, items: all, byHuman };
 }

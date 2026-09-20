@@ -1,0 +1,1982 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>運用者の2つの判断 — 画面設計</title>
+<style>
+    :root {
+      --paper: #f2f2ee; --ink: #1a1a19; --muted: #6b6b66; --line: #dededa;
+      --note: #fdf6dd; --note-line: #e6d9a4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--paper); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .page-head {
+      position: sticky; left: 0; top: 0; z-index: 2;
+      width: 100vw; padding: 12px 20px; background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+    .page-head h1 { font-size: 16px; font-weight: 650; margin: 0; }
+    .page-head p { font-size: 13px; color: var(--muted); margin: 3px 0 0; }
+    .page-head code { font-size: 12px; background: #f0f0ec; border-radius: 4px; padding: 1px 5px; }
+    .overview { display: none; }
+    .overview-label {
+      display: inline-block; margin-top: 8px; font-size: 13px; color: var(--muted);
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; cursor: pointer;
+    }
+    .overview:checked ~ .page-head .overview-label { color: var(--ink); border-color: var(--muted); }
+    .stage { position: relative; overflow: hidden; }
+    .canvas {
+      position: relative; transform-origin: 0 0;
+      background-image: radial-gradient(#d9d9d3 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .board { position: absolute; margin: 0; }
+    .board figcaption {
+      height: 28px; display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--muted); white-space: nowrap;
+    }
+    .board .live {
+      font-size: 11px; color: var(--muted); background: #ffffff;
+      border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+    }
+    .board iframe {
+      display: block; border: 1px solid var(--line); border-radius: 12px;
+      background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, .06); overflow: hidden;
+    }
+    .note {
+      position: absolute; background: var(--note); border: 1px solid var(--note-line);
+      border-radius: 8px; padding: 14px;
+      font-size: 13px; line-height: 21px; color: #4a4634;
+    }
+    .note p { margin: 0 0 12px; }
+    .note p:last-child { margin-bottom: 0; }
+    .note strong { color: #2c2a1f; font-weight: 650; }
+  
+    /* The overview toggle. CSS transform rather than the zoom property:
+       zoom re-lays-out an iframe's contents at the shrunken width, and these
+       boards are fixed-width frames, so they would be cropped, not scaled. */
+    .stage { width: 3450px; height: 5835px; }
+    .canvas { width: 3450px; height: 5835px; }
+    .overview:checked ~ .stage { width: 1035px; height: 1751px; }
+    .overview:checked ~ .stage .canvas { transform: scale(0.3); }
+</style>
+</head>
+<body>
+<input class="overview" type="checkbox" id="overview">
+<div class="page-head">
+  <h1>運用者の2つの判断 — 画面設計</h1>
+  <p>生成物です。正本は同じディレクトリの <code>canvas.json</code> と <code>*.dc.html</code>。<code>npm run build:canvas</code> で作り直します。</p>
+  <label class="overview-label" for="overview">全体を縮小して見る</label>
+</div>
+<div class="stage"><div class="canvas">
+<figure class="board" style="left:120px;top:512px;width:390px"><figcaption>判断待ちなし（実装済 v0.1.0）</figcaption><iframe title="判断待ちなし（実装済 v0.1.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .stamp { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 24px 0 10px; font-weight: 500;
+    }
+    .rest {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 22px 16px; text-align: center;
+    }
+    .rest .big { font-size: 16px; font-weight: 600; }
+    .rest .next { margin-top: 6px; color: var(--muted); font-size: 13px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .slot { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+    .time { font-size: 15px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .hook { font-weight: 600; line-height: 1.45; margin-top: 3px; }
+    .stat-row { display: flex; gap: 22px; flex-wrap: wrap; }
+    .stat { color: var(--muted); font-size: 13px; }
+    .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .log { font-size: 14px; line-height: 1.6; }
+    .line { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .line.last { border-bottom: none; }
+    .when {
+      color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+      flex: none; width: 42px; padding-top: 3px;
+    }
+    .up { color: var(--accent); }
+    .down { color: var(--danger); }
+    b.ink { font-weight: 600; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+    &lt;span class=&quot;muted stamp&quot;&gt;8月31日 06:40&lt;/span&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;div class=&quot;rest&quot;&gt;
+      &lt;div class=&quot;big&quot;&gt;いま決めることはありません&lt;/div&gt;
+      &lt;div class=&quot;next&quot;&gt;次の判断は 今日 07:00 ・ 企画10案&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;予約中&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;slot&quot;&gt;&lt;span class=&quot;time&quot;&gt;12:15&lt;/span&gt;&lt;span&gt;今日&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;hook&quot;&gt;朝30分をやめて、3週間なにも起きなかった。&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;slot&quot;&gt;&lt;span class=&quot;time&quot;&gt;21:00&lt;/span&gt;&lt;span&gt;今日&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;hook&quot;&gt;見積もりを2倍にした。3件断られた。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;昨日&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;stat-row&quot;&gt;
+        &lt;span class=&quot;stat&quot;&gt;投稿&lt;b&gt;3本&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;保存&lt;b&gt;612&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;クリック&lt;b&gt;41&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;確定報酬&lt;b&gt;¥4,200&lt;/b&gt;&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;muted&quot; style=&quot;margin-top: 10px&quot;&gt;米ドル建ての未確定分 $18.00 は別に数えています。円とは合算しません。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;会社が昨日やったこと&lt;/h2&gt;
+    &lt;div class=&quot;card log&quot;&gt;
+      &lt;div class=&quot;line&quot;&gt;&lt;span class=&quot;when&quot;&gt;05:10&lt;/span&gt;&lt;span&gt;分析担当が &lt;b class=&quot;ink&quot;&gt;pat_003&lt;/b&gt;「やめた」から始める一人称 の信頼度を &lt;span class=&quot;up&quot;&gt;0.66 → 0.71&lt;/span&gt; に上げました&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;line&quot;&gt;&lt;span class=&quot;when&quot;&gt;05:12&lt;/span&gt;&lt;span&gt;分析担当が &lt;b class=&quot;ink&quot;&gt;pat_009&lt;/b&gt;「数字を3つ並べる型」を &lt;span class=&quot;down&quot;&gt;引退&lt;/span&gt; させました（14日たっても改善がなかったため）&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;line&quot;&gt;&lt;span class=&quot;when&quot;&gt;05:40&lt;/span&gt;&lt;span&gt;リサーチ担当が新しい型の候補を &lt;b class=&quot;ink&quot;&gt;2件&lt;/b&gt; 提出しました（証拠不足のため保留）&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;line&quot;&gt;&lt;span class=&quot;when&quot;&gt;06:20&lt;/span&gt;&lt;span&gt;企画担当が &lt;b class=&quot;ink&quot;&gt;10案&lt;/b&gt; を用意しました。うち2案は探索枠（まだ試していない型を試す枠）です&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;line last&quot;&gt;&lt;span class=&quot;when&quot;&gt;21:02&lt;/span&gt;&lt;span&gt;投稿担当が 21:00 の枠に投稿し、コメント2件を付けました&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:590px;top:512px;width:390px"><figcaption>① 企画の承認（実装済 v0.1.0）<span class="live">動く板 — 初期状態の写し</span></figcaption><iframe title="① 企画の承認（実装済 v0.1.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    /* 承認画面 (src/console/ui.ts) と同じトークン。値は写しであって、近似ではない。 */
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: center; gap: 8px; }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .muted { color: var(--muted); font-size: 13px; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .count {
+      margin-left: 8px; font-size: 13px; font-variant-numeric: tabular-nums;
+      color: var(--ink); background: var(--chip); border-radius: 999px;
+      padding: 2px 9px; vertical-align: middle; text-transform: none; letter-spacing: 0;
+    }
+    .question { margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .item { display: flex; gap: 11px; align-items: flex-start; }
+    .box {
+      width: 19px; height: 19px; flex: none; margin-top: 4px; padding: 0;
+      border: 2px solid var(--accent); border-radius: 5px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .item-body { flex: 1; min-width: 0; }
+    .title { font-weight: 600; line-height: 1.45; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 2px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    .rest { margin-top: 18px; }
+    .rest-toggle {
+      width: 100%; text-align: left; font: inherit; font-size: 14px;
+      color: var(--muted); background: none; border: none; padding: 6px 0; cursor: pointer;
+    }
+    .rest .card { padding: 10px 14px; }
+    .bar {
+      flex: none; padding: 12px 16px 18px; background: var(--bg);
+      border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px;
+    }
+    .primary {
+      font: inherit; font-weight: 600; width: 100%; padding: 13px 16px;
+      border-radius: var(--radius); border: 1px solid transparent;
+      background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    }
+    .quiet {
+      font: inherit; font-size: 14px; width: 100%; padding: 8px;
+      background: none; border: none; color: var(--muted); cursor: pointer;
+    }
+    .done { flex: 1; padding: 40px 24px; text-align: center; }
+    .done h3 { font-size: 16px; margin: 0 0 6px; font-weight: 650; }
+    .done p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
+    .undo {
+      font: inherit; font-size: 14px; margin-top: 18px; background: none;
+      border: none; color: var(--accent); cursor: pointer;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;head-row&quot;&gt;
+      &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+      &lt;nav&gt;&lt;a class=&quot;here&quot;&gt;今日&lt;/a&gt;&lt;a&gt;設定&lt;/a&gt;&lt;/nav&gt;
+      &lt;span class=&quot;who&quot;&gt;みどり&lt;/span&gt;
+      &lt;button class=&quot;theme&quot;&gt;配色：自動&lt;/button&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;question&quot;&gt;今日出す企画を選んでください。&lt;br&gt;上の3件は、昨日までの実績からの推奨です。&lt;/p&gt;
+  &lt;/header&gt;
+
+  
+    &lt;div class=&quot;scroll&quot;&gt;
+      &lt;h2&gt;あなたの判断待ち&lt;span class=&quot;count&quot;&gt;1&lt;/span&gt;&lt;/h2&gt;
+      &lt;h2 style=&quot;margin-top: 16px&quot;&gt;推奨&lt;/h2&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #2f6f4f&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この企画を選ぶ&quot; style=&quot;background: #2f6f4f&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 1&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;title&quot;&gt;自動化ツールを3つ捨てた話&lt;/div&gt;
+              &lt;div class=&quot;sub&quot;&gt;増やすほど遅くなった。残したのは1つだけ。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot;&gt;根拠 pat_003 ふだんの1.8倍&lt;/span&gt;
+                &lt;span class=&quot;chip warn&quot;&gt;リスク 比較記事に見える&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: inline-block&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #2f6f4f&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この企画を選ぶ&quot; style=&quot;background: #2f6f4f&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 1&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;title&quot;&gt;朝30分の作業をやめた3週間&lt;/div&gt;
+              &lt;div class=&quot;sub&quot;&gt;何も起きなかった、が正確な結果。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot;&gt;根拠 pat_007 保存率2.4倍&lt;/span&gt;
+                &lt;span class=&quot;chip warn&quot;&gt;リスク 主張が弱い&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: none&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #2f6f4f&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この企画を選ぶ&quot; style=&quot;background: #2f6f4f&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 1&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;title&quot;&gt;見積もりを2倍にしたら仕事が増えた&lt;/div&gt;
+              &lt;div class=&quot;sub&quot;&gt;断られた3件と、通った1件の違い。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot;&gt;根拠 pat_003 ふだんの1.8倍&lt;/span&gt;
+                &lt;span class=&quot;chip warn&quot;&gt;リスク 再現性が低い&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: inline-block&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+
+      &lt;div class=&quot;rest&quot;&gt;
+        &lt;button class=&quot;rest-toggle&quot; onClick=&quot;&quot;&gt;▸ 他7件を見る&lt;/button&gt;
+        
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;bar&quot;&gt;
+      &lt;button class=&quot;primary&quot; onClick=&quot;&quot; style=&quot;opacity: 1&quot;&gt;3件を承認して進める&lt;/button&gt;
+      &lt;button class=&quot;quiet&quot; onClick=&quot;&quot;&gt;今日は見送る&lt;/button&gt;
+    &lt;/div&gt;
+  
+
+  
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1060px;top:512px;width:390px"><figcaption>② 投稿の承認と順番（実装済 v0.1.0）<span class="live">動く板 — 初期状態の写し</span></figcaption><iframe title="② 投稿の承認と順番（実装済 v0.1.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: baseline; gap: 8px; }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .step { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .question { margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 12px 12px 14px; margin-bottom: 10px;
+    }
+    .item { display: flex; gap: 10px; align-items: flex-start; }
+    .box {
+      width: 19px; height: 19px; flex: none; margin-top: 3px; padding: 0;
+      border: 2px solid var(--accent); border-radius: 5px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .item-body { flex: 1; min-width: 0; }
+    .slot { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+    .rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 999px; flex: none;
+      font-size: 12px; font-weight: 650;
+    }
+    .time { font-size: 15px; font-weight: 650; }
+    .hook { font-weight: 600; line-height: 1.45; margin-top: 4px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    .more { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .move { display: flex; flex-direction: column; gap: 4px; flex: none; }
+    .move button {
+      font: inherit; font-size: 14px; line-height: 1; padding: 6px 9px;
+      border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); cursor: pointer;
+    }
+    .bar {
+      flex: none; padding: 12px 16px 18px; background: var(--bg);
+      border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px;
+    }
+    .primary {
+      font: inherit; font-weight: 600; width: 100%; padding: 13px 16px;
+      border-radius: var(--radius); border: 1px solid transparent;
+      background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    }
+    .quiet {
+      font: inherit; font-size: 14px; width: 100%; padding: 8px;
+      background: none; border: none; color: var(--muted); cursor: pointer;
+    }
+    .done { flex: 1; padding: 40px 24px; text-align: center; }
+    .done h3 { font-size: 16px; margin: 0 0 6px; font-weight: 650; }
+    .done p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
+    .undo {
+      font: inherit; font-size: 14px; margin-top: 18px; background: none;
+      border: none; color: var(--accent); cursor: pointer;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;head-row&quot;&gt;
+      &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+      &lt;span class=&quot;muted step&quot;&gt;2 / 2&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;question&quot;&gt;出す順番を決めてください。&lt;br&gt;時刻はこのアカウントの実績から選ばれています。決めるのは「どの投稿をどの枠に出すか」だけで、並べ替えると時刻が入れ替わります。&lt;/p&gt;
+  &lt;/header&gt;
+
+  
+    &lt;div class=&quot;scroll&quot;&gt;
+      &lt;h2&gt;今日の枠&lt;/h2&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #2f6f4f&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この投稿を出す&quot; style=&quot;background: #2f6f4f&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 1&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;slot&quot;&gt;
+                &lt;span class=&quot;rank&quot; style=&quot;background: #2f6f4f; color: #ffffff&quot;&gt;1&lt;/span&gt;
+                &lt;span class=&quot;time&quot; style=&quot;color: #1a1a19&quot;&gt;07:30&lt;/span&gt;
+                &lt;span class=&quot;muted&quot;&gt;火曜のこの枠が最良&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;hook&quot;&gt;僕が3日で捨てたツールの話。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #6b6b66&quot;&gt;AIっぽさ 18&lt;/span&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #8a5a00&quot;&gt;指摘 1件&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: inline-block&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;more&quot;&gt;コメント下書き 2件 ・ 本文を見る&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;move&quot;&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ上へ&quot; style=&quot;opacity: 0.3&quot;&gt;↑&lt;/button&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ下へ&quot; style=&quot;opacity: 1&quot;&gt;↓&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #2f6f4f&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この投稿を出す&quot; style=&quot;background: #2f6f4f&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 1&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;slot&quot;&gt;
+                &lt;span class=&quot;rank&quot; style=&quot;background: #2f6f4f; color: #ffffff&quot;&gt;2&lt;/span&gt;
+                &lt;span class=&quot;time&quot; style=&quot;color: #1a1a19&quot;&gt;12:15&lt;/span&gt;
+                &lt;span class=&quot;muted&quot;&gt;&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;hook&quot;&gt;朝30分をやめて、3週間なにも起きなかった。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #6b6b66&quot;&gt;AIっぽさ 9&lt;/span&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #6b6b66&quot;&gt;指摘 なし&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: none&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;more&quot;&gt;コメント下書き 2件 ・ 本文を見る&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;move&quot;&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ上へ&quot; style=&quot;opacity: 1&quot;&gt;↑&lt;/button&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ下へ&quot; style=&quot;opacity: 1&quot;&gt;↓&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #2f6f4f&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この投稿を出す&quot; style=&quot;background: #2f6f4f&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 1&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;slot&quot;&gt;
+                &lt;span class=&quot;rank&quot; style=&quot;background: #2f6f4f; color: #ffffff&quot;&gt;3&lt;/span&gt;
+                &lt;span class=&quot;time&quot; style=&quot;color: #1a1a19&quot;&gt;21:00&lt;/span&gt;
+                &lt;span class=&quot;muted&quot;&gt;&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;hook&quot;&gt;見積もりを2倍にした。3件断られた。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #8a5a00&quot;&gt;AIっぽさ 31&lt;/span&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #8a5a00&quot;&gt;指摘 2件&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: inline-block&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;more&quot;&gt;コメント下書き 3件 ・ 本文を見る&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;move&quot;&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ上へ&quot; style=&quot;opacity: 1&quot;&gt;↑&lt;/button&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ下へ&quot; style=&quot;opacity: 1&quot;&gt;↓&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+        &lt;div class=&quot;card&quot; style=&quot;border-color: #e4e4e0&quot;&gt;
+          &lt;div class=&quot;item&quot;&gt;
+            &lt;button class=&quot;box&quot; onClick=&quot;&quot; aria-label=&quot;この投稿を出す&quot; style=&quot;background: transparent&quot;&gt;
+              &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;opacity: 0&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+            &lt;/button&gt;
+            &lt;div class=&quot;item-body&quot;&gt;
+              &lt;div class=&quot;slot&quot;&gt;
+                &lt;span class=&quot;rank&quot; style=&quot;background: #f0f0ec; color: #6b6b66&quot;&gt;–&lt;/span&gt;
+                &lt;span class=&quot;time&quot; style=&quot;color: #6b6b66&quot;&gt;枠なし&lt;/span&gt;
+                &lt;span class=&quot;muted&quot;&gt;&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;hook&quot;&gt;使わなくなったSaaSに共通していたこと。&lt;/div&gt;
+              &lt;div class=&quot;chips&quot;&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #6b6b66&quot;&gt;AIっぽさ 22&lt;/span&gt;
+                &lt;span class=&quot;chip&quot; style=&quot;color: #6b6b66&quot;&gt;指摘 なし&lt;/span&gt;
+                &lt;span class=&quot;chip pr&quot; style=&quot;display: none&quot;&gt;PR&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;div class=&quot;more&quot;&gt;コメント下書き 2件 ・ 本文を見る&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;move&quot;&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ上へ&quot; style=&quot;opacity: 1&quot;&gt;↑&lt;/button&gt;
+              &lt;button onClick=&quot;&quot; aria-label=&quot;ひとつ下へ&quot; style=&quot;opacity: 0.3&quot;&gt;↓&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      
+    &lt;/div&gt;
+
+    &lt;div class=&quot;bar&quot;&gt;
+      &lt;button class=&quot;primary&quot; onClick=&quot;&quot; style=&quot;opacity: 1&quot;&gt;3件を予約する&lt;/button&gt;
+      &lt;button class=&quot;quiet&quot; onClick=&quot;&quot;&gt;今日は出さない&lt;/button&gt;
+    &lt;/div&gt;
+  
+
+  
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:590px;top:1496px;width:390px"><figcaption>①の詳細 — 根拠（実装済 v0.1.0）</figcaption><iframe title="①の詳細 — 根拠（実装済 v0.1.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .back { font-size: 15px; color: var(--muted); }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .id { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 22px 0 10px; font-weight: 500;
+    }
+    h2.first { margin-top: 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .title { font-weight: 600; line-height: 1.45; font-size: 16px; }
+    .title.small { font-size: 15px; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.55; margin-top: 4px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 500; }
+    td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .stat-row { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
+    .stat { color: var(--muted); font-size: 13px; }
+    .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .risk { border-left: 3px solid var(--warn); padding-left: 11px; }
+    .risk .title { font-size: 15px; color: var(--warn); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+      font-size: 13px; margin: 8px 0 0; font-family: inherit; line-height: 1.6;
+    }
+    b.ink { color: var(--ink); }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;span class=&quot;back&quot;&gt;←&lt;/span&gt;
+    &lt;h1&gt;企画 #1&lt;/h1&gt;
+    &lt;span class=&quot;muted id&quot;&gt;idea_0831_01&lt;/span&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;title&quot;&gt;自動化ツールを3つ捨てた話&lt;/div&gt;
+      &lt;div class=&quot;sub&quot;&gt;増やすほど遅くなった。残したのは1つだけ。&lt;/div&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip&quot;&gt;根拠 pat_003 ふだんの1.8倍&lt;/span&gt;
+        &lt;span class=&quot;chip warn&quot;&gt;リスク 比較記事に見える&lt;/span&gt;
+        &lt;span class=&quot;chip pr&quot;&gt;PR&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;根拠&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;title small&quot;&gt;pat_003 — 「やめた」から始める一人称&lt;/div&gt;
+      &lt;div class=&quot;sub&quot;&gt;自分がやめた具体的な数を先に出し、理由を後に置く型です。主張ではなく結果から入るので、読み手が身構えません。&lt;/div&gt;
+      &lt;div class=&quot;stat-row&quot;&gt;
+        &lt;span class=&quot;stat&quot;&gt;信頼度&lt;b&gt;0.71&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;直近14日&lt;b&gt;6本&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;ふだんの投稿との比&lt;b&gt;1.8倍&lt;/b&gt;&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;table&gt;
+        &lt;tr&gt;&lt;th&gt;この型で出した投稿&lt;/th&gt;&lt;th class=&quot;n&quot;&gt;保存&lt;/th&gt;&lt;th class=&quot;n&quot;&gt;CV&lt;/th&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;外注を全部やめた月&lt;/td&gt;&lt;td class=&quot;n&quot;&gt;312&lt;/td&gt;&lt;td class=&quot;n&quot;&gt;4&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;通知を切った2週間&lt;/td&gt;&lt;td class=&quot;n&quot;&gt;248&lt;/td&gt;&lt;td class=&quot;n&quot;&gt;1&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;会議を3つ消した話&lt;/td&gt;&lt;td class=&quot;n&quot;&gt;201&lt;/td&gt;&lt;td class=&quot;n&quot;&gt;2&lt;/td&gt;&lt;/tr&gt;
+      &lt;/table&gt;
+      &lt;div class=&quot;sub&quot;&gt;実績は古くなるほど軽く数えられます。6本はまだ、「効く」と言い切れる数ではありません。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;どこで失敗しそうか&lt;/h2&gt;
+    &lt;div class=&quot;card risk&quot;&gt;
+      &lt;div class=&quot;title&quot;&gt;比較記事に見える&lt;/div&gt;
+      &lt;div class=&quot;sub&quot;&gt;3つのツール名を並べた時点で、体験談ではなく比較記事として読まれます。そうなると数字は伸びても、リンクは踏まれません。検品担当は「捨てた1つを具体名で、残りは名前を出さない」書き方に寄せます。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;この投稿に含まれる案件&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;sub&quot; style=&quot;margin-top: 0&quot;&gt;案件 &lt;b class=&quot;ink&quot;&gt;Notion 年間プラン&lt;/b&gt; ・ 商品の国 US ・ 読者の国 JP&lt;/div&gt;
+      &lt;pre&gt;読者の国と商品の国が違うときの注意書き（自動で本文末に付きます）
+・決済は米ドルです
+・サポートは英語のみ
+・販売元は Notion Labs, Inc. です&lt;/pre&gt;
+      &lt;pre&gt;#PR
+※本投稿にはアフィリエイトリンクを含みます&lt;/pre&gt;
+      &lt;div class=&quot;sub&quot;&gt;この表記は、読者の国である日本の規則（景表法・ステマ規制）に従います。商品がどの国のものかでは決まりません。&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1060px;top:1496px;width:390px"><figcaption>②の詳細 — 本文と指摘（実装済 v0.1.0）</figcaption><iframe title="②の詳細 — 本文と指摘（実装済 v0.1.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .back { font-size: 15px; color: var(--muted); }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .id { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 22px 0 10px; font-weight: 500;
+    }
+    h2.first { margin-top: 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .slot { display: flex; align-items: baseline; gap: 8px; }
+    .rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 999px; flex: none;
+      background: var(--accent); color: var(--accent-ink);
+      font-size: 12px; font-weight: 650;
+    }
+    .time { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .body { white-space: pre-wrap; line-height: 1.75; margin-top: 10px; }
+    .lead { font-weight: 600; }
+    .disclosure { color: var(--accent); }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr {
+      color: var(--accent); border: 1px solid var(--accent);
+      background: transparent; padding: 1px 8px;
+    }
+    .meter { display: flex; align-items: center; gap: 10px; }
+    .meter b { font-variant-numeric: tabular-nums; font-size: 18px; }
+    .track { flex: 1; height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+    .fill { height: 100%; background: var(--accent); }
+    .finding { border-left: 3px solid var(--warn); padding-left: 11px; margin-bottom: 14px; }
+    .finding.kept { border-left-color: var(--line); }
+    .finding b { color: var(--warn); font-weight: 600; font-size: 14px; }
+    .finding.kept b { color: var(--muted); }
+    .finding .sub { color: var(--muted); font-size: 13px; line-height: 1.55; margin-top: 2px; }
+    .comment { font-size: 14px; line-height: 1.65; }
+    .comment.later { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .note { color: var(--muted); font-size: 13px; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;span class=&quot;back&quot;&gt;←&lt;/span&gt;
+    &lt;h1&gt;投稿 #1&lt;/h1&gt;
+    &lt;span class=&quot;muted id&quot;&gt;draft_0831_01&lt;/span&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;slot&quot;&gt;
+        &lt;span class=&quot;rank&quot;&gt;1&lt;/span&gt;
+        &lt;span class=&quot;time&quot;&gt;07:30&lt;/span&gt;
+        &lt;span class=&quot;muted&quot;&gt;火曜のこの枠が直近28日で最良&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;body&quot;&gt;&lt;span class=&quot;lead&quot;&gt;僕が3日で捨てたツールの話。&lt;/span&gt;
+
+去年、作業を速くしたくて自動化ツールを5つ入れた。
+3日後、そのうち3つを消した。
+
+理由は単純で、動いているか確認する時間のほうが長くなったから。
+何かが止まったとき、どれが止まったのか分からない。
+
+残したのは1つだけ。
+そのあと半年、増やしていない。
+
+&lt;span class=&quot;disclosure&quot;&gt;#PR ※本投稿にはアフィリエイトリンクを含みます
+決済は米ドル・サポートは英語のみ・販売元は Notion Labs, Inc. です&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip&quot;&gt;248字&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;AIっぽさ 18&lt;/span&gt;
+        &lt;span class=&quot;chip warn&quot;&gt;指摘 1件&lt;/span&gt;
+        &lt;span class=&quot;chip pr&quot;&gt;PR&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;AIっぽさ&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;meter&quot;&gt;
+        &lt;b&gt;18&lt;/b&gt;
+        &lt;span class=&quot;track&quot;&gt;&lt;span class=&quot;fill&quot; style=&quot;width: 18%&quot;&gt;&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;muted&quot;&gt;上限 35&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;note&quot; style=&quot;margin-top: 8px&quot;&gt;直したあとの本文を、検品担当と機械的な確認の両方が採点し、悪いほうの点を採用します。今回は機械的な確認が18、検品担当が12でした。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;検品担当の指摘&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;finding&quot;&gt;
+        &lt;b&gt;直しました — 文の長さが揃いすぎていた&lt;/b&gt;
+        &lt;div class=&quot;sub&quot;&gt;「〜ため、〜ました。」が3回続いていたので、2つを短く割りました。読点の位置も1箇所ずらしています。&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;finding kept&quot;&gt;
+        &lt;b&gt;直しませんでした — ツール名が1つだけ&lt;/b&gt;
+        &lt;div class=&quot;sub&quot;&gt;企画のリスク「比較記事に見える」に沿って、捨てた3つの名前は出していません。意図した空白です。&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;コメント下書き&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;comment&quot;&gt;
+        &lt;span class=&quot;when&quot;&gt;投稿と同時&lt;/span&gt;&lt;br&gt;
+        残した1つはこれです。（リンク）&lt;br&gt;
+        &lt;span class=&quot;note&quot;&gt;リンクを最初のコメントに置くのは、本文にURLを入れると投稿が伸びにくいためです。&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;comment later&quot;&gt;
+        &lt;span class=&quot;when&quot;&gt;+2時間&lt;/span&gt;&lt;br&gt;
+        「何を基準に消したのか」と聞かれたので補足します。&lt;br&gt;
+        止まったときに自分で直せるか、だけで判断しました。
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;本文はここでは直せません&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;note&quot;&gt;運用者の仕事を「企画を選ぶ」「出す順番を決める」の2つに保つためです。直したいときは、この投稿を外して、明日の企画で言い直してください。&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1530px;top:512px;width:390px"><figcaption>全アカウント（週に1回見る・実装済 v0.3.0）</figcaption><iframe title="全アカウント（週に1回見る・実装済 v0.3.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .stamp { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    .lede { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 14px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .name { font-weight: 600; font-size: 16px; }
+    .id { color: var(--muted); font-size: 12px; margin-left: 6px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.on { color: var(--accent); }
+    .chip.warn { color: var(--warn); }
+    .chip.off { color: var(--muted); border: 1px dashed var(--line); background: transparent; }
+    .stat-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+    .stat { color: var(--muted); font-size: 12px; }
+    .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .review {
+      margin-top: 10px; padding: 8px 10px; border-left: 3px solid var(--warn);
+      background: var(--bg); border-radius: 6px; font-size: 13px; line-height: 1.55;
+    }
+    .review b { color: var(--warn); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      font: inherit; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); font-size: 14px;
+    }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+    .why { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.55; }
+    .cycle { color: var(--muted); font-size: 12px; margin-top: 9px; }
+    /* 一覧が言うのはここまで。理由の全文はアカウントの画面で読む。 */
+    .failure { color: var(--danger); font-size: 13px; line-height: 1.5; margin-top: 3px; }
+    .failure-sub { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 1px; }
+    .total { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 4px; }
+    .total b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;h1&gt;全アカウント&lt;/h1&gt;
+    &lt;span class=&quot;muted stamp&quot;&gt;直近30日&lt;/span&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;p class=&quot;lede&quot;&gt;アカウントを&lt;b&gt;比べる&lt;/b&gt;ための画面です。どれが成果を出し、どこが止まり、どこが計測できていないか。1つを直すのは、開いた先で。&lt;/p&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;span class=&quot;name&quot;&gt;朝のツール部屋&lt;/span&gt;&lt;span class=&quot;id&quot;&gt;morning-tools&lt;/span&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip on&quot;&gt;稼働中&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;計測 つながっている&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;cycle&quot;&gt;
+        直近サイクル　2026-09-09 失敗（執筆）
+        &lt;div class=&quot;failure&quot;&gt;実行できませんでした&lt;/div&gt;
+        &lt;div class=&quot;failure-sub&quot;&gt;下書きの生成でモデルの呼び出しが断られました。理由の全文は開いた先に。&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;stat-row&quot;&gt;
+        &lt;span class=&quot;stat&quot;&gt;投稿&lt;b&gt;41&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;中央値&lt;b&gt;212&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;クリック&lt;b&gt;318&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;成果&lt;b&gt;9&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;確定報酬&lt;b&gt;¥38,400&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;型&lt;b&gt;6 / 11&lt;/b&gt;&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;row&quot;&gt;&lt;button class=&quot;primary&quot;&gt;開く&lt;/button&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;span class=&quot;name&quot;&gt;育休明けの手帳&lt;/span&gt;&lt;span class=&quot;id&quot;&gt;parenting-desk&lt;/span&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip on&quot;&gt;稼働中&lt;/span&gt;
+        &lt;span class=&quot;chip warn&quot;&gt;見直し候補&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;計測 つながっている&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;cycle&quot;&gt;直近サイクル　2026-09-09 承認待ち（企画の承認）&lt;/div&gt;
+      &lt;div class=&quot;stat-row&quot;&gt;
+        &lt;span class=&quot;stat&quot;&gt;投稿&lt;b&gt;24&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;中央値&lt;b&gt;61&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;クリック&lt;b&gt;0&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;成果&lt;b&gt;0&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;確定報酬&lt;b&gt;¥0&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;型&lt;b&gt;1 / 7&lt;/b&gt;&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;review&quot;&gt;&lt;b&gt;見直し候補。&lt;/b&gt;24本出して、追跡リンクに1回もクリックが届いていません。理由はこの数字だけで、勝手に止めることはありません。&lt;/div&gt;
+      &lt;div class=&quot;row&quot;&gt;&lt;button&gt;開く&lt;/button&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;span class=&quot;name&quot;&gt;海外ガジェット&lt;/span&gt;&lt;span class=&quot;id&quot;&gt;us-gadgets&lt;/span&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip off&quot;&gt;非アクティブ&lt;/span&gt;
+        &lt;span class=&quot;chip warn&quot;&gt;計測 未完成&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;owner ・ 8月20日 ・ 「案件の契約待ち」&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;why&quot; style=&quot;margin:2px 0 8px&quot;&gt;読者がリンクをたどれません（tracking.baseUrl）&lt;/div&gt;
+      &lt;div class=&quot;stat-row&quot;&gt;
+        &lt;span class=&quot;stat&quot;&gt;投稿&lt;b&gt;0&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;確定報酬&lt;b&gt;$0&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;型&lt;b&gt;3 / 3&lt;/b&gt;&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;row&quot;&gt;&lt;button&gt;開く&lt;/button&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;p class=&quot;why&quot; style=&quot;margin:14px 0 0&quot;&gt;止める・再開する・今日のサイクルを動かすは、アカウントを開いた先にあります。一覧に操作を置くと、行が操作盤になって数字が読めなくなります。&lt;/p&gt;
+
+    &lt;p class=&quot;total&quot;&gt;合計　投稿 &lt;b&gt;65&lt;/b&gt; ・ クリック &lt;b&gt;318&lt;/b&gt; ・ 成果 &lt;b&gt;9&lt;/b&gt;&lt;br&gt;確定報酬 &lt;b&gt;¥38,400&lt;/b&gt; / &lt;b&gt;$0&lt;/b&gt;　— 通貨ごとに数えます。円とドルは足しません。&lt;/p&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1530px;top:2412px;width:390px"><figcaption>探索の提案（週に1回決める・実装済 v0.3.0）</figcaption><iframe title="探索の提案（週に1回決める・実装済 v0.3.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    .stamp { margin-left: auto; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    .lede { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 14px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .title { font-weight: 600; font-size: 16px; line-height: 1.45; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.55; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 14px 0 4px; font-weight: 500; }
+    p { margin: 0; font-size: 14px; line-height: 1.6; }
+    .hooks p { padding-left: 10px; border-left: 2px solid var(--line); margin-bottom: 4px; }
+    .stop { border-left: 3px solid var(--warn); padding-left: 10px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); font-size: 14px;
+    }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+    .done { color: var(--accent); font-size: 13px; line-height: 1.6; margin-top: 8px; }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+      font-size: 12px; margin: 8px 0 0; font-family: ui-monospace, Menlo, monospace; line-height: 1.55; color: var(--muted);
+    }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;h1&gt;探索の提案&lt;/h1&gt;
+    &lt;span class=&quot;muted stamp&quot;&gt;週に1回&lt;/span&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;p class=&quot;lede&quot;&gt;探索担当が、全アカウントの数字から次に試すアカウントを提案します。採用するか見送るかを決めるのはあなたです。毎日の判断の下に置いてあり、急ぎではありません。&lt;/p&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;title&quot;&gt;在宅ワーカーの姿勢と机まわり&lt;/div&gt;
+      &lt;div class=&quot;sub&quot;&gt;一日8時間座って働く在宅ワーカー&lt;/div&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip&quot;&gt;市場 jp&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;案件 offer_desk_chair&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;9月2日&lt;/span&gt;
+      &lt;/div&gt;
+
+      &lt;h3&gt;名前の候補&lt;/h3&gt;
+      &lt;p&gt;机の上の3年 / 椅子を買い替えた人 / 腰をやった翌日&lt;/p&gt;
+
+      &lt;h3&gt;仮説&lt;/h3&gt;
+      &lt;p&gt;「朝のツール部屋」で、失敗の告白から入る型がいちばん強く効いています（ふだんの1.8倍）。同じ読者層の隣の悩みが「机と腰」で、同じ型がそのまま使えると見ています。&lt;/p&gt;
+
+      &lt;h3&gt;根拠&lt;/h3&gt;
+      &lt;p class=&quot;muted&quot;&gt;main: 直近30日 41本、中央値 212、失敗告白の型の信頼度 0.71。案件カテゴリ productivity が成果9件のうち7件。&lt;/p&gt;
+
+      &lt;h3&gt;リスク&lt;/h3&gt;
+      &lt;p&gt;商品が机まわりに寄ると、案件の無い投稿が書けなくなり、売る話ばかりになります。&lt;/p&gt;
+
+      &lt;h3&gt;最初の3本&lt;/h3&gt;
+      &lt;div class=&quot;hooks&quot;&gt;
+        &lt;p&gt;椅子を3回買い替えた話。&lt;/p&gt;
+        &lt;p&gt;立って働くのを2週間でやめた。&lt;/p&gt;
+        &lt;p&gt;机の上から消したもの、7つ。&lt;/p&gt;
+      &lt;/div&gt;
+
+      &lt;h3&gt;やめる条件&lt;/h3&gt;
+      &lt;p class=&quot;stop&quot;&gt;30日で中央値が「朝のツール部屋」の半分を下回る、または保存が20本で0件。&lt;/p&gt;
+
+      &lt;div class=&quot;row&quot;&gt;
+        &lt;button class=&quot;primary&quot;&gt;採用する&lt;/button&gt;
+        &lt;button&gt;見送る&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;title&quot;&gt;育児とテクノロジー&lt;/div&gt;
+      &lt;div class=&quot;sub&quot;&gt;0〜3歳の子を育てながら在宅で働く親&lt;/div&gt;
+      &lt;div class=&quot;chips&quot;&gt;
+        &lt;span class=&quot;chip&quot;&gt;市場 jp&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;この市場に使える案件なし&lt;/span&gt;
+        &lt;span class=&quot;chip&quot;&gt;8月26日&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;done&quot;&gt;採用しました。設定ファイルの ventures: の下に active: false で追記しました。元のファイルは .amp/config-backups/ にあります。文体を読んで直し、active: true にして、デーモンを再起動してください。それまで何も動きません。&lt;/div&gt;
+      &lt;pre&gt;  # --- Proposed by the scout (prp_…, 2026-08-26)
+  # Stop when: 30日で保存が20本で0件
+  - id: &quot;parenting-desk&quot;
+    name: &quot;育休明けの手帳&quot;
+    active: false
+    …&lt;/pre&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:2000px;top:512px;width:390px"><figcaption>アカウント（開いた先・実装済 v0.3.0）</figcaption><iframe title="アカウント（開いた先・実装済 v0.3.0）" style="width:390px;height:1180px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 1180px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 12px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .back { color: var(--muted); font-size: 12px; }
+    .title-row { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+    h1 { font-size: 18px; margin: 0; font-weight: 650; }
+    .id { color: var(--muted); font-size: 12px; }
+    .scroll { flex: 1; overflow: hidden; padding: 14px 16px 24px; }
+    h2 {
+      font-size: 11px; letter-spacing: .08em; color: var(--muted);
+      margin: 18px 0 8px; font-weight: 600;
+    }
+    h2:first-child { margin-top: 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.on { color: var(--accent); }
+    .chip.bad { color: var(--danger); }
+    .muted { color: var(--muted); font-size: 12px; }
+    /* 失敗の理由は全文をここで読む。一覧には1行の要約しか出さない。 */
+    .failure {
+      color: var(--danger); font-size: 12px; line-height: 1.55; margin-top: 6px;
+      word-break: break-all;
+    }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      font: inherit; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); font-size: 13px;
+    }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+    .why { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.55; }
+    .hist { font-size: 13px; }
+    .hist div {
+      display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line);
+    }
+    .hist div:last-child { border-bottom: 0; }
+    .hist .when { color: var(--muted); font-variant-numeric: tabular-nums; width: 92px; flex: none; }
+    .hist .what { flex: 1; }
+    .hist .bad { color: var(--danger); }
+    .stat-row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .stat { color: var(--muted); font-size: 12px; }
+    .stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .pat { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; font-size: 13px; }
+    .pat .conf { color: var(--muted); font-variant-numeric: tabular-nums; width: 56px; flex: none; text-align: right; }
+    .pat .n { color: var(--muted); font-size: 12px; }
+    .danger-zone { border-color: var(--line); }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;back&quot;&gt;← 全アカウント&lt;/div&gt;
+    &lt;div class=&quot;title-row&quot;&gt;
+      &lt;h1&gt;朝のツール部屋&lt;/h1&gt;&lt;span class=&quot;id&quot;&gt;morning-tools&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;chips&quot; style=&quot;margin-top:8px&quot;&gt;
+      &lt;span class=&quot;chip on&quot;&gt;稼働中&lt;/span&gt;
+      &lt;span class=&quot;chip&quot;&gt;計測 つながっている&lt;/span&gt;
+      &lt;span class=&quot;chip&quot;&gt;Threads ・ 日本&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;h2&gt;直近のサイクル&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div&gt;&lt;b&gt;2026-09-09 実行できませんでした&lt;/b&gt;　&lt;span class=&quot;muted&quot;&gt;執筆で止まりました&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;failure&quot;&gt;Every approved idea failed to draft. 見積もりを2倍にしたら仕事が増えた: The API rejected the write.draft request: 400 output_config.format.schema: For &#39;array&#39; type, property &#39;maxItems&#39; is not supported&lt;/div&gt;
+      &lt;div class=&quot;row&quot;&gt;
+        &lt;button class=&quot;primary&quot;&gt;今日のサイクルを動かす&lt;/button&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;why&quot;&gt;止まったステップからやり直します。次の自動実行を待たずに、その場で。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;ここ5日&lt;/h2&gt;
+    &lt;div class=&quot;card hist&quot;&gt;
+      &lt;div&gt;&lt;span class=&quot;when&quot;&gt;09-09&lt;/span&gt;&lt;span class=&quot;what bad&quot;&gt;失敗（執筆）&lt;/span&gt;&lt;/div&gt;
+      &lt;div&gt;&lt;span class=&quot;when&quot;&gt;09-08&lt;/span&gt;&lt;span class=&quot;what&quot;&gt;完了 ・ 2件公開&lt;/span&gt;&lt;/div&gt;
+      &lt;div&gt;&lt;span class=&quot;when&quot;&gt;09-07&lt;/span&gt;&lt;span class=&quot;what&quot;&gt;完了 ・ 2件公開&lt;/span&gt;&lt;/div&gt;
+      &lt;div&gt;&lt;span class=&quot;when&quot;&gt;09-06&lt;/span&gt;&lt;span class=&quot;what&quot;&gt;承認待ちのまま日をまたぎました&lt;/span&gt;&lt;/div&gt;
+      &lt;div&gt;&lt;span class=&quot;when&quot;&gt;09-05&lt;/span&gt;&lt;span class=&quot;what&quot;&gt;完了 ・ 1件公開&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;直近30日&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;stat-row&quot;&gt;
+        &lt;span class=&quot;stat&quot;&gt;投稿&lt;b&gt;41&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;中央値&lt;b&gt;212&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;クリック&lt;b&gt;318&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;成果&lt;b&gt;9&lt;/b&gt;&lt;/span&gt;
+        &lt;span class=&quot;stat&quot;&gt;確定報酬&lt;b&gt;¥38,400&lt;/b&gt;&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;why&quot;&gt;比べるための数字は一覧に、このアカウントを読むための数字はここに。&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;効いている型　6 / 11&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;pat&quot;&gt;&lt;span class=&quot;conf&quot;&gt;0.81&lt;/span&gt;&lt;span&gt;失敗から入って手順で終える&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;pat&quot;&gt;&lt;span class=&quot;conf&quot;&gt;0.74&lt;/span&gt;&lt;span&gt;数字を1つだけ置く&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;pat&quot;&gt;&lt;span class=&quot;conf&quot;&gt;0.66&lt;/span&gt;&lt;span&gt;読者の言葉で問いを立てる&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;pat n&quot; style=&quot;padding-top:6px&quot;&gt;ほか3件。引退した型は5件&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;このアカウントを止める&lt;/h2&gt;
+    &lt;div class=&quot;card danger-zone&quot;&gt;
+      &lt;div class=&quot;row&quot; style=&quot;margin-top:0&quot;&gt;&lt;button&gt;非アクティブにする&lt;/button&gt;&lt;/div&gt;
+      &lt;div class=&quot;why&quot;&gt;動かず、投稿も出ません。学んだこと・履歴・成果はそのまま残り、いつでも再開できます。削除ではありません。押すと理由を1行聞かれ、この画面と記録に残ります。&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:2470px;top:512px;width:390px"><figcaption>アカウントの設定（読むだけ・実装済 v0.3.0）</figcaption><iframe title="アカウントの設定（読むだけ・実装済 v0.3.0）" style="width:390px;height:1040px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 12px 16px; border-bottom: 1px solid var(--line); flex: none; }
+    .back { color: var(--muted); font-size: 12px; }
+    h1 { font-size: 18px; margin: 4px 0 0; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 6px 0 0; }
+    .scroll { flex: 1; overflow: hidden; padding: 14px 16px 24px; }
+    h2 {
+      font-size: 11px; letter-spacing: .08em; color: var(--muted);
+      margin: 16px 0 8px; font-weight: 600;
+    }
+    h2:first-child { margin-top: 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 10px 14px;
+    }
+    .field { padding: 7px 0; border-bottom: 1px solid var(--line); }
+    .field:last-child { border-bottom: 0; }
+    .label { color: var(--muted); font-size: 11px; }
+    .value { font-size: 13px; line-height: 1.55; }
+    /* どのファイルのどこか。編集はここではなくファイルなので、行き先を必ず添える。 */
+    .where {
+      color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin-top: 2px;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .chip.warn { color: var(--warn); }
+    .note {
+      margin-top: 14px; padding: 10px 12px; border-left: 3px solid var(--accent);
+      background: var(--panel); border-radius: 6px; font-size: 12px; line-height: 1.6;
+      color: var(--muted);
+    }
+    .note b { color: var(--ink); }
+    code { background: var(--chip); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;back&quot;&gt;← 朝のツール部屋&lt;/div&gt;
+    &lt;h1&gt;このアカウントの設定&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;いま何が効いているかを読む画面です。変更は設定ファイルで行います。&lt;/p&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;h2&gt;誰に、何を&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;ニッチ&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;AIを使った個人の業務効率化&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].niche&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;読者&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;会社員として働きながら副業を始めたい30代。ツールは好きだが時間がない。&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].audience&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;声&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;元編集者。ツールを試しては失敗している当事者。専門家ぶらない。&lt;br&gt;一人称「僕」 ・ 率直／自嘲気味／具体的&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].voice&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;どこの読者か — 広告規制はここで決まります&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;市場&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;日本（Asia/Tokyo ・ 日本語 ・ JPY）&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].market → markets[jp]&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;開示文&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;※PR・アフィリエイトリンクを含みます&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;markets[jp].disclosureText&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;監督&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;消費者庁（景品表示法／ステルスマーケティング規制）&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;markets[jp].regulator&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;h2&gt;出す先と、扱うもの&lt;/h2&gt;
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;チャネル&lt;/div&gt;
+        &lt;div class=&quot;chips&quot;&gt;&lt;span class=&quot;chip&quot;&gt;threads&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].channels&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;案件&lt;/div&gt;
+        &lt;div class=&quot;chips&quot;&gt;
+          &lt;span class=&quot;chip&quot;&gt;テスト商材（demo ・ ¥1,000 CPA）&lt;/span&gt;
+          &lt;span class=&quot;chip warn&quot;&gt;海外案件 ・ 越境の注意あり&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].offers → offers[]&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;投稿頻度&lt;/div&gt;
+        &lt;div class=&quot;value&quot;&gt;1日2件 ・ 06:30 から ・ 最低120分あける&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures[0].cadence&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;note&quot;&gt;
+      &lt;b&gt;編集はファイルで。&lt;/b&gt; この画面に入力欄が無いのは未完成だからではありません。設定は
+      &lt;code&gt;platform.config.yaml&lt;/code&gt; の1本だけが正本で、画面から書き換えられると
+      「いま何が効いているか」の答えが2つになります。GitHub で直して、コミットすれば反映されます。
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:2940px;top:512px;width:390px"><figcaption>この会社の設定（実装済 v0.4.0）</figcaption><iframe title="この会社の設定（実装済 v0.4.0）" style="width:390px;height:1040px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: center; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 6px; font-weight: 500;
+    }
+    .lede { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 4px 14px;
+    }
+    .field { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+    .field:last-child { border-bottom: 0; }
+    .field .label { color: var(--muted); font-size: 11px; }
+    .field .where {
+      color: var(--muted); font-size: 11px; margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .loud { color: var(--warn); font-weight: 600; }
+    .note { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
+    .note b { color: var(--ink); }
+    code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+    &lt;nav&gt;&lt;a&gt;今日&lt;/a&gt;&lt;a class=&quot;here&quot;&gt;設定&lt;/a&gt;&lt;/nav&gt;
+    &lt;span class=&quot;who&quot;&gt;みどり&lt;/span&gt;
+    &lt;button class=&quot;theme&quot;&gt;配色：明るい&lt;/button&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;h2&gt;この会社の設定&lt;/h2&gt;
+    &lt;p class=&quot;lede&quot;&gt;いま何が効いているかを読む画面です。変更は設定ファイルで行います。&lt;/p&gt;
+
+    &lt;div class=&quot;card&quot;&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;機械に任せている範囲&lt;/div&gt;
+        &lt;div&gt;assisted — 両方の判断であなたを待ちます（推奨は選択済み）&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;company.autonomy&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;AIモデル&lt;/div&gt;
+        &lt;div class=&quot;loud&quot;&gt;mock — 模擬です。本物の文章ではありません&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;llm.provider&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;承認する人&lt;/div&gt;
+        &lt;div&gt;みどり（1人）&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;company.operator&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;開示文&lt;/div&gt;
+        &lt;div&gt;#PR ・ 広告を含みます&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;policy.disclosureText&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;1日の上限&lt;/div&gt;
+        &lt;div&gt;3件まで ・ 最低180分あける ・ AIっぽさ35点で止める&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;policy&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;止める言葉&lt;/div&gt;
+        &lt;div&gt;AIっぽい言い回し 18 件 ・ 使わない表現 6 件&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;policy.bannedPhrases&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;リンクの行き先&lt;/div&gt;
+        &lt;div&gt;https://amp-morning-toolroom.midori.workers.dev&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;tracking.baseUrl&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;field&quot;&gt;
+        &lt;div class=&quot;label&quot;&gt;規模&lt;/div&gt;
+        &lt;div&gt;アカウント 1 ・ 市場 jp&lt;/div&gt;
+        &lt;div class=&quot;where&quot;&gt;ventures / markets&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;p class=&quot;note&quot;&gt;
+      &lt;b&gt;編集はファイルで。&lt;/b&gt;
+      この画面に入力欄が無いのは未完成だからではありません。設定は
+      &lt;code&gt;platform.config.yaml&lt;/code&gt; の1本だけが正本で、画面から書き換えられると
+      「いま何が効いているか」の答えが2つになります。
+    &lt;/p&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:2000px;top:2412px;width:390px"><figcaption>この日を見る（実装済 v0.4.0）</figcaption><iframe title="この日を見る（実装済 v0.4.0）" style="width:390px;height:1180px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 1180px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: center; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px;
+    }
+    .hist div.row { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .hist div.row:last-child { border-bottom: 0; }
+    .hist .when { color: var(--muted); font-variant-numeric: tabular-nums; width: 104px; flex: none; }
+    .hist .bad { color: var(--danger); }
+    .linky { background: none; border: 0; color: var(--accent); font-size: 12px; padding: 0 0 0 10px; cursor: pointer; margin-left: auto; }
+    .tl { margin-top: 10px; }
+    .tl-step { border-left: 2px solid var(--line); padding: 0 0 14px 14px; margin-left: 4px; font-size: 13px; }
+    .tl-step:last-child { padding-bottom: 0; }
+    .tl-step.human { border-left-color: var(--accent); }
+    .tl-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+    .chip { background: var(--chip); border-radius: 999px; padding: 2px 9px; font-size: 12px; color: var(--muted); }
+    .muted { color: var(--muted); }
+    .tl-items { margin-top: 6px; }
+    .tl-item { display: flex; gap: 8px; padding: 3px 0; align-items: baseline; }
+    .tl-item .mark { color: var(--muted); flex: none; width: 1.2em; }
+    .tl-item.chosen .mark { color: var(--accent); }
+    .tl-item.blocked b { color: var(--danger); }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+    &lt;nav&gt;&lt;a class=&quot;here&quot;&gt;今日&lt;/a&gt;&lt;a&gt;設定&lt;/a&gt;&lt;/nav&gt;
+    &lt;span class=&quot;who&quot;&gt;みどり&lt;/span&gt;
+    &lt;button class=&quot;theme&quot;&gt;配色：自動&lt;/button&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;h2&gt;最近の動き&lt;/h2&gt;
+    &lt;div class=&quot;card hist&quot;&gt;
+      &lt;div class=&quot;row&quot;&gt;&lt;span class=&quot;when&quot;&gt;2026-09-13&lt;/span&gt;&lt;span&gt;完了 ・ 2件公開&lt;/span&gt;&lt;button class=&quot;linky&quot;&gt;閉じる&lt;/button&gt;&lt;/div&gt;
+      &lt;div class=&quot;row&quot;&gt;&lt;span class=&quot;when&quot;&gt;2026-09-12&lt;/span&gt;&lt;span&gt;完了 ・ 3件公開&lt;/span&gt;&lt;button class=&quot;linky&quot;&gt;この日を見る&lt;/button&gt;&lt;/div&gt;
+      &lt;div class=&quot;row&quot;&gt;&lt;span class=&quot;when&quot;&gt;2026-09-11&lt;/span&gt;&lt;span class=&quot;bad&quot;&gt;検品できませんでした（検品）&lt;/span&gt;&lt;button class=&quot;linky&quot;&gt;この日を見る&lt;/button&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card tl&quot;&gt;
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;分析&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;05:10 ・ 1.8s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;投稿 12 件を読み、エンゲージメントの中央値は 41&lt;/div&gt;
+        &lt;div&gt;クリック 38、成果 2&lt;/div&gt;
+        &lt;div&gt;確定した報酬 4200 JPY&lt;/div&gt;
+        &lt;div&gt;確定した報酬 31 USD&lt;/div&gt;
+        &lt;div&gt;型を 1 件、実績ありに格上げ&lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;調査&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;05:40 ・ 3.2s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;参考になる投稿を 24 件集め、9 件は捨てた&lt;/div&gt;
+        &lt;div&gt;再現できそうな型を 2 件&lt;/div&gt;
+        &lt;div class=&quot;tl-items&quot;&gt;
+          &lt;div class=&quot;tl-item&quot;&gt;&lt;span&gt;&lt;b&gt;「やめた」から始める一人称&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt; 自分の失敗から入ると、読者が身構えない&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;企画&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;06:20 ・ 4.1s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;案を 10 件&lt;/div&gt;
+        &lt;div class=&quot;tl-items&quot;&gt;
+          &lt;div class=&quot;tl-item&quot;&gt;&lt;span&gt;&lt;b&gt;1. 朝30分をやめた話&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt; 逆張り / 根拠: 8/29 の同型が保存612 / 失敗の仕方: 自慢に読める&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;tl-item&quot;&gt;&lt;span&gt;&lt;b&gt;2. 見積もりを2倍にした&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt; 実体験 / 根拠: クリック率が中央値の1.8倍 / 失敗の仕方: 再現性がないと読まれる&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step human&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;企画の承認&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;07:02 ・ 0.2s&lt;/span&gt;&lt;span class=&quot;chip&quot;&gt;人が決めた&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;みどり が 10 件のうち 3 件を選んだ&lt;/div&gt;
+        &lt;div class=&quot;tl-items&quot;&gt;
+          &lt;div class=&quot;tl-item chosen&quot;&gt;&lt;span class=&quot;mark&quot;&gt;✓&lt;/span&gt;&lt;span&gt;&lt;b&gt;朝30分をやめた話&lt;/b&gt;&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;tl-item chosen&quot;&gt;&lt;span class=&quot;mark&quot;&gt;✓&lt;/span&gt;&lt;span&gt;&lt;b&gt;見積もりを2倍にした&lt;/b&gt;&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;tl-item&quot;&gt;&lt;span class=&quot;mark&quot;&gt;—&lt;/span&gt;&lt;span&gt;&lt;b&gt;ツール10選&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt; 推奨ではない&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;執筆&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;07:03 ・ 6.4s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;3 件を書いた&lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;検品&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;07:05 ・ 2.9s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;3 件を検品&lt;/div&gt;
+        &lt;div&gt;AIっぽさの最大値は 38&lt;/div&gt;
+        &lt;div&gt;1 件は出さないと判断&lt;/div&gt;
+        &lt;div class=&quot;tl-items&quot;&gt;
+          &lt;div class=&quot;tl-item&quot;&gt;&lt;span&gt;&lt;b&gt;AIっぽさ 12&lt;/b&gt;&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;tl-item blocked&quot;&gt;&lt;span&gt;&lt;b&gt;AIっぽさ 38&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt; 「〜かもしれません」が3回 / 開示文が本文から離れている&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;枠決め&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;07:06 ・ 0.4s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;2 件の枠を決めた&lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step human&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;投稿の承認&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;18:40 ・ 0.3s&lt;/span&gt;&lt;span class=&quot;chip&quot;&gt;人が決めた&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;みどり が 2 件のうち 2 件を選んだ&lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;tl-step&quot;&gt;
+        &lt;div class=&quot;tl-head&quot;&gt;&lt;b&gt;投稿&lt;/b&gt;&lt;span class=&quot;muted&quot;&gt;21:00 ・ 1.1s&lt;/span&gt;&lt;/div&gt;
+        &lt;div&gt;2 件を公開&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:120px;top:4112px;width:560px"><figcaption>合言葉（実装済 v0.5.0）</figcaption><iframe title="合言葉（実装済 v0.5.0）" style="width:560px;height:620px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --danger: #a13a2a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 560px; height: 620px; display: flex; overflow: hidden; }
+    main { width: 480px; margin: 48px auto 0; }
+    h1 { font-size: 22px; margin: 0 0 8px; font-weight: 650; }
+    .lede { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+    section {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 20px;
+    }
+    .formerr {
+      border: 1px solid var(--danger); color: var(--danger); font-size: 14px;
+      border-radius: 8px; padding: 9px 12px; margin: 0 0 16px;
+    }
+    .lab { display: block; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .help { display: block; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .help b { color: var(--ink); font-weight: 600; }
+    input {
+      width: 100%; font: inherit; font-size: 15px; padding: 9px 11px;
+      border: 1px solid #d3d3cd; border-radius: 8px; background: var(--panel);
+      letter-spacing: .25em;
+    }
+    button {
+      margin-top: 14px; font: inherit; font-size: 15px; font-weight: 600;
+      padding: 9px 22px; background: var(--accent); color: #fff;
+      border: 0; border-radius: 8px;
+    }
+    footer { color: var(--muted); font-size: 13px; margin: 18px 0 0; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;main&gt;
+    &lt;h1&gt;合言葉を入力してください&lt;/h1&gt;
+    &lt;p class=&quot;lede&quot;&gt;この画面は、合言葉を知っている人だけが開けます。&lt;/p&gt;
+
+    &lt;section&gt;
+      &lt;div class=&quot;formerr&quot;&gt;合言葉が違いました。もう一度入力してください。&lt;/div&gt;
+
+      &lt;span class=&quot;lab&quot;&gt;合言葉&lt;/span&gt;
+      &lt;span class=&quot;help&quot;&gt;設定したものを、そのまま貼り付けてください。&lt;b&gt;記号や空白が入っていても、そのままで届きます。&lt;/b&gt;&lt;/span&gt;
+      &lt;input type=&quot;password&quot; value=&quot;••••••••••••&quot;&gt;
+      &lt;button&gt;開く&lt;/button&gt;
+    &lt;/section&gt;
+
+    &lt;footer&gt;一度入力すると、この端末では30日間そのまま開けます。合言葉をアドレスの末尾に付ける必要はありません。&lt;/footer&gt;
+  &lt;/main&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:820px;top:4112px;width:390px"><figcaption>あなたが投稿する番です（実装済 v0.6.0）</figcaption><iframe title="あなたが投稿する番です（実装済 v0.6.0）" style="width:390px;height:1040px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+      --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
+      --warn: #8a5a00; --danger: #a13a2a; --chip: #f0f0ec;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    header {
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
+      display: flex; align-items: center; gap: 8px;
+    }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 10px; font-weight: 500;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px;
+    }
+    .card.handover { border-color: var(--accent); }
+    .card.handover h3 { font-size: 15px; margin: 0 0 6px; font-weight: 650; }
+    .muted { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+    .part { margin: 0 0 12px; }
+    .part .lab { color: var(--muted); font-size: 11px; display: block; margin-bottom: 4px; }
+    pre.post {
+      margin: 0 0 6px; background: var(--chip); border-radius: 8px; padding: 10px 12px;
+      font: 13px/1.75 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .copy {
+      font: inherit; font-size: 12px; padding: 4px 10px; background: var(--panel);
+      color: var(--ink); border: 1px solid var(--line-strong, #d3d3cd); border-radius: 999px;
+    }
+    .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+    .primary {
+      font: inherit; font-size: 14px; font-weight: 600; padding: 9px 18px;
+      background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
+    }
+    .open {
+      font-size: 13px; color: var(--ink); text-decoration: none;
+      border: 1px solid #d3d3cd; border-radius: 8px; padding: 8px 14px;
+    }
+    .after { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
+      border-bottom: 1px solid var(--line); padding: 6px 8px 6px 0;
+    }
+    td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); }
+    tr:last-child td { border-bottom: 0; }
+    .sep { height: 22px; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+    &lt;nav&gt;&lt;a class=&quot;here&quot;&gt;今日&lt;/a&gt;&lt;a&gt;設定&lt;/a&gt;&lt;/nav&gt;
+    &lt;span class=&quot;who&quot;&gt;みどり&lt;/span&gt;
+    &lt;button class=&quot;theme&quot;&gt;配色：自動&lt;/button&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;h2&gt;予約中の投稿&lt;/h2&gt;
+
+    &lt;div class=&quot;card handover&quot;&gt;
+      &lt;h3&gt;あなたが投稿する番です — 朝のツール部屋&lt;/h3&gt;
+      &lt;p class=&quot;muted&quot;&gt;この投稿は、あなたのアカウントから手で出してください。文面をコピーして、アプリを開いて、貼って投稿します。&lt;/p&gt;
+      &lt;p class=&quot;muted&quot;&gt;予定していた時刻：2026-09-19 06:30 ・ threads&lt;/p&gt;
+
+      &lt;div class=&quot;part&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;本文 1/2&lt;/span&gt;
+        &lt;pre class=&quot;post&quot;&gt;朝、湯を沸かす2分で決まることがある。
+手回しミルを1年使ってみて、粗さより「挽く時間」のほうが味を動かしていた。
+30秒で止めた日と、90秒かけた日の差が、いちばん分かりやすい。&lt;/pre&gt;
+        &lt;button class=&quot;copy&quot;&gt;コピー&lt;/button&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;part&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;本文 2/2&lt;/span&gt;
+        &lt;pre class=&quot;post&quot;&gt;使っているのはこれ。#PR 広告を含みます
+https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f21&lt;/pre&gt;
+        &lt;button class=&quot;copy&quot;&gt;コピー&lt;/button&gt;
+      &lt;/div&gt;
+
+      &lt;p class=&quot;muted&quot;&gt;アフィリエイトリンクはこのコメントに入っています。投稿したあと、最初の返信として貼ってください。&lt;/p&gt;
+
+      &lt;div class=&quot;part&quot;&gt;
+        &lt;span class=&quot;lab&quot;&gt;最初のコメント（affiliate）&lt;/span&gt;
+        &lt;pre class=&quot;post&quot;&gt;挽き目の話はここに書きました。#PR 広告を含みます
+https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22&lt;/pre&gt;
+        &lt;button class=&quot;copy&quot;&gt;コピー&lt;/button&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;row&quot;&gt;
+        &lt;button class=&quot;primary&quot;&gt;投稿しました&lt;/button&gt;
+        &lt;a class=&quot;open&quot;&gt;アプリを開く&lt;/a&gt;
+      &lt;/div&gt;
+
+      &lt;p class=&quot;after&quot;&gt;このチャンネルでは、いいね・返信は取得できません。クリックと報酬はこれまでどおり記録されます。&lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;sep&quot;&gt;&lt;/div&gt;
+
+    &lt;table&gt;
+      &lt;tr&gt;&lt;th&gt;時刻&lt;/th&gt;&lt;th&gt;投稿&lt;/th&gt;&lt;th&gt;状態&lt;/th&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;12:10&lt;/td&gt;&lt;td&gt;保温マグ、3年目の話&lt;/td&gt;&lt;td&gt;予約中&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;19:40&lt;/td&gt;&lt;td&gt;ケトルを買い替えなかった理由&lt;/td&gt;&lt;td&gt;予約中&lt;/td&gt;&lt;/tr&gt;
+    &lt;/table&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<figure class="board" style="left:1290px;top:4112px;width:390px"><figcaption>配色：暗い（実装済 v0.7.0）</figcaption><iframe title="配色：暗い（実装済 v0.7.0）" style="width:390px;height:844px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+  &lt;style&gt;
+    :root {
+      --bg: #14141a; --panel: #1e1e25; --ink: #f0f0ee; --muted: #a8a8a4;
+      --line: #35353e; --line-strong: #46464f; --accent: #7fcf9f; --accent-ink: #102016;
+      --warn: #efbe6c; --danger: #f08c74; --chip: #2c2c35; --row-alt: #232330;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: center; gap: 8px; }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .question { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 12px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 8px; font-weight: 500;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .count {
+      background: var(--chip); color: var(--ink); border-radius: 999px;
+      padding: 1px 9px; font-size: 12px; letter-spacing: 0;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px; margin-bottom: 8px;
+    }
+    .card.on { border-color: var(--accent); }
+    .item { display: flex; gap: 10px; align-items: flex-start; }
+    .box {
+      flex: none; width: 20px; height: 20px; margin-top: 2px; border-radius: 6px;
+      border: 1px solid var(--line-strong); background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box.off { background: transparent; }
+    .title { font-size: 14px; font-weight: 600; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip {
+      background: var(--chip); color: var(--muted); font-size: 11px;
+      border-radius: 999px; padding: 2px 9px;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr { color: var(--accent); }
+    .rest-toggle {
+      width: 100%; font: inherit; font-size: 13px; color: var(--muted);
+      background: transparent; border: 1px dashed var(--line-strong);
+      border-radius: var(--radius); padding: 9px; margin-top: 4px;
+    }
+    .bar {
+      flex: none; border-top: 1px solid var(--line); padding: 12px 16px;
+      display: flex; align-items: center; gap: 12px; background: var(--panel);
+    }
+    .primary {
+      font: inherit; font-size: 15px; font-weight: 600; padding: 10px 20px;
+      background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
+    }
+    .quiet { font: inherit; font-size: 13px; color: var(--muted); background: transparent; border: 0; }
+  &lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+
+
+&lt;div class=&quot;frame&quot;&gt;
+  &lt;header&gt;
+    &lt;div class=&quot;head-row&quot;&gt;
+      &lt;h1&gt;朝のツール部屋&lt;/h1&gt;
+      &lt;nav&gt;&lt;a class=&quot;here&quot;&gt;今日&lt;/a&gt;&lt;a&gt;設定&lt;/a&gt;&lt;/nav&gt;
+      &lt;span class=&quot;who&quot;&gt;みどり&lt;/span&gt;
+      &lt;button class=&quot;theme&quot;&gt;配色：暗い&lt;/button&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;question&quot;&gt;今日出す企画を選んでください。&lt;br&gt;上の3件は、昨日までの実績からの推奨です。&lt;/p&gt;
+  &lt;/header&gt;
+
+  &lt;div class=&quot;scroll&quot;&gt;
+    &lt;h2&gt;あなたの判断待ち&lt;span class=&quot;count&quot;&gt;1&lt;/span&gt;&lt;/h2&gt;
+    &lt;h2 style=&quot;margin-top:16px&quot;&gt;推奨&lt;/h2&gt;
+
+    &lt;div class=&quot;card on&quot;&gt;
+      &lt;div class=&quot;item&quot;&gt;
+        &lt;button class=&quot;box&quot; aria-label=&quot;この企画を選ぶ&quot;&gt;
+          &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#102016&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;div class=&quot;item-body&quot;&gt;
+          &lt;div class=&quot;title&quot;&gt;挽く時間で味が変わる&lt;/div&gt;
+          &lt;div class=&quot;sub&quot;&gt;道具より手順の話にすると、去年から保存率が高い&lt;/div&gt;
+          &lt;div class=&quot;chips&quot;&gt;
+            &lt;span class=&quot;chip&quot;&gt;過去4本の平均より+38%&lt;/span&gt;
+            &lt;span class=&quot;chip warn&quot;&gt;断定しすぎ注意&lt;/span&gt;
+            &lt;span class=&quot;chip pr&quot;&gt;PR&lt;/span&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card on&quot;&gt;
+      &lt;div class=&quot;item&quot;&gt;
+        &lt;button class=&quot;box&quot; aria-label=&quot;この企画を選ぶ&quot;&gt;
+          &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#102016&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;div class=&quot;item-body&quot;&gt;
+          &lt;div class=&quot;title&quot;&gt;買い替えなかった3年目のケトル&lt;/div&gt;
+          &lt;div class=&quot;sub&quot;&gt;「買わない理由」は反応が落ちにくい型&lt;/div&gt;
+          &lt;div class=&quot;chips&quot;&gt;
+            &lt;span class=&quot;chip&quot;&gt;同じ型で3本連続&lt;/span&gt;
+            &lt;span class=&quot;chip pr&quot;&gt;PR&lt;/span&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;card on&quot;&gt;
+      &lt;div class=&quot;item&quot;&gt;
+        &lt;button class=&quot;box&quot; aria-label=&quot;この企画を選ぶ&quot;&gt;
+          &lt;svg width=&quot;12&quot; height=&quot;12&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M2.5 6.5 L5 9 L9.5 3.5&quot; stroke=&quot;#102016&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;/path&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;div class=&quot;item-body&quot;&gt;
+          &lt;div class=&quot;title&quot;&gt;保温マグ、洗いにくさの話&lt;/div&gt;
+          &lt;div class=&quot;sub&quot;&gt;短所から入る型。朝の時間帯で伸びている&lt;/div&gt;
+          &lt;div class=&quot;chips&quot;&gt;
+            &lt;span class=&quot;chip&quot;&gt;7:00台がいちばん読まれる&lt;/span&gt;
+            &lt;span class=&quot;chip pr&quot;&gt;PR&lt;/span&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;button class=&quot;rest-toggle&quot;&gt;残り7件を見る&lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;bar&quot;&gt;
+    &lt;button class=&quot;primary&quot;&gt;3件を承認する&lt;/button&gt;
+    &lt;button class=&quot;quiet&quot;&gt;今日は見送る&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;"></iframe></figure>
+<aside class="note" id="note-brief" style="left:120px;top:350px;width:390px"><p>運用者の1日は2回だけ。朝、企画に「OK」と言う。夕方、順番を決める。それ以外の時間、この画面は「何もない」と言う。</p></aside>
+<aside class="note" id="note-note-idle" style="left:120px;top:1440px;width:390px"><p>週の大半はこの画面。何もないと言うだけでは不安なので、寝ているあいだに会社がやったことを出来事として置く。</p></aside>
+<aside class="note" id="note-who" style="left:590px;top:1440px;width:390px"><p>右上の丸い「みどり」は、いま誰の合言葉で開いているか。承認したことは全部この名前で記録に残るので、押す前に見えている必要がある。</p><p><strong>以前は「みどり として ・ 1 / 2」と、名前と待ち件数が1つの灰色の行に同居していた。</strong>名前が役職に読まれ、数も名前も読み飛ばされた。いまは名前は右上の常設の furniture、件数は「あなたの判断待ち」の見出しの横 — 数と、数えている物が一緒に読める場所にある。</p><p>合言葉は人ごと。1本を共有すると、記録は全部オーナーの名前になる — そして<strong>承認の記録は後から作り直せない</strong>。権限の区別はまだ無く、名前を持つ人は全員同じことができる。違うのは記録が本当のことを言う点だけ。</p></aside>
+<aside class="note" id="note-note-main" style="left:590px;top:430px;width:390px"><p>10案のうち推奨3件だけを開いて、最初からチェック済み。そのまま押せば30秒。疑ったときだけ下の7件と根拠を開く。</p></aside>
+<aside class="note" id="note-note-publish" style="left:1060px;top:430px;width:390px"><p>枠の時刻は数字から決まっていて動かせない。動かせるのは「どれをどの枠に」だけ。並べ替えると時刻が付け替わる。</p></aside>
+<aside class="note" id="note-note-smell" style="left:1060px;top:2410px;width:390px"><p>AIっぽさの上限は policy.maxAiSmellScore（既定 35）。画面に出す点は、検品担当の書き直し後の自己採点と、同じ書き直しに対する policy.ts の機械判定の、悪いほう（inspector.ts の Math.max）。</p></aside>
+<aside class="note" id="note-note-noedit" style="left:590px;top:2410px;width:390px"><p>詳細画面にも編集はない。書き直させた瞬間、人間の仕事は2つでなくなる。読んで、出すか出さないかを決めるためだけの画面。</p></aside>
+<aside class="note" id="note-note-weekly" style="left:1530px;top:350px;width:390px"><p>右の2枚は日課ではない。実装では承認画面の同じページの、判断待ちの下に節として付く。上に置くと朝の30秒が壊れるので、下。見直し候補の印はコードが数字から付ける（company.exploration.review）。切るのは人。</p></aside>
+<aside class="note" id="note-note-append" style="left:1530px;top:3340px;width:390px"><p>採用は設定ファイルへの追記（書き換えではない）。ventures: の直下にコメント付き・active: false で差し込み、控えを .amp/config-backups/ に残す。追記できなかったときは画面が「追記できていません」と言い、ブロックを手で貼る。</p></aside>
+<aside class="note" id="note-run-today" style="left:2000px;top:1800px;width:390px"><p>失敗した日は、理由をそのまま出す。以前は「2026-09-09 failed → write」— 日本語の画面に、platform 側の英語の語がそのまま — としか出しておらず、理由はログに行っていた — ホストにはログを読む端末が無く、実際に理由を取り出すのにデータベースを直接見る必要があった。</p><p>隣の「今日のサイクルを動かす」は、その理由を読んだあとに押すもの。これが無いと、失敗した日を直す手段が「次の自動実行を待つ」しかなくなる。待つことは、決めることではない。自動実行と同じ鍵を取るので、二重には走らない。</p></aside>
+<aside class="note" id="note-naming" style="left:2470px;top:1660px;width:390px"><p>アカウントの id と名前は、順位ではなく中身で付ける（morning-tools / 朝のツール部屋）。「メイン」は2つ目ができた日に意味を失う。id は承認画面のアドレスにも記録すべてにも入るので、後から変えると履歴が切れる — 最初に決める。探索担当が提案する新しいアカウントも、同じ形の id を付ける。</p></aside>
+<aside class="note" id="note-measurement-why" style="left:1530px;top:1940px;width:390px"><p>計測が未完成のとき、どの段でつまずいているかを1行で出す。Cloudflare に置いたライセンシーには doctor を打つ端末が無いので、「未完成」だけでは何をすればいいか分からない。文言は段の名前から作る — doctor の文章は英語で、端末向けに書かれている。</p></aside>
+<aside class="note" id="note-three-levels" style="left:1530px;top:120px;width:860px"><p>3階層。<strong>今日</strong>（判断待ち・予約中／毎日30秒）、<strong>全アカウント</strong>（比べる／週に1回）、<strong>アカウント</strong>（1つを理解して直す／何かあったとき）。</p><p>第1階層は俯瞰ダッシュボードではない。運用者の1日は2回の判断で終わるという約束があるので、最初に出るのは「今日やること」でなければならない。一般的なダッシュボード論をそのまま持ってくると、ここを間違える。</p></aside>
+<aside class="note" id="note-list-is-for-comparing" style="left:1530px;top:1440px;width:390px"><p>一覧に残る操作は「開く」だけ。止める・再開する・動かすはアカウント側へ移した。</p><p>そうしなかった間に何が起きたか：APIエラーの全文を 直近サイクル に入れたら1セルが表を占領し、他の9列が1文字幅・ヘッダが縦書きになった。比べる画面に1件分の詳細と操作を足していくと、必ずこうなる。</p><p>失敗だけは例外で、<strong>「実行できませんでした」</strong>と、その下に小さく1行の補足を出す。稀だが緊急で、隠すと気づくのが翌週になる。理由の全文は開いた先。</p><p><strong>この要約は失敗のコードから作る。</strong>（write.all_failed → 実行できませんでした／inspect.unreadable → 検品できませんでした、など）。APIのメッセージを切り詰めて作ってはいけない — 先頭が英語のスタックだったり、途中で切れて意味が反転したりする。訳の無いコードが来たら、コードそのものを出す（labels.ts と同じで、テストが落ちる形にする）。</p></aside>
+<aside class="note" id="note-account-screen" style="left:2000px;top:310px;width:390px"><p>アカウントの画面。ここが「1つを直す」場所。</p><p>失敗の理由は全文をここで読み、その真下に「今日のサイクルを動かす」がある — 読んでから押す順番になる。履歴・数字・型もここ。止めるのも一番下のここで、一覧からは押せない。</p><p>住所は `#/ventures/&lt;id&gt;`。ハッシュにするのは、ワーカーでもデーモンでも同じ1ファイルのままで済むから。</p></aside>
+<aside class="note" id="note-settings-read-only" style="left:2470px;top:310px;width:390px"><p>設定は<strong>読むだけ</strong>。入力欄が無いのは未完成だからではない — 正本は platform.config.yaml 1本で、画面から書けると「いま何が効いているか」の答えが2つになる。</p><p>ただし、設定ファイルを開かせるのも違う。ニッチ・読者・声・市場・開示・案件・チャネル・頻度が1枚で読めて、各行に<strong>どのファイルのどこか</strong>が付いている状態にする。</p></aside>
+<aside class="note" id="note-gate-expires" style="left:120px;top:1600px;width:470px"><p>この画面が1アカウントにつき1枚しか出ないのは、<strong>答えないまま日が変わった判断は期限切れになる</strong>から（2026-09-11 決定。要件4節）。</p><p>そうしていなかったとき、承認されなかった門が翌日の門の横に残り、見出しが同じなので「画面が同じものを2回描いた」と読まれた。実運用で報告された。</p><p>捨てる理由は表示の都合ではない。過ぎた日を承認すると、枠は過ぎた日の時刻で決まり、配信は「枠が来たもの」を出すので、その日の全部が間隔ゼロで同時に出る。minMinutes がその日だけ効かない。画面の注意書きでは止まらない種類の事故なので、押せなくした。</p><p>企画そのものは消さない。判断は expired として残り、「最近の動き」に何日分が落ちたかが出る。黙って消すと、溜まっていたことに気づけないという同じ問題が残る。</p></aside>
+<aside class="note" id="note-company-settings" style="left:2940px;top:220px;width:390px"><p><strong>会社の設定（v0.4.0 で実装済）。</strong>隣の「アカウントの設定」がニッチ・読者・声を読む画面なのに対し、こちらは全アカウントに効いているものを読む画面。ヘッダーの「設定」から入る。</p><p><strong>この画面がある理由は上の2行にある。</strong>自律の範囲とAIモデルは、それまで承認画面のどこにも出ていなかった — つまり `autonomy: auto` で無人運転していることにも、`llm.provider: mock` で本物の文章が1行も書かれていないことにも、画面からは気づけなかった。その2つだけが注意色で自分から名乗る。残りは参照。</p><p>開示を切っているとき、リンクの行き先が example.invalid のままのときも同じ扱い。</p><p>各行の下のグレーの小さな字は<strong>設定ファイルのどこか</strong>。読むだけの画面は、次にどこを開けばいいかまで言って初めて読むだけで済む。</p></aside>
+<aside class="note" id="note-timeline-not-daily" style="left:2000px;top:3680px;width:390px"><p><strong>「この日を見る」（v0.4.0 で実装済）。</strong>役割が何をどの順でやり、何と言ったかを、1日ぶん読み戻す画面。</p><p><strong>日課ではない。</strong>製品の約束は「1日2回・30秒」で、毎朝見ないと不安になる画面を作った時点でその約束は失われる。だからアカウントの履歴の日付から開く形にして、今日の画面は変えていない。答えるのは、何かおかしいと思ったときにだけ出る問い — <strong>なぜこれを出そうとしたのか</strong>。</p><p>企画の行には、その案の根拠（過去のどの数字から言っているか）が付く。それが無ければ進捗バーにすぎない。</p><p><strong>門は左の線が緑になり「人が決めた」と付く。</strong>`autonomy: auto` の日は機械が両方決めるので、その印は付かない — ここは誰が決めたかの記録で、見ていない日に自分の名前が出ることだけは許されない。</p><p><strong>選ばれなかった案も残す。</strong>2件承認とだけ書くと、8件出ていたことが消える。検品で止まったものも赤で残る。</p><p>通貨は足さない。円とドルは別の行で出る。</p></aside>
+<aside class="note" id="note-new-in-0-7-0" style="left:120px;top:3920px;width:1560px"><p><strong>2026-09-19 に増えた画面（v0.7.0 で実装済）。</strong>上の板と違って、ここは提案ではなく動いているものの写し。</p><p>左から、<strong>合言葉</strong>（承認画面を開く前の1枚）、<strong>あなたが投稿する番です</strong>（`adapter: manual` のとき「今日」の予約中の投稿の先頭に出るカード）、<strong>配色：暗い</strong>（ヘッダーの切替で、同じ「今日」がこう見える）。</p></aside>
+<aside class="note" id="note-note-unlock" style="left:120px;top:4820px;width:560px"><p><strong>合言葉をアドレスに載せなくてよくなった。</strong>以前は `?token=…` で渡す形で、記号の入った合言葉がURLで壊れ、実デプロイで承認画面に入れなくなった（2026-09-18）。入力欄にしたので、記号も空白もそのまま届く。</p><p><strong>初回はこの画面から赤い帯が無いだけ。</strong>失敗すると帯が出て、<strong>入力欄は空に戻る</strong> — 打った値は絶対に埋め戻さない。</p><p>入ると30日はその端末で開いたままになる（Cookie）。合言葉は人ごとで、共有すると承認の記録が全部その1人の名前になる。</p><p>⚠️ <strong>この画面とセットアップ画面だけ、配色の切替が効かない。</strong>ライト固定で `prefers-color-scheme` も見ていないので、OSが暗いと承認画面だけ暗く、この2枚は白いまま出る。直すかどうかは未決。</p></aside>
+<aside class="note" id="note-note-handover" style="left:820px;top:5240px;width:390px"><p><strong>手動投稿は橋であって、行き先ではない</strong>（2026-09-19 オーナー）。アダプタを書いてチャネルを増やす方針は変わらない。`threads.ts` が本物を相手にしたことがなく、API接続がオンボードの最難関であるいま、先に進むために入れた。</p><p>位置は「今日」の<strong>予約中の投稿の見出しの直下・予約表の上</strong>。押されるまで消えないので、表より上でなければ見落とす。</p><p><strong>本文が複数に割れるときは、割れた形のままコピーさせる。</strong>ここで人につなぎ直させると、開示が末尾から落ちる — Threads で実際に起きた事故と同じ形になる。</p><p><strong>「投稿しました」の前に投稿のURLを聞く。</strong>空でも進む。聞かないと、あとから記録と実物を突き合わせる手段が無くなる。</p><p><strong>いいね・返信はこのチャネルでは取れない。</strong>画面でそう言っておかないと、数字が伸びないことを製品の不具合と読む。クリックと報酬は `/go/` を通るので、これまでどおり記録される。</p></aside>
+<aside class="note" id="note-note-theme" style="left:1290px;top:5040px;width:390px"><p><strong>配色は3つ。</strong>ボタンを押すたび 自動 → 明るい → 暗い → 自動 と回る。「自動」はOSに従う（`data-theme` を外す）。選ぶと端末に覚える（`localStorage`）。</p><p><strong>アカウント側の設定ではない。</strong>同じ承認画面を2人が別の配色で開ける。</p><p>暗いほうの緑は `#7fcf9f` で、明るいほうの `#2f6f4f` の反転ではない。暗い背景に濃い緑を置くと沈むので、<strong>色は付け替えるのではなく引き直す</strong>。ボタンの文字は逆に濃い（`#102016`）。</p><p>判断に使う色（注意・危険）も別の値にしてある — 暗い画面で `#a13a2a` は黒と見分けがつかない。</p></aside>
+</div></div>
+</body>
+</html>

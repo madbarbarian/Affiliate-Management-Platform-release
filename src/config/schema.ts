@@ -220,6 +220,30 @@ export type ExplorationConfig = {
   };
 };
 
+/**
+ * How hard a failed day tries again before it is left alone until tomorrow.
+ *
+ * There is a limit at all because the scheduler no longer decides from memory.
+ * A cron fire is a fresh isolate, so "we already tried this" has to be a fact
+ * on the cycle record - and a record that says "failed" with no count is a day
+ * that retries every hour until midnight.
+ */
+export type RetryConfig = {
+  /**
+   * How many times a day's cycle may be started, counting the first.
+   *
+   * Raising this by one raises the worst-case cost of a failed day by roughly
+   * one whole cycle. A retry re-runs the step that failed, and a step is not
+   * one model call: `write` calls the writer once per approved idea, `inspect`
+   * once per draft. The only step that fails the cycle with "try again" is
+   * `write` when every draft failed, so one retry is N model calls, not one.
+   *
+   * On Cloudflare, changing this needs a redeploy: the config is compiled into
+   * the Worker, so editing the file alone changes nothing that is running.
+   */
+  readonly maxCycleAttempts: number;
+};
+
 export type PlatformConfig = {
   readonly version: number;
   readonly company: {
@@ -238,6 +262,7 @@ export type PlatformConfig = {
      */
     readonly boundaries: readonly string[];
     readonly exploration: ExplorationConfig;
+    readonly retry: RetryConfig;
   };
   readonly runtime: RuntimeConfig;
   readonly llm: LlmConfig;
@@ -297,6 +322,7 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
   const companyRaw = at("company", get(raw, "company")).object();
   const explorationRaw = at("company.exploration", companyRaw["exploration"]).object();
   const reviewRaw = at("company.exploration.review", explorationRaw["review"]).object();
+  const retryRaw = at("company.retry", companyRaw["retry"]).object();
   const company = {
     name: at("company.name", companyRaw["name"]).string("My AI Company"),
     operator: at("company.operator", companyRaw["operator"]).string("operator"),
@@ -338,6 +364,9 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
           reviewRaw["belowShareOfMedian"],
         ).number({ min: 0, max: 1, fallback: 0.5 }),
       },
+    },
+    retry: {
+      maxCycleAttempts: readMaxCycleAttempts(at("company.retry.maxCycleAttempts", retryRaw["maxCycleAttempts"])),
     },
   };
 
@@ -669,6 +698,30 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
 
   if (reader.issues.length > 0) throw new ConfigError(reader.issues, source);
   return config;
+}
+
+/** One start plus one retry. Enough for a blip, not enough to pay for a bad day twice over. */
+export const DEFAULT_MAX_CYCLE_ATTEMPTS = 2;
+export const MAX_CYCLE_ATTEMPTS_RANGE = { min: 1, max: 5 } as const;
+
+/**
+ * Range-checked here rather than by `.number({ min, max })` so the message can
+ * name the fix. The built-in one says "must be at most 5, got 20", which tells
+ * a licensee what is wrong and nothing about what to write instead - and this
+ * is a number whose only effect is on their bill.
+ */
+function readMaxCycleAttempts(field: ReturnType<ReturnType<typeof createReader>["at"]>): number {
+  const { min, max } = MAX_CYCLE_ATTEMPTS_RANGE;
+  const value = field.number({ integer: true, fallback: DEFAULT_MAX_CYCLE_ATTEMPTS });
+  if (value < min || value > max) {
+    field.reject(
+      `must be between ${min} and ${max} - write ${DEFAULT_MAX_CYCLE_ATTEMPTS}, which is the default, ` +
+        `or ${min} to stop retrying a failed day at all. Each extra attempt costs about one more cycle ` +
+        `on a day that keeps failing.`,
+    );
+    return DEFAULT_MAX_CYCLE_ATTEMPTS;
+  }
+  return value;
 }
 
 /** Cross-references that a per-field validator cannot see. */

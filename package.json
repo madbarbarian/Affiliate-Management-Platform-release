@@ -1,6 +1,6 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "An autonomous AI-company platform that runs affiliate operations end to end, with the human kept in the loop for approval and ordering only.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
@@ -23,6 +23,7 @@
     "amp": "node src/cli.ts",
     "console": "node src/cli.ts console",
     "build": "node scripts/bundle-worker.ts",
+    "build:canvas": "node scripts/build-canvas.ts",
     "pretypecheck": "npm run build",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build",

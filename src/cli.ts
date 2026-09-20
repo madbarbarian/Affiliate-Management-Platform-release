@@ -30,13 +30,8 @@ import {
   resolveProposal,
   runScout,
 } from "./kernel/exploration.ts";
-import {
-  deactivateVenture,
-  describeInactive,
-  isVentureActive,
-  reactivateVenture,
-  readVentureState,
-} from "./kernel/venture-state.ts";
+import { describeInactive, isVentureActive, readVentureState } from "./kernel/venture-state.ts";
+import { switchVentureOff, switchVentureOn } from "./kernel/venture-switch.ts";
 import { buildPortfolio, renderPortfolio } from "./domain/portfolio.ts";
 import { roster } from "./roles/index.ts";
 import { createRuntime, type Runtime, type RuntimeOptions } from "./runtime.ts";
@@ -997,25 +992,31 @@ async function commandVentureSwitch(runtime: Runtime, options: Options, on: bool
     return 2;
   }
   const dataDir = runtime.loaded.dataDir;
-  const nowIso = runtime.services.clock.nowIso();
-  // The audit log is append-only lines, which is why this is safe without the
-  // data lock the daemon holds: nothing is rewritten. The same click in the
-  // console leaves the same record, so the trail does not depend on the surface.
-  const audit = async (type: string, summary: string): Promise<void> =>
-    (await runtime.services.stores.for(ventureId)).audit.append({
-      id: runtime.services.ids.next("evt"),
-      at: nowIso,
-      ventureId,
-      type,
-      actor: runtime.config.company.operator,
-      summary,
-      data: {},
-    });
+  // The same operation the console's button performs, not a second sequence
+  // that does roughly the same things. It was a second sequence, and it was
+  // already one step short: the button closed the gate the account still had
+  // open and this did not, so whether an operator was left with a question
+  // nobody could answer depended on which surface they had reached for.
+  const switching = {
+    services: runtime.services,
+    state: runtime.state,
+    orchestrator: runtime.orchestrator,
+    ventureId,
+    by: runtime.config.company.operator,
+  };
   if (!on) {
-    const reason = options.reason ?? "";
-    const state = await deactivateVenture(runtime.state, ventureId, { at: nowIso, by: runtime.config.company.operator, reason });
-    await audit("venture.deactivated", `Deactivated "${venture.name}"${reason ? `: ${reason}` : ""}.`);
-    process.stdout.write(`${describeInactive(venture, state)}\n`);
+    const off = await switchVentureOff({ ...switching, reason: options.reason ?? "" });
+    if (!off.ok) {
+      process.stderr.write(`${describeError(off.error)}\n`);
+      return 1;
+    }
+    process.stdout.write(`${describeInactive(venture, off.value.state)}\n`);
+    if (off.value.closedGates > 0) {
+      process.stdout.write(
+        `${off.value.closedGates} decision(s) that were waiting have been closed. ` +
+          `Reactivating does not reopen them; run the day from the console or \`amp cycle run\`.\n`,
+      );
+    }
     const held = await (await runtime.services.stores.for(ventureId)).posts.find((post) => post.status === "approved");
     if (held.length > 0) {
       process.stdout.write(`${held.length} approved post(s) are held and will go out if the account is reactivated.\n`);
@@ -1026,8 +1027,12 @@ async function commandVentureSwitch(runtime: Runtime, options: Options, on: bool
     await warnAboutPostsBeyondRecall(dataDir, ventureId);
     return 0;
   }
-  const { wasInactive } = await reactivateVenture(runtime.state, ventureId);
-  await audit("venture.activated", `Reactivated "${venture.name}".`);
+  const back = await switchVentureOn(switching);
+  if (!back.ok) {
+    process.stderr.write(`${describeError(back.error)}\n`);
+    return 1;
+  }
+  const { wasInactive } = back.value;
   if (!venture.active) {
     process.stdout.write(
       `Cleared the operator's deactivation, but "${ventureId}" has active: false in ${runtime.loaded.path}. ` +

@@ -1,0 +1,166 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #14141a; --panel: #1e1e25; --ink: #f0f0ee; --muted: #a8a8a4;
+      --line: #35353e; --line-strong: #46464f; --accent: #7fcf9f; --accent-ink: #102016;
+      --warn: #efbe6c; --danger: #f08c74; --chip: #2c2c35; --row-alt: #232330;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: center; gap: 8px; }
+    h1 { font-size: 17px; margin: 0; font-weight: 650; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a.here { color: var(--ink); }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
+    .question { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 12px; }
+    h2 {
+      font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 0 0 8px; font-weight: 500;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .count {
+      background: var(--chip); color: var(--ink); border-radius: 999px;
+      padding: 1px 9px; font-size: 12px; letter-spacing: 0;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px; margin-bottom: 8px;
+    }
+    .card.on { border-color: var(--accent); }
+    .item { display: flex; gap: 10px; align-items: flex-start; }
+    .box {
+      flex: none; width: 20px; height: 20px; margin-top: 2px; border-radius: 6px;
+      border: 1px solid var(--line-strong); background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box.off { background: transparent; }
+    .title { font-size: 14px; font-weight: 600; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip {
+      background: var(--chip); color: var(--muted); font-size: 11px;
+      border-radius: 999px; padding: 2px 9px;
+    }
+    .chip.warn { color: var(--warn); }
+    .chip.pr { color: var(--accent); }
+    .rest-toggle {
+      width: 100%; font: inherit; font-size: 13px; color: var(--muted);
+      background: transparent; border: 1px dashed var(--line-strong);
+      border-radius: var(--radius); padding: 9px; margin-top: 4px;
+    }
+    .bar {
+      flex: none; border-top: 1px solid var(--line); padding: 12px 16px;
+      display: flex; align-items: center; gap: 12px; background: var(--panel);
+    }
+    .primary {
+      font: inherit; font-size: 15px; font-weight: 600; padding: 10px 20px;
+      background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
+    }
+    .quiet { font: inherit; font-size: 13px; color: var(--muted); background: transparent; border: 0; }
+  </style>
+</helmet>
+
+<div class="frame">
+  <header>
+    <div class="head-row">
+      <h1>朝のツール部屋</h1>
+      <nav><a class="here">今日</a><a>設定</a></nav>
+      <span class="who">みどり</span>
+      <button class="theme">配色：暗い</button>
+    </div>
+    <p class="question">今日出す企画を選んでください。<br>上の3件は、昨日までの実績からの推奨です。</p>
+  </header>
+
+  <div class="scroll">
+    <h2>あなたの判断待ち<span class="count">1</span></h2>
+    <h2 style="margin-top:16px">推奨</h2>
+
+    <div class="card on">
+      <div class="item">
+        <button class="box" aria-label="この企画を選ぶ">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="#102016" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </button>
+        <div class="item-body">
+          <div class="title">挽く時間で味が変わる</div>
+          <div class="sub">道具より手順の話にすると、去年から保存率が高い</div>
+          <div class="chips">
+            <span class="chip">過去4本の平均より+38%</span>
+            <span class="chip warn">断定しすぎ注意</span>
+            <span class="chip pr">PR</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card on">
+      <div class="item">
+        <button class="box" aria-label="この企画を選ぶ">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="#102016" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </button>
+        <div class="item-body">
+          <div class="title">買い替えなかった3年目のケトル</div>
+          <div class="sub">「買わない理由」は反応が落ちにくい型</div>
+          <div class="chips">
+            <span class="chip">同じ型で3本連続</span>
+            <span class="chip pr">PR</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card on">
+      <div class="item">
+        <button class="box" aria-label="この企画を選ぶ">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="#102016" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </button>
+        <div class="item-body">
+          <div class="title">保温マグ、洗いにくさの話</div>
+          <div class="sub">短所から入る型。朝の時間帯で伸びている</div>
+          <div class="chips">
+            <span class="chip">7:00台がいちばん読まれる</span>
+            <span class="chip pr">PR</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button class="rest-toggle">残り7件を見る</button>
+  </div>
+
+  <div class="bar">
+    <button class="primary">3件を承認する</button>
+    <button class="quiet">今日は見送る</button>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
