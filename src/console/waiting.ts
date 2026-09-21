@@ -8,10 +8,29 @@
  * therefore stops waiting on the response after a deadline and starts watching
  * `/api/state` instead, and this is the judgement it makes on every poll.
  *
- * It lives here rather than inside the page's script because that script is an
- * inlined string no test can call. `ui.ts` inlines `WAITING_IS_OVER_SOURCE` -
- * this function, not a second copy of it - so what a browser runs is what the
- * tests run.
+ * **It is text, not a function, and that is the point.** It used to be a
+ * TypeScript function that `ui.ts` inlined as `waitingIsOver.toString()`, on
+ * the theory that what a browser runs is then what the tests run. That holds
+ * only while nothing rewrites the code in between - and on Cloudflare
+ * something always does. wrangler bundles the Worker with esbuild, which by
+ * default wraps named functions in `__name(...)`; `.toString()` handed those
+ * calls to a page that has no `__name`, and the judgement threw on its first
+ * poll. From v0.7.0 on, run and approve stayed on 動かしています… / 送信中…
+ * for good on every Cloudflare deploy, and every test was green, because Node
+ * strips types and rewrites nothing.
+ *
+ * A bundler does not look inside a string. Written as the JavaScript the page
+ * runs, the judgement reaches the browser byte for byte under any transform -
+ * esbuild's defaults, `--minify`, whatever comes next. The tests evaluate this
+ * same text (`test/page-harness.ts`, `waitingJudgementFrom`), so there is still
+ * one answer and it is still the tested one. What this costs is tsc: nothing
+ * type-checks the text, so the tests do that job - the named cases in
+ * `test/console.test.ts`, run in strict mode in a context holding nothing a
+ * bundler might have assumed was there, and a check that wrangler's build
+ * leaves every page unchanged.
+ *
+ * Do not patch the page with a no-op `__name` instead. That depends on one
+ * esbuild helper's name, and `--minify` already renames it.
  *
  * It answers "no" whenever it cannot tell. Saying "yes" wrongly takes down the
  * line that says the work is still going, which is the exact silence this path
@@ -36,14 +55,32 @@ export type WaitingRow = {
   };
 };
 
-export function waitingIsOver(
-  before: WaitingSnapshot | null | undefined,
-  now: WaitingSnapshot | null | undefined,
-  ventureId: string,
-): boolean {
+/**
+ * The two functions `WAITING_IS_OVER_SOURCE` declares, as the page calls them.
+ *
+ * A promise about the text below that tsc cannot hold it to - the tests do.
+ */
+export type WaitingJudgement = {
+  readonly waitingIsOver: (
+    before: WaitingSnapshot | null | undefined,
+    now: WaitingSnapshot | null | undefined,
+    ventureId: string,
+  ) => boolean;
+  readonly waitEndedBecause: (input: {
+    readonly answered: boolean;
+    readonly before: WaitingSnapshot | null | undefined;
+    readonly now: WaitingSnapshot | null | undefined;
+    readonly ventureId: string;
+  }) => "answered" | "moved" | null;
+};
+
+// Plain JavaScript that a browser can run as it stands: no types, no
+// backticks, no `${`. It is inlined into the page's module script, so it has to
+// be valid there - strict mode included.
+export const WAITING_IS_OVER_SOURCE = String.raw`function waitingIsOver(before, now, ventureId) {
   if (!before || !now || !ventureId) return false;
 
-  const gatesOf = (snapshot: WaitingSnapshot): string[] =>
+  const gatesOf = (snapshot) =>
     (snapshot.pending || [])
       .filter((decision) => decision.ventureId === ventureId)
       .map((decision) => decision.id);
@@ -56,7 +93,7 @@ export function waitingIsOver(
   const openBefore = gatesOf(before);
   if (gatesOf(now).some((id) => openBefore.indexOf(id) < 0)) return true;
 
-  const rowOf = (snapshot: WaitingSnapshot): WaitingRow | undefined =>
+  const rowOf = (snapshot) =>
     ((snapshot.portfolio && snapshot.portfolio.rows) || [])
       .find((row) => row.ventureId === ventureId);
   const rowBefore = rowOf(before);
@@ -73,43 +110,27 @@ export function waitingIsOver(
 
   // Which day, how far it got, and what is next. All three move as a cycle
   // advances, and a failure moves the status.
-  const mark = (row: WaitingRow): string => {
+  const mark = (row) => {
     const cycle = row.lastCycle;
     return cycle ? [cycle.date, cycle.status, cycle.nextStep || ""].join("|") : "";
   };
   return mark(rowBefore) !== mark(rowNow);
 }
 
-/**
- * The function above as source, for the page to inline.
- *
- * Node strips types by blanking them, so what comes back is valid JavaScript.
- * If that ever stopped being true the page would not parse, and the test that
- * parses the page would go red before a licensee saw an inert screen.
- */
-/**
- * Why the page may stop waiting, or null while it must keep waiting.
- *
- * Two reasons, and the first is the one that was missing. **The request is the
- * authority**: when the answer finally arrives - late, after the deadline - the
- * work is done and there is nothing left to watch for, whatever the comparison
- * below can or cannot see.
- *
- * The comparison is the fallback, for an answer that never arrives at all, and
- * it needs a `before` to compare against. Pressing the button on a page that
- * had not finished loading left it with nothing: `waitingIsOver` answered "not
- * yet" to every poll and the screen said the work was still running for five
- * minutes after it had finished. The owner hit exactly that on the first real
- * run - opened an account and pressed.
- */
-export function waitEndedBecause(input: {
-  readonly answered: boolean;
-  readonly before: WaitingSnapshot | null | undefined;
-  readonly now: WaitingSnapshot | null | undefined;
-  readonly ventureId: string;
-}): "answered" | "moved" | null {
+// Why the page may stop waiting, or null while it must keep waiting.
+//
+// Two reasons, and the first is the one that was missing. The request is the
+// authority: when the answer finally arrives - late, after the deadline - the
+// work is done and there is nothing left to watch for, whatever the comparison
+// can or cannot see.
+//
+// The comparison is the fallback, for an answer that never arrives at all, and
+// it needs a before to compare against. Pressing the button on a page that had
+// not finished loading left it with nothing: waitingIsOver answered "not yet"
+// to every poll and the screen said the work was still running for five
+// minutes after it had finished. The owner hit exactly that on the first real
+// run - opened an account and pressed.
+function waitEndedBecause(input) {
   if (input.answered) return "answered";
   return waitingIsOver(input.before, input.now, input.ventureId) ? "moved" : null;
-}
-
-export const WAITING_IS_OVER_SOURCE = [waitingIsOver.toString(), waitEndedBecause.toString()].join("\n\n");
+}`;

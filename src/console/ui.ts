@@ -535,7 +535,9 @@ const WATCH_LIMIT_MS = 300000;
 
 // Inlined from src/console/waiting.ts rather than written out here: this is the
 // one decision on this page a test can call directly, and a second copy of it
-// would be a second answer.
+// would be a second answer. It is JavaScript text there, not a function's
+// .toString() - the bundler Cloudflare runs rewrites functions, and never
+// looks inside a string.
 ${WAITING_IS_OVER_SOURCE}
 
 /**
@@ -1337,58 +1339,74 @@ document.addEventListener("click", async (event) => {
   runningVentureId = ventureId;
   target.disabled = true;
   target.textContent = T["venture.running"];
-  // What the screen knew before the press. Taken now, because load() replaces
-  // it, and the watcher below has nothing to compare against without it.
-  //
-  // And loaded first when there is nothing: pressing on a page whose first load
-  // had not landed left the watcher comparing against null, which it reads as
-  // "not yet" forever. The screen then said the work was still running for five
-  // minutes after it had finished.
-  if (!state) await load();
-  const before = state;
-  notice("", "");
+  try {
+    // What the screen knew before the press. Taken now, because load() replaces
+    // it, and the watcher below has nothing to compare against without it.
+    //
+    // And loaded first when there is nothing: pressing on a page whose first load
+    // had not landed left the watcher comparing against null, which it reads as
+    // "not yet" forever. The screen then said the work was still running for five
+    // minutes after it had finished.
+    if (!state) await load();
+    const before = state;
+    notice("", "");
 
-  const request = api("/api/ventures/" + encodeURIComponent(ventureId) + "/run", { method: "POST", body: "{}" });
-  const outcome = await withDeadline(request, SLOW_ACTION_DEADLINE_MS);
+    const request = api("/api/ventures/" + encodeURIComponent(ventureId) + "/run", { method: "POST", body: "{}" });
+    const outcome = await withDeadline(request, SLOW_ACTION_DEADLINE_MS);
 
-  if (outcome.timedOut) {
-    // The run is still going and everything it has done is saved. The only
-    // thing lost is this page's answer, so this page stops asking for one.
-    await watchUntilItMoves(before, ventureId, T["wait.stillRunning"], request);
-    runningVentureId = null;
-    // Clearing the flag first, so this render is what puts the button back.
-    await load();
-    return;
-  }
-
-  runningVentureId = null;
-  if (!outcome.ok) {
-    const error = outcome.error;
-    // Nothing was re-rendered on this path, so the button this press disabled
-    // is still the one on the page.
-    const box = $("verr-" + ventureId);
-    if (box) {
-      box.className = "err";
-      box.textContent = String(error.message ?? error);
+    if (outcome.timedOut) {
+      // The run is still going and everything it has done is saved. The only
+      // thing lost is this page's answer, so this page stops asking for one.
+      await watchUntilItMoves(before, ventureId, T["wait.stillRunning"], request);
+      runningVentureId = null;
+      // Clearing the flag first, so this render is what puts the button back.
+      await load();
+      return;
     }
-    target.disabled = false;
-    target.textContent = label;
-    return;
-  }
 
-  const result = outcome.value;
-  // The table is rebuilt here, so the box has to be found afterwards - the
-  // one held before is no longer on the page.
-  await load();
-  const box = $("verr-" + ventureId);
-  if (box && result) {
-    box.className = "muted";
-    box.textContent = result.status === "awaiting_approval"
-      ? T["venture.runAwaiting"]
-      : result.status === "completed"
-        ? T["venture.runCompleted"]
-        : cycleStatusLabel(result.status) +
-          (result.nextStep ? fmt("venture.runNext", { step: cycleStepLabel(result.nextStep) }) : "");
+    runningVentureId = null;
+    if (!outcome.ok) {
+      const error = outcome.error;
+      // Nothing was re-rendered on this path, so the button this press disabled
+      // is still the one on the page.
+      const box = $("verr-" + ventureId);
+      if (box) {
+        box.className = "err";
+        box.textContent = String(error.message ?? error);
+      }
+      target.disabled = false;
+      target.textContent = label;
+      return;
+    }
+
+    const result = outcome.value;
+    // The table is rebuilt here, so the box has to be found afterwards - the
+    // one held before is no longer on the page.
+    await load();
+    const box = $("verr-" + ventureId);
+    if (box && result) {
+      box.className = "muted";
+      box.textContent = result.status === "awaiting_approval"
+        ? T["venture.runAwaiting"]
+        : result.status === "completed"
+          ? T["venture.runCompleted"]
+          : cycleStatusLabel(result.status) +
+            (result.nextStep ? fmt("venture.runNext", { step: cycleStepLabel(result.nextStep) }) : "");
+    }
+  } finally {
+    // Every path above lets go of the flag before its last render, because that
+    // render is what puts the button back. Still holding it here means one of
+    // them threw on the way - and the flag is what every thirty-second redraw
+    // reads, so a flag nobody clears is a button reading 動かしています… for
+    // good about work that may have finished long ago. That is how v0.7.0 sat
+    // on Cloudflare: the watcher died on its first poll and nothing let go.
+    // Not a catch: the error still reaches the browser's console, and this
+    // page cannot say more about it than that it does not know.
+    if (runningVentureId === ventureId) {
+      runningVentureId = null;
+      notice(T["wait.tooLong"], "warn");
+      await load();
+    }
   }
 });
 
@@ -1561,40 +1579,51 @@ document.addEventListener("click", async (event) => {
     target.disabled = true;
     target.textContent = T["gate.sending"];
     const ventureId = decision.ventureId;
-    if (!state) await load();
-    const before = state;
-    notice("", "");
+    try {
+      if (!state) await load();
+      const before = state;
+      notice("", "");
 
-    const ordering = entry.order.filter((id) => entry.selected.has(id));
-    const request = api("/api/decisions/" + encodeURIComponent(decisionId) + "/resolve", {
-      method: "POST",
-      body: JSON.stringify({ selectedIds: ordering, ordering }),
-    });
-    const outcome = await withDeadline(request, SLOW_ACTION_DEADLINE_MS);
+      const ordering = entry.order.filter((id) => entry.selected.has(id));
+      const request = api("/api/decisions/" + encodeURIComponent(decisionId) + "/resolve", {
+        method: "POST",
+        body: JSON.stringify({ selectedIds: ordering, ordering }),
+      });
+      const outcome = await withDeadline(request, SLOW_ACTION_DEADLINE_MS);
 
-    if (outcome.timedOut) {
-      // The gate itself was answered the moment the request arrived; what was
-      // lost is the reply to it, not the decision. So the draft goes, and the
-      // page watches for the post this approval is now writing.
-      draft.delete(decisionId);
-      await watchUntilItMoves(before, ventureId, T["wait.gateStillRunning"], request);
+      if (outcome.timedOut) {
+        // The gate itself was answered the moment the request arrived; what was
+        // lost is the reply to it, not the decision. So the draft goes, and the
+        // page watches for the post this approval is now writing.
+        draft.delete(decisionId);
+        await watchUntilItMoves(before, ventureId, T["wait.gateStillRunning"], request);
+        resolving.delete(decisionId);
+        await load();
+        return;
+      }
+
       resolving.delete(decisionId);
+      if (!outcome.ok) {
+        const error = outcome.error;
+        // render() first: it rebuilds the box this writes into, and the button
+        // that press disabled.
+        render();
+        const box = $("err-" + decisionId);
+        if (box) box.textContent = String(error.message ?? error);
+        return;
+      }
+      draft.delete(decisionId);
       await load();
-      return;
+    } finally {
+      // The same guarantee as the run button's, for the same reason: every path
+      // above lets go before its last render, so still holding on here means
+      // one of them threw, and the redraw would keep drawing 送信中… from it.
+      if (resolving.has(decisionId)) {
+        resolving.delete(decisionId);
+        notice(T["wait.tooLong"], "warn");
+        await load();
+      }
     }
-
-    resolving.delete(decisionId);
-    if (!outcome.ok) {
-      const error = outcome.error;
-      // render() first: it rebuilds the box this writes into, and the button
-      // that press disabled.
-      render();
-      const box = $("err-" + decisionId);
-      if (box) box.textContent = String(error.message ?? error);
-      return;
-    }
-    draft.delete(decisionId);
-    await load();
   }
 });
 

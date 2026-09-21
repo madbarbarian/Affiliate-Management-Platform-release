@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { startConsole, type ConsoleHandle } from "../src/console/server.ts";
 import { createTestCompany, refusingProvider, testConfig, BASE_CONFIG, type TestCompany } from "./helpers.ts";
@@ -35,12 +36,14 @@ import type { Runtime } from "../src/runtime.ts";
 import type { ReleaseStamp } from "../src/core/release.ts";
 import { fileState } from "../src/kernel/state.ts";
 import { deactivateVenture } from "../src/kernel/venture-state.ts";
-import { openPage } from "./page-harness.ts";
+import { openPage, waitingJudgementFrom } from "./page-harness.ts";
 // Shared with test/canvas.test.ts: the design canvases ship to licensees too,
 // and two copies of this pattern would let one of them drift.
 import { TERMINAL_COMMAND } from "./terminal-command.ts";
 import { renderUnlock, UNLOCK_MISMATCH } from "../src/console/unlock.ts";
-import { waitEndedBecause, waitingIsOver, WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
+import { renderSetup } from "../src/worker/setup.ts";
+import { importAsWranglerBuildsIt } from "./wrangler-build.ts";
+import { WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
 import {
   MIN_COLUMN_WIDTH,
   portfolioColumns,
@@ -1791,6 +1794,13 @@ test("the passphrase page carries no value of its own, and cannot be made to car
 // finished post behind it. He pressed each of them twice.
 // ---------------------------------------------------------------------------
 
+/**
+ * The judgement as the page runs it: compiled from the text the page inlines,
+ * not imported as a TypeScript function - there is no such function any more,
+ * because a function is what the bundler rewrote.
+ */
+const { waitingIsOver, waitEndedBecause } = waitingJudgementFrom(WAITING_IS_OVER_SOURCE);
+
 /** A row for the judgement to read, with only the fields it reads. */
 function row(ventureId: string, cycle?: { date: string; status: string; nextStep?: string }) {
   return cycle ? { ventureId, lastCycle: cycle } : { ventureId };
@@ -1984,6 +1994,230 @@ test("pressing run twice starts one day, not two", async () => {
     const runs = page.requests.filter((path) => path.endsWith("/run"));
     assert.equal(runs.length, 1, `the day was started ${runs.length} times`);
     assert.equal((await company.store.cycles.all()).length, 1, "and only one cycle exists");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The page Cloudflare serves, which is not the page Node renders.
+//
+// Every test above renders the console in Node, which strips types and changes
+// nothing else. A licensee's browser only ever gets the page after wrangler's
+// esbuild has been through the code that writes it - and from v0.7.0 until
+// these were written, that made the wait judgement throw
+// `__name is not defined` on its first poll. Run and approve both stayed on
+// 動かしています… / 送信中… for good, on every Cloudflare deploy, while
+// everything here was green.
+// ---------------------------------------------------------------------------
+
+const CONSOLE_PAGE_SOURCE = fileURLToPath(new URL("../src/console/ui.ts", import.meta.url));
+const SETUP_PAGE_SOURCE = fileURLToPath(new URL("../src/worker/setup.ts", import.meta.url));
+const UNLOCK_PAGE_SOURCE = fileURLToPath(new URL("../src/console/unlock.ts", import.meta.url));
+
+/** Fast enough that the twenty-second deadline passes in 200ms. */
+const PAGE_TIME = 0.01;
+
+/** Equal, or the first line the build changed - not two whole pages side by side. */
+function unchangedByBuild(built: string, node: string, what: string): void {
+  if (built === node) return;
+  const a = built.split("\n");
+  const b = node.split("\n");
+  let at = 0;
+  while (a[at] === b[at]) at += 1;
+  assert.fail(`${what}: the build changed line ${at + 1}\n  built: ${a[at]}\n  node:  ${b[at]}`);
+}
+
+test("wrangler's build does not change a byte of any page a browser runs", async () => {
+  // Byte for byte, rather than "carries no __name": under `--minify` the same
+  // defect arrives as a one-letter helper, and a check for the name passes it.
+  // What this pins is the property that makes a page safe from any transform -
+  // nothing on it is produced by the code the bundler rewrites.
+  for (const minify of [false, true]) {
+    const built = await importAsWranglerBuildsIt<{ renderPage: typeof renderPage }>(CONSOLE_PAGE_SOURCE, { minify });
+    for (const locale of LOCALES) {
+      unchangedByBuild(
+        built.renderPage({ companyName: "テスト", locale }),
+        renderPage({ companyName: "テスト", locale }),
+        `the console (${locale}, minify ${minify})`,
+      );
+    }
+
+    // The setup screen is served by the Worker only, so it has never been
+    // anything but bundled.
+    const setup = await importAsWranglerBuildsIt<{ renderSetup: typeof renderSetup }>(SETUP_PAGE_SOURCE, { minify });
+    const setupState = {
+      configured: false,
+      hasDatabase: true,
+      hasConsoleToken: true,
+      hasModelKey: false,
+      address: "https://amp-test.example.workers.dev",
+    };
+    unchangedByBuild(setup.renderSetup(setupState), renderSetup(setupState), `the setup screen (minify ${minify})`);
+
+    const unlock = await importAsWranglerBuildsIt<{ renderUnlock: typeof renderUnlock }>(UNLOCK_PAGE_SOURCE, { minify });
+    const unlockState = { next: "/#/ventures/main", problem: UNLOCK_MISMATCH };
+    unchangedByBuild(unlock.renderUnlock(unlockState), renderUnlock(unlockState), `the unlock screen (minify ${minify})`);
+  }
+});
+
+/**
+ * A request whose work is done and whose answer never reaches the page - a
+ * Cloudflare edge timeout, a laptop lid, a dropped network. `done` settles when
+ * the server has finished, so a test can wait for it before tearing down.
+ */
+function answerLost(ending: string) {
+  let done: Promise<unknown> = Promise.resolve();
+  return {
+    get done() {
+      return done;
+    },
+    intercept(path: string, forward: () => Promise<Response>) {
+      if (!path.endsWith(ending)) return undefined;
+      done = forward();
+      return done.then(() => new Promise<Response>(() => {}));
+    },
+  };
+}
+
+/** A request that never comes back and was never done. */
+function neverAnswered(ending: string) {
+  return (path: string) => (path.endsWith(ending) ? new Promise<Response>(() => {}) : undefined);
+}
+
+async function pageAsCloudflareServesIt(): Promise<string> {
+  const built = await importAsWranglerBuildsIt<{ renderPage: typeof renderPage }>(CONSOLE_PAGE_SOURCE);
+  return built.renderPage({ companyName: "テスト", locale: "ja" });
+}
+
+function noticeOn(page: { elements: Map<string, { textContent: string; hidden: boolean }> }): string {
+  const box = page.elements.get("notice");
+  return box && !box.hidden ? box.textContent : "";
+}
+
+test("on the page Cloudflare serves, a run whose answer is lost still comes back and says it finished", async () => {
+  const html = await pageAsCloudflareServesIt();
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const lost = answerLost("/run");
+    const page = await openPage({
+      base,
+      token: handle.token,
+      hash: "#/ventures/main",
+      until: "venture-cycle",
+      page: html,
+      timeScale: PAGE_TIME,
+      intercept: lost.intercept,
+    });
+
+    await page.press({ ventureRun: "1", venture: "main" });
+    await lost.done;
+
+    assert.equal(noticeOn(page), MESSAGES.ja["wait.changed"], "the watch has to reach its answer, not die on the way");
+    assert.ok(
+      page.html("venture-cycle").includes(`data-venture="main">${MESSAGES.ja["venture.run"]}</button>`),
+      `the button has to come back: ${page.html("venture-cycle")}`,
+    );
+    assert.equal((await company.store.cycles.all()).length, 1);
+  });
+});
+
+test("on the page Cloudflare serves, an approval whose answer is lost still says it finished", async () => {
+  const html = await pageAsCloudflareServesIt();
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const lost = answerLost("/resolve");
+    const page = await openPage({
+      base,
+      token: handle.token,
+      until: "decision-list",
+      page: html,
+      timeScale: PAGE_TIME,
+      intercept: lost.intercept,
+    });
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { pending: { id: string }[] };
+
+    await page.press({ act: "submit", decision: state.pending[0]!.id });
+    await lost.done;
+
+    assert.equal(noticeOn(page), MESSAGES.ja["wait.changed"], "the watch has to reach its answer, not die on the way");
+    assert.ok(!page.html("decision-list").includes(MESSAGES.ja["gate.sending"]), "and nothing is left reading 送信中…");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A watch that dies must not take the buttons with it.
+//
+// The v0.7.0 defect was two failures stacked. The judgement threw - and the
+// handler that caught nothing left the account marked as running, so every
+// thirty-second redraw put 動かしています… back on a button nobody could press,
+// about work that had long finished. The second failure is the one that turns
+// any future exception into the same frozen screen, so it is tested on its
+// own, with a judgement that throws whatever the build did to it.
+// ---------------------------------------------------------------------------
+
+/** The page the console serves, with a judgement that throws where the real one did. */
+async function pageWhoseWatchDies(base: string, token: string): Promise<string> {
+  const served = await (await fetch(`${base}/?token=${encodeURIComponent(token)}`)).text();
+  const broken = served.replace(
+    WAITING_IS_OVER_SOURCE,
+    [
+      'function waitingIsOver() { throw new ReferenceError("__name is not defined"); }',
+      "function waitEndedBecause() { return waitingIsOver(); }",
+    ].join("\n"),
+  );
+  assert.notEqual(broken, served, "the judgement is not where this test expects it on the page");
+  return broken;
+}
+
+test("a watch that dies with an error gives the run button back and says to reload", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({
+      base,
+      token: handle.token,
+      hash: "#/ventures/main",
+      until: "venture-cycle",
+      page: await pageWhoseWatchDies(base, handle.token),
+      timeScale: PAGE_TIME,
+      intercept: neverAnswered("/run"),
+    });
+
+    // The error is not swallowed - the browser still reports it - so the press
+    // itself rejects. Asserting that is also what proves the watch really died
+    // here, rather than this test passing because nothing went wrong.
+    await assert.rejects(page.press({ ventureRun: "1", venture: "main" }), /__name is not defined/);
+
+    assert.equal(noticeOn(page), MESSAGES.ja["wait.tooLong"], "not 'still running' about a watch that has stopped");
+    assert.ok(
+      page.html("venture-cycle").includes(`data-venture="main">${MESSAGES.ja["venture.run"]}</button>`),
+      `the button has to come back rather than read 動かしています… forever: ${page.html("venture-cycle")}`,
+    );
+  });
+});
+
+test("a watch that dies with an error gives the approve button back and says to reload", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({
+      base,
+      token: handle.token,
+      until: "decision-list",
+      page: await pageWhoseWatchDies(base, handle.token),
+      timeScale: PAGE_TIME,
+      intercept: neverAnswered("/resolve"),
+    });
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { pending: { id: string }[] };
+    const decisionId = state.pending[0]!.id;
+
+    await assert.rejects(page.press({ act: "submit", decision: decisionId }), /__name is not defined/);
+
+    assert.equal(noticeOn(page), MESSAGES.ja["wait.tooLong"], "not 'still writing' about a watch that has stopped");
+    // The gate is still open - this answer never arrived - so its card is still
+    // drawn, and it must be drawn pressable rather than 送信中….
+    const list = page.html("decision-list");
+    assert.ok(list.includes(`data-act="submit" data-decision="${decisionId}" >`), `the button is still disabled: ${list}`);
+    assert.ok(!list.includes(MESSAGES.ja["gate.sending"]));
   });
 });
 

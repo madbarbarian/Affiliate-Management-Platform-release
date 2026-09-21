@@ -18,6 +18,24 @@
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 
+import type { WaitingJudgement } from "../src/console/waiting.ts";
+
+/**
+ * The page's wait judgement, compiled from the same text the page inlines.
+ *
+ * Strict, because the page's script is a module and modules are strict: an
+ * assignment to a name nobody declared throws in the browser, so it has to
+ * throw here rather than quietly make a global. And in an empty context -
+ * nothing but the language itself - so a name the text leans on without
+ * defining (`__name` was one) is a ReferenceError here too, not a lookup that
+ * happens to succeed because Node or this file supplied it.
+ */
+export function waitingJudgementFrom(source: string): WaitingJudgement {
+  return runInNewContext(`"use strict";\n${source}\n({ waitingIsOver, waitEndedBecause });`, {}, {
+    filename: "waiting-judgement.js",
+  }) as WaitingJudgement;
+}
+
 /** Only the surface the page touches. Anything else is a bug in this stub. */
 export type FakeElement = {
   id: string;
@@ -167,14 +185,54 @@ export type PageOptions = {
   readonly hash?: string;
   /** An id whose content means the render has happened. */
   readonly until: string;
+  /**
+   * The page to run instead of the one the console serves.
+   *
+   * For a page that went through a build the Node console never applies -
+   * wrangler's, which is the only one a licensee's browser ever receives.
+   */
+  readonly page?: string;
+  /**
+   * How much faster than real time the page's timers run. 0.01 turns its
+   * twenty-second deadline into 200ms.
+   *
+   * The two slow actions only reach the code that watches for their work after
+   * that deadline, so without this no test could get there at all - and until
+   * this was added, none had.
+   */
+  readonly timeScale?: number;
+  /**
+   * What the page gets back for a request, given the real exchange.
+   *
+   * Returning undefined passes it through. This is how a test loses an answer
+   * the way Cloudflare's edge does: `forward()` so the work is done, and a
+   * promise that never settles so the page never hears about it.
+   */
+  readonly intercept?: (path: string, forward: () => Promise<Response>) => Promise<Response> | undefined;
 };
 
-/** Fetches the real page, runs its script, and returns what it rendered. */
-export async function openPage(options: PageOptions): Promise<PageRun> {
-  const { base, token, hash = "", until } = options;
+async function servedPage(base: string, token: string): Promise<string> {
   const page = await fetch(`${base}/?token=${encodeURIComponent(token)}`);
   assert.equal(page.status, 200, "the console did not serve its page");
-  const html = await page.text();
+  return page.text();
+}
+
+/** Fetches the real page (or takes the one given), runs its script, and returns what it rendered. */
+export async function openPage(options: PageOptions): Promise<PageRun> {
+  const { base, token, hash = "", until, timeScale = 1, intercept } = options;
+  const html = options.page ?? (await servedPage(base, token));
+  const started = Date.now();
+  /**
+   * The page's clock, running as fast as its timers. The watch bounds itself
+   * with Date.now(), so speeding up only the timers would leave a watch that
+   * never concludes polling for the full five real minutes before it gave up -
+   * a regression would hang the suite instead of failing it.
+   */
+  class PageDate extends Date {
+    static override now(): number {
+      return started + (Date.now() - started) / timeScale;
+    }
+  }
   const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]!);
   assert.equal(scripts.length, 1, "the page is supposed to carry exactly one script");
 
@@ -197,10 +255,10 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
     URL,
     JSON,
     Math,
-    Date,
+    Date: PageDate,
     encodeURIComponent,
     decodeURIComponent,
-    setTimeout,
+    setTimeout: (callback: () => void, ms?: number) => setTimeout(callback, (ms ?? 0) * timeScale),
     // The page polls every thirty seconds. Letting that through would hold the
     // test process open long after the assertion is done.
     setInterval: () => 0,
@@ -242,10 +300,12 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
     },
     async fetch(path: string, init?: RequestInit) {
       requests.push(path);
-      return globalThis.fetch(`${base}${path}`, {
-        ...init,
-        headers: { ...(init?.headers as Record<string, string>), authorization: `Bearer ${token}` },
-      });
+      const forward = () =>
+        globalThis.fetch(`${base}${path}`, {
+          ...init,
+          headers: { ...(init?.headers as Record<string, string>), authorization: `Bearer ${token}` },
+        });
+      return intercept?.(path, forward) ?? forward();
     },
   };
 
