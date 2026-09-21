@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.8.1",
-  "commit": "fd267db",
-  "builtAt": "2026-09-21T05:21:44.156Z",
+  "version": "0.9.0",
+  "commit": "60a9dff",
+  "builtAt": "2026-09-21T18:06:13.000Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": ".github/workflows/take-updates.yml",
-      "bytes": 13369,
-      "sha256": "fbf1f879b62fe51b92d4c81fb32ad15fbb9847c36d79107c265c147ef74bf073"
+      "bytes": 5069,
+      "sha256": "5006db08c8c045da7466a273d6434971c35cad200c5615a23f6347f32b04d361"
     },
     {
       "path": ".gitignore",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 49699,
-      "sha256": "55fa2aa41f2554efe739a539578792cf594fcd51778026dcdf835c6bf9341b97"
+      "bytes": 52817,
+      "sha256": "62785148c4af4f38f9477ff194f83dfe1b22333c96c7554fbe2dadec51388b69"
     },
     {
       "path": "CLAUDE.md",
@@ -227,8 +227,8 @@
     },
     {
       "path": "docs/2-setup/licensee-guide.md",
-      "bytes": 16776,
-      "sha256": "100ca6c1b1d15679f376e57b5fda2956c13b8a9458dd824554d6daad771afac3"
+      "bytes": 17207,
+      "sha256": "1e2fc9de6830c42bf264bbe2e8e733f94908d77e7357c99682ee6a74740e6f21"
     },
     {
       "path": "docs/2-setup/onboarding.md",
@@ -287,8 +287,8 @@
     },
     {
       "path": "docs/3-development/taking-updates.md",
-      "bytes": 11300,
-      "sha256": "fd4469984cbb784e08db7c9e26010683b60c476fe08e10d85def6cf38376dbcd"
+      "bytes": 20010,
+      "sha256": "d2065a5fee3d74e354b8596212a6ae01650c99e60ede23dcef40a591b102fb1d"
     },
     {
       "path": "docs/4-operations/hosting.md",
@@ -302,8 +302,8 @@
     },
     {
       "path": "docs/5-project-management/decisions.md",
-      "bytes": 42490,
-      "sha256": "5811bff6fb1dc9df6188bfe44150acb854a5064205ffbacf7b4c8dcc75eb4906"
+      "bytes": 45810,
+      "sha256": "e8148ce0885e9889a989f1ed06c9790135dca6ce77ba7514f45ee71390a249ae"
     },
     {
       "path": "docs/6-testing/.gitkeep",
@@ -343,12 +343,12 @@
     {
       "path": "package-lock.json",
       "bytes": 65350,
-      "sha256": "3b6ca759b72dc84883005614e40c022c58ebe589c615f4d7f672318580dfd4ac"
+      "sha256": "c44bc951ee1566c7ec594642d6cc500e3d8996fab244d4e903748f35abcecc98"
     },
     {
       "path": "package.json",
       "bytes": 1954,
-      "sha256": "b1515fa55643a2666c119e93d9d05195d730060ad5368ecc5ba397233eea4004"
+      "sha256": "d4c5532fab81f34587142c0de9690ce807d5ceeee9f33351775c6eb31fdead1f"
     },
     {
       "path": "platform.config.example.yaml",
@@ -427,8 +427,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 11539,
-      "sha256": "16cee77c138ebdbd7e4e03021606a74ca9e5a1d942e0a541b9a7f6140e122650"
+      "bytes": 12820,
+      "sha256": "f93a8afd15d79af72fdec9e7272d2c6c563ce348e7932442eaea63e98910036e"
     },
     {
       "path": "scripts/build-canvas.ts",
@@ -444,6 +444,11 @@
       "path": "scripts/deploy-worker.ts",
       "bytes": 2930,
       "sha256": "f020c208300bec345ee7fc3990d1ff554cf56859b10d642956e29b7211bd4cb8"
+    },
+    {
+      "path": "scripts/take-updates.ts",
+      "bytes": 23143,
+      "sha256": "a7b12cd8d61a9f27fb422cf53aeab986b375a0f153324425a1cf622007f58fe5"
     },
     {
       "path": "src/affiliate/attribution.ts",
@@ -1046,14 +1051,19 @@
       "sha256": "c6a07bd54684e8e2e01ccff6ca9464a94711c2026d1d553cb7a32cec38a5e6a2"
     },
     {
+      "path": "test/take-updates.test.ts",
+      "bytes": 31540,
+      "sha256": "ce96024092e54dc5f95a5beeaecdc1b5ced3fddad75930f9a1cd525486ef63b7"
+    },
+    {
       "path": "test/terminal-command.ts",
       "bytes": 994,
       "sha256": "b77048f2905b84ca85497628c0d913d95daa39ee76a2d58045edecaf0cede48b"
     },
     {
       "path": "test/tester-guide.test.ts",
-      "bytes": 3164,
-      "sha256": "6bdad35c758d54a0838b33f71ee4f7ed3c85e69eb9a41672dde37a9dd5bf8dee"
+      "bytes": 4641,
+      "sha256": "6c448dd3df4ef2289db7c56008e6ce58bc9342b7fc079931f5b7937088c9596b"
     },
     {
       "path": "test/threads.test.ts",
@@ -1092,8 +1102,8 @@
     },
     {
       "path": "update-workflow.yml",
-      "bytes": 13369,
-      "sha256": "fbf1f879b62fe51b92d4c81fb32ad15fbb9847c36d79107c265c147ef74bf073"
+      "bytes": 5069,
+      "sha256": "5006db08c8c045da7466a273d6434971c35cad200c5615a23f6347f32b04d361"
     },
     {
       "path": "wrangler.jsonc",

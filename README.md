@@ -1,6 +1,6 @@
 # Affiliate Management Platform
 
-**v0.8.1** — what changed, and whether it breaks your morning: [CHANGELOG.md](CHANGELOG.md)
+**v0.9.0** — what changed, and whether it breaks your morning: [CHANGELOG.md](CHANGELOG.md)
 
 An autonomous AI company that runs an affiliate operation, built so the human
 in charge has exactly two jobs:
@@ -104,6 +104,31 @@ node src/cli.ts daemon        # starts cycles on time, publishes on time
 
 The approval console says when the platform has changed, and points here. This
 is the whole procedure, and none of it needs a terminal.
+
+**Once, on your first day: install the updater.** The copy the Deploy button
+makes has **no workflows at all** — GitHub does not let Cloudflare's app write
+under `.github/workflows/`, and a real deploy's Actions tab came up empty. So
+the updater arrives as an ordinary file, `update-workflow.yml`, at the top of
+your copy. Put it where it runs:
+
+1. Open `update-workflow.yml` and copy all of it (the copy icon, top right).
+2. **Add file → Create new file**, name it `.github/workflows/take-updates.yml`
+   (typing `/` makes the folders), paste, **Commit changes**.
+
+It is a short file on purpose. No update can rewrite it — GitHub does not let a
+workflow write under `.github/workflows/` — so all it does is run
+`scripts/take-updates.ts`, which arrives with every update like any other
+file. Fixes to the updater reach you that way, without pasting again.
+
+**Replacing an older, longer version?** Merge the update's pull request first,
+then paste. The short file runs a script that only arrives with that merge;
+pasted before it, the run stops red and says so.
+
+Until you do, **nothing can bring you an update** — the steps below have no
+button to press. When the **Actions** tab shows *Take updates from the
+platform*, it is in.
+
+**Then, whenever you want an update:**
 
 1. Open **your own copy** of this repository on GitHub — the one the Deploy
    button made, not the platform's.

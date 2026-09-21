@@ -73,3 +73,32 @@ test("each guide it replaces carries a mark pointing at it", () => {
     );
   }
 });
+
+/**
+ * A document that tells a licensee to press "Run workflow" has to tell them how
+ * the workflow got there.
+ *
+ * The copy the Deploy button makes has no workflows at all - GitHub will not let
+ * Cloudflare's app write under `.github/workflows/`, and a real deploy's Actions
+ * tab came up empty. The updater arrives as `update-workflow.yml` at the top and
+ * has to be pasted into place once. The design had that step (the onboarding
+ * canvas's last board). The tester's guide and the README's update section, both
+ * written the same day, dropped it - each was right on its own, and the seam
+ * between "the button made your copy" and "press Run workflow" had nothing in it.
+ * A tester would have started with no way to receive an update at all.
+ */
+test("anything that says Run workflow also says how the updater is installed", () => {
+  const INSTALLED_AT = ".github/workflows/take-updates.yml";
+  const documents: readonly [string, string][] = [
+    ["docs/2-setup/tester-guide.md", readFileSync(join(SETUP_DIR, GUIDE), "utf8")],
+    ["README.md", readFileSync(join(repoRoot(), "README.md"), "utf8")],
+  ];
+  for (const [path, text] of documents) {
+    if (!text.includes("Run workflow")) continue;
+    assert.ok(
+      text.includes(INSTALLED_AT),
+      `${path} tells the reader to press Run workflow but never says to put the updater at ` +
+        `${INSTALLED_AT}. The Deploy button's copy has no workflows, so that button does not exist yet.`,
+    );
+  }
+});

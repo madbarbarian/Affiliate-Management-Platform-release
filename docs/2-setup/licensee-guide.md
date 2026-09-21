@@ -317,7 +317,9 @@ From the browser:
 4. Paste, then **Commit changes**.
 
 That is the only manual step in this guide, and it is the only time you do it.
-After that:
+(A copy that already has the older, longer updater installed pastes once
+more, when the update that brings the short one arrives: merge that pull
+request first, then paste.) After that:
 
 **Actions → "Take updates from the platform" → Run workflow.**
 
@@ -334,9 +336,12 @@ dashboard, not in the repository, so there is nothing there to disturb either.
 that moment.
 
 **One thing that pull request cannot do.** It never touches `.github/` — for
-the same reason the button could not — so when the updater itself changes, the
-pull request says so and points you back at `update-workflow.yml`. That is the
-four steps above again, and it is rare.
+the same reason the button could not — so the file you installed is never
+updated for you. That is why it is only a few lines: the work is done by
+`scripts/take-updates.ts`, which arrives with every update like any other file,
+so a fix to the updater reaches you without pasting anything. If the installed
+file itself ever has to change, the pull request says so and points you back at
+`update-workflow.yml` — the four steps above again, after merging.
 
 ### If you cloned it yourself
 

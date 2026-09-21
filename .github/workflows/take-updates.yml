@@ -1,61 +1,52 @@
 # Brings the platform's updates into your copy, as a pull request.
 #
 # **You do not need a terminal for this, and that is the point.** If you
-# arrived here by pressing "Deploy to Cloudflare", your copy of this
-# repository is exactly that - a copy, not a GitHub fork - so the "Sync fork"
-# button does not appear and the usual `git merge upstream/main` needs a
-# checkout you may never have made. This does the same job from the browser.
+# arrived by pressing "Deploy to Cloudflare", your repository is a copy, not a
+# GitHub fork, so there is no "Sync fork" button. This does that job from the
+# browser.
 #
-# ## Is this running?
+# ## Installing it - once
 #
-# Open the **Actions** tab of your repository. If "Take updates from the
-# platform" is listed, it is installed and there is nothing to do.
-#
-# **If Actions is empty, install it once.** The Deploy button cannot copy
-# workflow files into the repository it creates - GitHub only lets an app
-# write under `.github/workflows/` with a permission Cloudflare's app does not
-# hold - so your copy arrived without this file in the place that runs it. It
-# is in your repository all the same, at `update-workflow.yml` in the root.
-# To put it where it runs, from the browser:
+# The Deploy button cannot copy workflow files into the repository it makes,
+# so this file arrived at `update-workflow.yml` in the root instead of the
+# place that runs it. To put it there:
 #
 #   1. Open `update-workflow.yml` and copy its contents.
-#   2. **Add file → Create new file.**
+#   2. **Add file -> Create new file.**
 #   3. Name it exactly `.github/workflows/take-updates.yml`.
 #   4. Paste, then **Commit changes**.
 #
-# That is the only manual step, and it is the only time. After it, updates
-# arrive as pull requests on their own.
+# Replacing an older, longer version of this file? Merge the pull request
+# that brought this one first: this file runs `scripts/take-updates.ts`, and
+# until that pull request is merged the script is not in your repository.
 #
-# ## How to use it
+# ## Using it
 #
-# Actions → "Take updates from the platform" → Run workflow. A minute later
-# there is a pull request in this repository showing exactly what changed.
-# Read it, then merge it. Cloudflare redeploys on the merge, the way it does
-# for every push here.
+# Actions -> "Take updates from the platform" -> Run workflow. It opens a pull
+# request showing exactly what changed. Read it, then merge it; Cloudflare
+# redeploys on the merge. It also runs itself on the first of each month. It
+# opens a pull request; it never merges one.
 #
-# It also runs itself on the first of each month, so a copy nobody touches
-# still hears about a fix. It opens a pull request; it never merges one.
+# ## Why it is this short
 #
-# ## Three things it deliberately leaves alone
+# GitHub does not let a workflow write under `.github/workflows/`, so no
+# update can ever replace this file - only you can, by hand. The work is done
+# by `scripts/take-updates.ts`, an ordinary file that each update brings with
+# it, so this file has almost nothing that could need changing. Which of your
+# files an update leaves alone, and why, is written at the top of that script
+# - not here, because here it could never be corrected.
 #
-#   - `platform.config.yaml` is yours. Your niche, your audience, your voice,
-#     your accounts. Upstream never has an opinion about it.
-#   - `wrangler.jsonc` is yours too, though it did not look it: the Deploy
-#     button wrote your Worker's name and the id of the database it created
-#     for you into it. An update that replaced it took your deploys down with
-#     "binding DB of type d1 must have a valid database_id".
-#   - Secrets are not in this repository at all - they are in Cloudflare's
-#     dashboard - so there is nothing here for an update to disturb.
-#   - `.github/` - including this workflow itself. It cannot write there, for
-#     the same reason the Deploy button could not. When the updater itself
-#     changes, the pull request says so and points at the new text; replacing
-#     it is the four steps above again, and it is rare.
+# ## For whoever edits this file
 #
-# **If you have edited anything in `prompts/`**, the pull request will show
-# your edits being replaced by the shipped ones. That is visible before you
-# merge, which is why this is a pull request. To stop it happening at all,
-# point `runtime.promptsDir` at a directory of your own and copy your prompts
-# there; upstream then never touches them.
+# Every licensee pasted these exact bytes, and changing any of them - a
+# comment included - tells every one of them to paste it again. Treat an edit
+# here as asking all of them for a manual step. And three things are a
+# promise between this file and the script, which copies running this file
+# will rely on for as long as they exist: the path `scripts/take-updates.ts`,
+# starting it as `node <path>` from the checkout, and the environment it gets
+# (GH_TOKEN and TAKE_UPDATES_SCRIPT here, the GITHUB_* variables from the
+# runner). Do not change them. And keep facts that can go stale out of this
+# file: anything written here can only be corrected by everyone pasting again.
 
 name: Take updates from the platform
 
@@ -70,193 +61,39 @@ permissions:
   contents: write
   pull-requests: write
 
-env:
-  # Where this platform is published. A copy of this file inside the platform's
-  # own release repository would be asking it to update itself, so the job
-  # below stops when it finds it is already there.
-  UPSTREAM: madbarbarian/Affiliate-Management-Platform-release
-  BRANCH: platform-update
-
 jobs:
   take:
+    # Never from the branch the update is pushed to. That branch holds the
+    # platform's files before you have read them, and running from it would
+    # run its unmerged copy of the script with write access to your repository.
+    if: github.ref_name != 'platform-update'
     runs-on: ubuntu-latest
     steps:
-      - name: Stop if this is the platform itself
-        run: |
-          if [ "${GITHUB_REPOSITORY}" = "${UPSTREAM}" ]; then
-            echo "This is the release repository. There is nothing upstream of it."
-            echo "SKIP=yes" >> "$GITHUB_ENV"
-          fi
-
-      # The branch as it is now, not the commit this run was created from.
-      # A re-run keeps the original `github.sha`, so without this it checks out
-      # the repository as it was before the last update was merged - the diff
-      # against upstream comes back non-empty, the branch is pushed again, and
-      # a second pull request appears for an update the licensee already took.
-      # Seen for real: one dispatch, retried, produced two identical pull
-      # requests and a stray preview version in Cloudflare.
+      # ref: the branch as it is now, not the commit this run was created from.
+      # A re-run keeps the original `github.sha`, so without it the re-run reads
+      # the repository as it was before the last update was merged, and opens a
+      # second pull request for an update already taken. Seen for real.
+      #
+      # fetch-depth: 0: the update is pushed with `--force-with-lease`, which
+      # checks the branch against what this checkout knows of it. A shallow
+      # checkout knows nothing of that branch, so the push is refused as "stale
+      # info" and an open pull request can never be brought up to date.
       - uses: actions/checkout@v4
-        if: env.SKIP != 'yes'
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
 
-      - name: Fetch what the platform has now
-        if: env.SKIP != 'yes'
-        run: |
-          rm -rf /tmp/upstream
-          git clone --depth 1 "https://github.com/${UPSTREAM}.git" /tmp/upstream
-          echo "UPSTREAM_SHA=$(git -C /tmp/upstream rev-parse --short HEAD)" >> "$GITHUB_ENV"
-
-      # Copied rather than merged, on purpose. A copy made by the Deploy button
-      # shares no history with the platform, so `git merge` would refuse it as
-      # unrelated - and forcing that through produces a first merge nobody can
-      # read. Replacing the files and showing the diff is the same information
-      # without the ceremony.
-      - name: Take the new files
-        if: env.SKIP != 'yes'
-        run: |
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          git checkout -B "${BRANCH}"
-          # Yours, and never replaced from upstream. Each line is something that
-          # exists here with your values in it, so taking ours would take your
-          # operation down:
-          #   wrangler.jsonc         - the Deploy button wrote your Worker's
-          #                            name and the id of the database it made
-          #                            for you. Ours carries our name and a
-          #                            placeholder, and a deploy with that in it
-          #                            fails on "binding DB of type d1 must have
-          #                            a valid database_id". Found the first time
-          #                            an update was ever taken, 2026-09-19.
-          #   platform.config.yaml   - your niche, audience, voice and accounts.
-          #   .github/               - including this file; see below.
-          # --checksum, because the default quick check is size plus mtime and
-          # both can match while the contents differ. Taking v0.6.0 into a real
-          # copy delivered 26 files and silently skipped `package.json`: the
-          # version string had gone from "0.5.1" to "0.6.0", the same number of
-          # bytes, and two checkouts made seconds apart carried close enough
-          # mtimes. The copy then ran the new code while reporting the old
-          # version. Any same-length change is the same failure - a threshold,
-          # a model id - and it is invisible, which is what makes it worth the
-          # extra read of a few hundred small files.
-          rsync -a --checksum --delete \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='platform.config.yaml' \
-            --exclude='wrangler.jsonc' \
-            /tmp/upstream/ ./
-          git add -A
-
-      # `.github` is excluded above because the push would be refused outright
-      # if it were not: GitHub will not let a token write under
-      # `.github/workflows/` without a permission GITHUB_TOKEN does not have,
-      # and one rejected file fails the whole push - so a single change to this
-      # workflow would silently take every other fix down with it.
-      #
-      # The current text still arrives, as `update-workflow.yml` in the root,
-      # which is an ordinary file. So the one thing left to do by hand is
-      # told, rather than attempted and lost.
-      - name: Say if the updater itself changed
-        if: env.SKIP != 'yes'
-        run: |
-          if git diff --staged --name-only | grep -qx 'update-workflow.yml'; then
-            echo "UPDATER_CHANGED=yes" >> "$GITHUB_ENV"
-          fi
-
-      - name: Open a pull request, or say there was nothing to take
-        if: env.SKIP != 'yes'
+      # Through `node`, so nothing depends on an executable bit surviving.
+      - name: Take the platform's updates
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The body lives here rather than in a heredoc inside `run:`. A
-          # heredoc's terminator has to sit at column 0, and a line at column 0
-          # ends the YAML block scalar it is inside - which made this file
-          # unparseable, so GitHub would have shown "Invalid workflow file"
-          # rather than running it. A block scalar in `env` has no such edge.
-          PR_BODY: |
-            The platform has changed since your copy was made. Everything in this pull
-            request is what changed — read it, then merge it. Cloudflare redeploys on the
-            merge, as it does for any push here.
-
-            **`platform.config.yaml` is not in here.** Your niche, your audience, your
-            voice and your accounts are yours, and nothing upstream has an opinion about
-            them. Your secrets are in Cloudflare's dashboard, not in this repository, so
-            there is nothing here for this to disturb either.
-
-            **If you see your own edits to `prompts/` being replaced**, that is this
-            pull request replacing them with the shipped versions. Close it, point
-            `runtime.promptsDir` at a directory of your own, copy your prompts there, and
-            run this again — upstream will never touch them after that.
-
-            **Read `CHANGELOG.md` in the diff first.** It is written for exactly this
-            moment: someone with a running operation and one question, *will merging this
-            break my morning?*
-          PR_BODY_UPDATER: |
-
-            ---
-
-            ### One thing this pull request cannot do for you
-
-            **`update-workflow.yml` changed in this diff, and that file is this updater.**
-            GitHub does not let a workflow write to `.github/workflows/`, so the copy that
-            actually runs — `.github/workflows/take-updates.yml` — is untouched here.
-
-            After merging: open `update-workflow.yml`, copy all of it, open
-            `.github/workflows/take-updates.yml`, replace the contents, and commit. Two
-            minutes, in the browser, and rare.
+          TAKE_UPDATES_SCRIPT: scripts/take-updates.ts
         run: |
-          if git diff --staged --quiet; then
-            echo "Already up to date with ${UPSTREAM}." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ ! -f "$TAKE_UPDATES_SCRIPT" ]; then
+            echo "::error::$TAKE_UPDATES_SCRIPT がまだありません。「Take updates from the platform」の Pull request をマージしてから、このファイルを貼ってください。もう貼ったあとなら、マージすればこのまま動きます。"
+            echo "::error::$TAKE_UPDATES_SCRIPT is not here yet. Merge the \"Take updates from the platform\" pull request first, then paste this file. If you already pasted it, merging is enough."
+            echo "その Pull request が無いときは、このファイルの History から前の版に戻して1回実行し、できた Pull request をマージしてから、もう一度貼ってください。"
+            echo "If there is no such pull request, restore the previous version of this file from its History, run it once, merge the pull request it opens, then paste this file again."
+            exit 1
           fi
-
-          git commit -m "Take updates from the platform (${UPSTREAM_SHA})"
-          git push --force-with-lease origin "${BRANCH}"
-
-          printf '%s\n' "$PR_BODY" > /tmp/pr-body.md
-          if [ "${UPDATER_CHANGED}" = "yes" ]; then
-            printf '%s\n' "$PR_BODY_UPDATER" >> /tmp/pr-body.md
-          fi
-
-          # One open pull request at a time: a second one for the same branch
-          # would be a duplicate, and the branch already carries the newest.
-          if gh pr view "${BRANCH}" --json state --jq .state 2>/dev/null | grep -q OPEN; then
-            echo "Updated the open pull request." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # A repository created today does not let Actions open a pull request
-          # - Settings -> Actions -> General -> Workflow permissions, off by
-          # default. The push above has already succeeded at that point, so the
-          # update is sitting on the branch and the only thing missing is the
-          # page to read it on. Ending red here says the opposite: the first
-          # time this was ever run for real, it looked like nothing arrived.
-          #
-          # So: an issue instead, saying where the update is and which checkbox
-          # opens the normal path, and a green run - because the work did
-          # happen. Creating an issue needs no permission beyond the one this
-          # workflow already has.
-          if ! gh pr create \
-            --base "${GITHUB_REF_NAME}" \
-            --head "${BRANCH}" \
-            --title "Take updates from the platform" \
-            --body-file /tmp/pr-body.md; then
-            {
-              echo "### 更新は届いています。開く画面だけがありません"
-              echo
-              echo "このリポジトリでは、GitHub Actions が Pull request を作ることが"
-              echo "許可されていません（新しいリポジトリの既定）。更新そのものは"
-              echo "\`${BRANCH}\` ブランチに届いています。"
-              echo
-              echo "**いま開くには:** <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${GITHUB_REF_NAME}...${BRANCH}>"
-              echo
-              echo "**次回から自動で開くには:** Settings → Actions → General →"
-              echo "Workflow permissions → **Allow GitHub Actions to create and"
-              echo "approve pull requests** にチェックを入れてください。1回だけです。"
-            } > /tmp/issue-body.md
-            gh issue create \
-              --title "更新が届いています（Pull request を作れませんでした）" \
-              --body-file /tmp/issue-body.md
-            cat /tmp/issue-body.md >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          node "$TAKE_UPDATES_SCRIPT"
