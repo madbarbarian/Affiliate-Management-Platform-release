@@ -1,5 +1,11 @@
 # Licensee guide
 
+> **Out of date where it matters most: the first hour.** This was written before
+> the Worker served a setup screen, so sections 2–4 still describe editing the
+> config by hand in a terminal. The first tester is given
+> [tester-guide.md](tester-guide.md) instead — Japanese, browser and GitHub
+> only, no terminal. Nothing below has been rewritten yet.
+
 You have been given access to a release repository. This is how you go from
 that to a running operation, and how you keep taking updates afterwards.
 

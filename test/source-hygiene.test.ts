@@ -17,6 +17,8 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { repoRoot } from "../src/config/load.ts";
+
 /** Tab, line feed and carriage return are the only control bytes source may hold. */
 const ALLOWED_CONTROL_BYTES = new Set([0x09, 0x0a, 0x0d]);
 
@@ -73,4 +75,28 @@ test("the sweep actually looked at files, so an empty pass means something", () 
   for (const dir of SEARCHED_DIRECTORIES) {
     assert.ok(sourceFiles(dir).length > 0, `${dir} matched no files — the search is misconfigured`);
   }
+});
+
+/**
+ * The version in README.md is the only place it is visible without opening a
+ * file, which is why it is written there at all - `package.json`,
+ * `CHANGELOG.md` and `RELEASE.json` all know the version, and all of them cost
+ * a click on GitHub. Writing it twice is the price; this is what stops the two
+ * copies drifting, so the price stays paid.
+ */
+test("the version README shows is the version the project is on", () => {
+  const pkg = JSON.parse(readFileSync(join(repoRoot(), "package.json"), "utf8")) as { version: string };
+  const readme = readFileSync(join(repoRoot(), "README.md"), "utf8");
+  const shown = /^\*\*v(\d+\.\d+\.\d+)\*\*/m.exec(readme);
+
+  assert.ok(
+    shown,
+    `README.md has no version line. Put "**v${pkg.version}**" near the top - it is the only ` +
+      `place a reader sees the version without opening a file.`,
+  );
+  assert.equal(
+    shown[1],
+    pkg.version,
+    `README.md says v${shown[1]} but package.json says ${pkg.version}. Update README.md when you bump the version.`,
+  );
 });

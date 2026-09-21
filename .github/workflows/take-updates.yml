@@ -88,10 +88,18 @@ jobs:
             echo "SKIP=yes" >> "$GITHUB_ENV"
           fi
 
+      # The branch as it is now, not the commit this run was created from.
+      # A re-run keeps the original `github.sha`, so without this it checks out
+      # the repository as it was before the last update was merged - the diff
+      # against upstream comes back non-empty, the branch is pushed again, and
+      # a second pull request appears for an update the licensee already took.
+      # Seen for real: one dispatch, retried, produced two identical pull
+      # requests and a stray preview version in Cloudflare.
       - uses: actions/checkout@v4
         if: env.SKIP != 'yes'
         with:
           fetch-depth: 0
+          ref: ${{ github.ref_name }}
 
       - name: Fetch what the platform has now
         if: env.SKIP != 'yes'

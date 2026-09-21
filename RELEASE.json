@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.8.0",
-  "commit": "9ca1539",
-  "builtAt": "2026-09-20T22:23:50.815Z",
+  "version": "0.8.1",
+  "commit": "fd267db",
+  "builtAt": "2026-09-21T05:21:44.156Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": ".github/workflows/take-updates.yml",
-      "bytes": 12806,
-      "sha256": "ccd76772ad0f23420103e531ea1230e807dc8faa236ada01fc9b996ef8976666"
+      "bytes": 13369,
+      "sha256": "fbf1f879b62fe51b92d4c81fb32ad15fbb9847c36d79107c265c147ef74bf073"
     },
     {
       "path": ".gitignore",
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 46333,
-      "sha256": "78fda5385bf45d310116af24a5393b9e8a57eba55ad1a885cb1923b591c59b22"
+      "bytes": 49699,
+      "sha256": "55fa2aa41f2554efe739a539578792cf594fcd51778026dcdf835c6bf9341b97"
     },
     {
       "path": "CLAUDE.md",
@@ -57,8 +57,8 @@
     },
     {
       "path": "docs/_proposed/design/canvas.html",
-      "bytes": 130697,
-      "sha256": "f2bad17473aa4550144a07c15a43abb83b0d45322a7b44ad7da010bee0d3d8df"
+      "bytes": 130749,
+      "sha256": "b002f99ec8ee5c64fc36d4f54dca59f885a7f5d92dbb51dba8e77f333c404be1"
     },
     {
       "path": "docs/_proposed/design/canvas.json",
@@ -72,8 +72,8 @@
     },
     {
       "path": "docs/_proposed/design/HandOver.dc.html",
-      "bytes": 6101,
-      "sha256": "afd785ff74ced196865c207a38afa2c52f52de3f06f79473003df3fd9d1a72a6"
+      "bytes": 6157,
+      "sha256": "10d4d3d074a0e0998db2feab200071bc12ff6e9a4046dedf2709880b686ade9e"
     },
     {
       "path": "docs/_proposed/design/Idle.dc.html",
@@ -152,8 +152,8 @@
     },
     {
       "path": "docs/_proposed/design/PlanDetail.dc.html",
-      "bytes": 6076,
-      "sha256": "8e23d4cc8073eb6749f3f5433dbb0de9b82355dd2856a40ed408e2f6e4d9f362"
+      "bytes": 6062,
+      "sha256": "99cee0d5ed07f84bd30df91628c62de3bd527014d11f5ca7bd61c2636b79b542"
     },
     {
       "path": "docs/_proposed/design/Portfolio.dc.html",
@@ -162,8 +162,8 @@
     },
     {
       "path": "docs/_proposed/design/PostDetail.dc.html",
-      "bytes": 6911,
-      "sha256": "f29a8d60ef6004a0155535e5c6ee0a007dc4cdf254c84e03d92e200eb69faf95"
+      "bytes": 6897,
+      "sha256": "ec14dccbf7c8251f3b48798f20de90ab08658b9dd2b8d24793c3e46dabf1d629"
     },
     {
       "path": "docs/_proposed/design/Proposals.dc.html",
@@ -182,8 +182,8 @@
     },
     {
       "path": "docs/_proposed/design/Settings.dc.html",
-      "bytes": 5131,
-      "sha256": "8ec9b94f30bd41d259be6585cd46ecad29b8235356cf77a9f84d647e84f7f413"
+      "bytes": 5155,
+      "sha256": "e84e2dd1bd9fb5392c95172b327ea2092b7e4cc8e3247e33299ba0efafe04314"
     },
     {
       "path": "docs/_proposed/design/Timeline.dc.html",
@@ -222,13 +222,13 @@
     },
     {
       "path": "docs/2-setup/first-week.md",
-      "bytes": 6714,
-      "sha256": "6e53c38803b34d4ce1e13c62dc43e982634fa4d5d2398e487551417ee0e36bf5"
+      "bytes": 7119,
+      "sha256": "04506e884f061595740c2fc7e8fd33ddad4e7a0e5dc6b0bc3a5964c980065503"
     },
     {
       "path": "docs/2-setup/licensee-guide.md",
-      "bytes": 16418,
-      "sha256": "6749af81c9312303d188d41335b5398a2d1b1eb8379015023fc445a7b36d2724"
+      "bytes": 16776,
+      "sha256": "100ca6c1b1d15679f376e57b5fda2956c13b8a9458dd824554d6daad771afac3"
     },
     {
       "path": "docs/2-setup/onboarding.md",
@@ -302,8 +302,8 @@
     },
     {
       "path": "docs/5-project-management/decisions.md",
-      "bytes": 39411,
-      "sha256": "2699b527d42687c7e9bab962a68f0fd378d68ec9b84434825f3adba9a428cdca"
+      "bytes": 42490,
+      "sha256": "5811bff6fb1dc9df6188bfe44150acb854a5064205ffbacf7b4c8dcc75eb4906"
     },
     {
       "path": "docs/6-testing/.gitkeep",
@@ -343,12 +343,12 @@
     {
       "path": "package-lock.json",
       "bytes": 65350,
-      "sha256": "2910676aea5055bd2c72c7eb62649c2fea0ea63a7093286b51a3a14435f99831"
+      "sha256": "3b6ca759b72dc84883005614e40c022c58ebe589c615f4d7f672318580dfd4ac"
     },
     {
       "path": "package.json",
       "bytes": 1954,
-      "sha256": "17b7bc80ed37f7928d2b20ca343bc455d3e8143e64cc7ccfd8049508fc50b03f"
+      "sha256": "b1515fa55643a2666c119e93d9d05195d730060ad5368ecc5ba397233eea4004"
     },
     {
       "path": "platform.config.example.yaml",
@@ -427,8 +427,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 10085,
-      "sha256": "b3fabf20041de2f66a7b4bd5db200dd8c873422ff4eabc7a544eac88e6854406"
+      "bytes": 11539,
+      "sha256": "16cee77c138ebdbd7e4e03021606a74ca9e5a1d942e0a541b9a7f6140e122650"
     },
     {
       "path": "scripts/build-canvas.ts",
@@ -912,8 +912,8 @@
     },
     {
       "path": "test/canvas.test.ts",
-      "bytes": 9796,
-      "sha256": "5efbcc3be41f64754a1616bae4306f722fbe4bed068c41caaaecdd60ff148878"
+      "bytes": 11625,
+      "sha256": "6c1141f8f4103249d72ab0291c59fd8c965fec9c5b96926f79d1544d11b0e2c7"
     },
     {
       "path": "test/cli.smoke.test.ts",
@@ -1027,8 +1027,8 @@
     },
     {
       "path": "test/source-hygiene.test.ts",
-      "bytes": 2912,
-      "sha256": "b1696e9144f973a96091dd63d70ca7ea3482dd27dc6f36a073158d3eb6f5dfec"
+      "bytes": 3994,
+      "sha256": "01d4cfb279ee23ca4941d4cae734a1cefdc795f4472ae483bf097002c98901b8"
     },
     {
       "path": "test/state.test.ts",
@@ -1049,6 +1049,11 @@
       "path": "test/terminal-command.ts",
       "bytes": 994,
       "sha256": "b77048f2905b84ca85497628c0d913d95daa39ee76a2d58045edecaf0cede48b"
+    },
+    {
+      "path": "test/tester-guide.test.ts",
+      "bytes": 3164,
+      "sha256": "6bdad35c758d54a0838b33f71ee4f7ed3c85e69eb9a41672dde37a9dd5bf8dee"
     },
     {
       "path": "test/threads.test.ts",
@@ -1087,8 +1092,8 @@
     },
     {
       "path": "update-workflow.yml",
-      "bytes": 12806,
-      "sha256": "ccd76772ad0f23420103e531ea1230e807dc8faa236ada01fc9b996ef8976666"
+      "bytes": 13369,
+      "sha256": "fbf1f879b62fe51b92d4c81fb32ad15fbb9847c36d79107c265c147ef74bf073"
     },
     {
       "path": "wrangler.jsonc",

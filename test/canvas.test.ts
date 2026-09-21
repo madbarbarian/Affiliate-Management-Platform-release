@@ -233,3 +233,44 @@ test("the committed canvas.html is what the boards draw today", () => {
     );
   }
 });
+
+/**
+ * A board that shows a disclosure has to show the one the platform actually
+ * writes.
+ *
+ * These boards ship. A licensee reading `#PR 広告を含みます` on a screen and
+ * copying it onto a post would be publishing a disclosure this platform never
+ * produces - and the disclosure is the part the law is about, not decoration.
+ * That is not hypothetical: `#PR` was on five boards, carried over from an
+ * example in a document that had gone stale.
+ *
+ * The configured text is the source of truth. If it changes, these boards have
+ * to change with it, which is the whole point of the canvases moving with the
+ * code.
+ */
+test("a board that shows a disclosure shows the one the platform writes", () => {
+  const config = readFileSync(join(ROOT, "platform.config.example.yaml"), "utf8");
+  const configured = /disclosureText:\s*"([^"]+)"/.exec(config);
+  assert.ok(configured, "platform.config.example.yaml has no disclosureText to compare against");
+  const real = configured[1]!;
+
+  // What a disclosure looks like when it is on a screen at all. Narrow on
+  // purpose: this is here to catch a wrong disclosure, not to police prose.
+  const looksLikeDisclosure = /#PR|広告を含み|アフィリエイトリンクを含み/;
+
+  for (const target of CANVAS_TARGETS) {
+    const dir = join(ROOT, target.dir);
+    for (const artboard of readCanvas(dir, target.dir).artboards) {
+      const board = readFileSync(join(dir, artboard.file), "utf8");
+      for (const line of board.split("\n")) {
+        if (!looksLikeDisclosure.test(line)) continue;
+        assert.ok(
+          line.includes(real),
+          `${target.dir}/${artboard.file} shows a disclosure that is not the configured one.\n` +
+            `  on the board: ${line.trim()}\n` +
+            `  configured:   ${real}`,
+        );
+      }
+    }
+  }
+});

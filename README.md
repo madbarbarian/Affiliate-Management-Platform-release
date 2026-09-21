@@ -1,5 +1,7 @@
 # Affiliate Management Platform
 
+**v0.8.1** — what changed, and whether it breaks your morning: [CHANGELOG.md](CHANGELOG.md)
+
 An autonomous AI company that runs an affiliate operation, built so the human
 in charge has exactly two jobs:
 
@@ -97,6 +99,33 @@ node src/cli.ts daemon        # starts cycles on time, publishes on time
 ```
 
 ---
+
+## Taking an update
+
+The approval console says when the platform has changed, and points here. This
+is the whole procedure, and none of it needs a terminal.
+
+1. Open **your own copy** of this repository on GitHub — the one the Deploy
+   button made, not the platform's.
+2. **Actions** tab → **Take updates from the platform** → **Run workflow**.
+3. A few minutes later, a pull request appears under **Pull requests**. Read
+   it. It says what changed and why.
+4. **Merge pull request**. Cloudflare rebuilds and redeploys on the merge;
+   there is nothing else to press.
+
+You do not have to press anything: the same job runs **on the first of each
+month** and opens the same pull request. Nothing here is urgent enough to
+interrupt a day, and a monthly pull request is one a person still reads.
+
+**Your `platform.config.yaml` is never in that pull request.** Your niche, your
+audience, your voice and your accounts are yours. Your secrets live in
+Cloudflare's dashboard, not in the repository, so there is nothing there for an
+update to disturb either. The same goes for `wrangler.jsonc`, which holds the
+id of *your* database.
+
+**If you edited anything under `prompts/`**, an update replaces it with the
+shipped version. Close the pull request, point `runtime.promptsDir` at a
+directory of your own, copy your prompts there, and take the update again.
 
 ## What makes it trustworthy
 
