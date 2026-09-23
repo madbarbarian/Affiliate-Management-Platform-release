@@ -134,6 +134,10 @@ export const FAILURE_SUMMARIES: Readonly<Record<string, FailureSummary>> = {
     short: "実行できませんでした",
     hint: "モデルの呼び出しで想定外の失敗が起きました。",
   },
+  "state.unreadable": {
+    short: "いま読み込めません",
+    hint: "状態を確認できないため、見えていない停止を消してしまう恐れがあり、再開できませんでした。少し待ってからもう一度お試しください。",
+  },
 };
 
 /** Every failure code a cycle can end on. The test's list, and this file's contract. */

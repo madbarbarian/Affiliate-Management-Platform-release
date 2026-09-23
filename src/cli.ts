@@ -722,6 +722,17 @@ async function commandResume(options: Options): Promise<number> {
   });
 
   if (!outcome.ok) {
+    if ("stillUnreadable" in outcome) {
+      // Only reachable with no --venture (the per-venture branch never
+      // refreshes) - see pause.ts's applyResume. The file adapter almost never
+      // lands here; it is the same guard that matters on a database-backed
+      // state store, kept in the one function both use.
+      process.stderr.write(
+        `The stop file could not be read (${outcome.detail}), so resuming could silently discard a stop ` +
+          `recorded there that this run simply cannot see. Nothing was changed. Try again.\n`,
+      );
+      return 1;
+    }
     process.stderr.write(
       `Everything is stopped, so resuming one venture would change nothing.\n` +
         `  Stopped ${outcome.blockedByAll.at} (${outcome.blockedByAll.by}): ${outcome.blockedByAll.reason}\n` +

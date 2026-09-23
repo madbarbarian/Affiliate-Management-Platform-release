@@ -295,6 +295,28 @@ test("health answers before anything else has to work", async () => {
   assert.deepEqual(await response.json(), { ok: true, configured: configSource === "licensee" });
 });
 
+test("health names the version, when the build carried one", async () => {
+  // `release` is a value the build closed over, not something read off disk or
+  // a binding, so naming it here costs /healthz none of its promise that it
+  // answers "whatever else is broken" - the value was already sitting in
+  // memory before this request arrived, config and database included.
+  const handlers = createWorker({
+    configSource: "licensee",
+    configText: await exampleConfig(),
+    prompts: {},
+    release: { version: "1.4.0", commit: "cafefee", builtAt: "2026-09-01T00:00:00.000Z", upstream: "owner/release" },
+  });
+  const response = await handlers.fetch(new Request("https://amp.example.workers.dev/healthz"), { DB: fakeD1() });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, configured: true, version: "1.4.0" });
+});
+
+test("health names no version for a build that carries none, rather than the word undefined", async () => {
+  const handlers = createWorker({ configSource: "licensee", configText: await exampleConfig(), prompts: {} });
+  const response = await handlers.fetch(new Request("https://amp.example.workers.dev/healthz"), { DB: fakeD1() });
+  assert.deepEqual(await response.json(), { ok: true, configured: true }, "no version key at all, not version: null or the string \"undefined\"");
+});
+
 test("with no config of its own, the worker serves the setup page rather than a stranger's example account", async (t) => {
   // The premise is a build with no licensee config - which is this repository,
   // and a licensee's fork before they write one. A checkout that *has* one

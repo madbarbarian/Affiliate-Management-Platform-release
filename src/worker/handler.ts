@@ -198,9 +198,14 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     const url = new URL(request.url);
 
     // Answers before anything else is known to work, so an uptime check does
-    // not need a database or a config.
+    // not need a database or a config. `release` is what the build put in this
+    // closure - no I/O, nothing that can be broken by a bad config or a dead
+    // database - so naming the version here costs this promise nothing.
+    // `undefined` for a build with no stamp drops the key entirely
+    // (JSON.stringify skips it), which is the honest answer for a checkout
+    // that was never released rather than a made-up value.
     if (url.pathname === "/healthz") {
-      return json(200, { ok: true, configured: configSource === "licensee" });
+      return json(200, { ok: true, configured: configSource === "licensee", version: release?.version });
     }
 
     const token = readToken(env);

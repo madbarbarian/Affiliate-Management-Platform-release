@@ -185,16 +185,71 @@ export type ResumeRequest = {
 
 export type ResumeOutcome =
   | { readonly ok: true; readonly state: PauseState; readonly wasPaused: boolean }
-  | { readonly ok: false; readonly blockedByAll: PauseRecord };
+  | { readonly ok: false; readonly blockedByAll: PauseRecord }
+  /**
+   * The slot is still unreadable after a forced refresh, on a store where that
+   * can mean real content this call simply has not fetched yet (see the guard
+   * in `applyResume`). Only reachable for a whole-platform resume against a
+   * store that has a `refresh` - `fileState` does not, and never returns this.
+   */
+  | { readonly ok: false; readonly stillUnreadable: true; readonly detail: string };
 
+/**
+ * Applies a resume.
+ *
+ * The whole-platform branch has a guard the per-venture one does not need, and
+ * it only fires on a store that can actually have something hiding behind an
+ * `unreadable` read.
+ *
+ * `applyPause`'s comment describes the mirror-image hazard on the stopping
+ * side - "a command whose entire job is stopping things must never start any" -
+ * and guards it by refusing a partial stop on an unreadable file. Resuming has
+ * the opposite failure mode: "a command whose entire job is resuming things
+ * must never erase a stop it could not see." That hazard is real on a
+ * snapshot-backed store (`sql-state.ts`): before the first successful
+ * `refresh()` in an invocation, or after a failed one, every read reports
+ * `unreadable` regardless of what is actually stored in the row - which could
+ * be three ventures' worth of real stops this call simply has not fetched yet.
+ * Writing `RUNNING` there without re-checking would erase them without anyone
+ * having seen them first: a D1 hiccup would make the screen say "everything is
+ * stopped", and pressing the one button offered would silently discard
+ * whatever was really recorded.
+ *
+ * It is not real on `fileState`: it has no `refresh` (there is no snapshot to
+ * go stale), and its own `unreadable` means `readFileSync` itself threw - bad
+ * permissions, the path being a directory, an I/O error. That is the same
+ * fact as corrupt content, not a different, hidden one: nothing is behind it
+ * to erase. Refusing there anyway was tried and is wrong - a permission error
+ * or a bad path does not clear itself, so it would trap `amp resume`, the one
+ * command whose entire job is being the escape hatch, behind advice ("try
+ * again") that can never work. So the guard is gated on the store actually
+ * having a `refresh`: no snapshot means nothing can be hiding behind
+ * `unreadable`, and this falls straight through to the same read-and-write
+ * `fileState` always did.
+ */
 export async function applyResume(request: ResumeRequest): Promise<ResumeOutcome> {
-  const current = readPause(request.state);
-
   if (request.ventureId === undefined) {
+    if (request.state.refresh) {
+      await request.state.refresh();
+      const slot = request.state.read(PAUSE_KEY);
+      if (slot.kind === "unreadable") {
+        return { ok: false, stillUnreadable: true, detail: slot.detail };
+      }
+    }
+
+    const current = readPause(request.state);
     const wasPaused = current.all !== undefined || Object.keys(current.ventures).length > 0;
+    // Nothing recorded, nothing to clear - and nothing to write. A resume
+    // pressed against a state that has already resolved itself (the phantom
+    // from a hiccup that has since recovered) should say so, not add a write
+    // that changes nothing.
+    if (!wasPaused) return { ok: true, state: current, wasPaused: false };
+
     await write(request.state, RUNNING);
-    return { ok: true, state: RUNNING, wasPaused };
+    return { ok: true, state: RUNNING, wasPaused: true };
   }
+
+  const current = readPause(request.state);
 
   // Clearing one venture while the global stop is on would report "resumed" and
   // then publish nothing, which is the kind of half-truth that makes someone

@@ -62,6 +62,10 @@ const ja = {
   // 「いま何が起きているか」を決めるのに、これまで画面のどこにも出ていなかった。
   "settings.heading": "この会社の設定",
   "settings.lede": "いま何が効いているかを読む画面です。変更は設定ファイルで行います。",
+  "settings.version": "いま動いている版",
+  // RELEASE.json が無い控え - このリポジトリを直接動かしている開発中のチェック
+  // アウトなど。リリースを経由していないので、比べる相手も存在しない。
+  "settings.versionUnknown": "正式なリリースではありません（開発用チェックアウト）",
   "settings.autonomy": "機械に任せている範囲",
   "settings.autonomyManual": "manual — 両方の判断であなたを待ちます（何も事前選択しません）",
   "settings.autonomyAssisted": "assisted — 両方の判断であなたを待ちます（推奨は選択済み）",
@@ -143,7 +147,10 @@ const ja = {
   "handOver.sending": "記録しています…",
   "handOver.urlPrompt": "投稿のURLがあれば貼ってください（空のままでもかまいません）",
   "handOver.noEngagement": "このチャンネルでは、いいね・返信は取得できません。クリックと報酬はこれまでどおり記録されます。",
-  "today.stats": "直近の数字",
+  // 真下の「全アカウント — 直近{days}日」と同じ窓・同じ言い回し。旧い
+  // 「直近の数字」は窓を名指ししておらず、隣り合う2つの見出しがどちらも
+  // 「直近」とだけ読めた。
+  "today.stats": "全アカウント合計 — 直近{days}日",
   "today.activity": "最近の動き",
   "today.activityEmpty": "まだ記録がありません。",
   "today.activityFailed": "{step}で止まりました — {reason}",
@@ -152,6 +159,8 @@ const ja = {
   // 公開ではないので、公開と同じ見た目にしない。1つの投稿がこの欄に2回出る
   // （渡したとき・押したとき）以上、どちらがどちらか読めなければ意味がない。
   "today.activityHandedOver": "あなたが投稿する番です — {hook}",
+  // `platform.resumed`. 誰が・いつは行の頭に既に出るので、ここは何が起きたかだけ。
+  "today.activityResumed": "全体の停止を解除しました。",
   // Words the server renders. The router runs in the same process as this file
   // and reads it directly rather than shipping a second vocabulary: what a
   // screen says has to have one source, or console.locale becomes a promise
@@ -185,11 +194,21 @@ const ja = {
   "stop.one": "停止中 — {label}",
   // No {command} here on purpose. This used to name `amp resume`, a terminal
   // command the licensee this screen is built for cannot run
-  // (requirements.md §3.1: no shell is assumed). There is also no button on
-  // this screen yet that lifts a stop (docs/3-development/console-ux-proposal.md
-  // §6.2), so this says that plainly rather than pointing at something the
-  // reader has no way to do.
-  "stop.howToResume": "この画面に、再開のボタンはまだありません。この仕組みを動かしている人だけが解除できます。",
+  // (requirements.md §3.1: no shell is assumed). This account's own stop still
+  // has no button - see the constraint against a per-venture resume in
+  // docs/3-development/console-ux-proposal.md §6.2 - so this names what it is
+  // about now that the whole-platform stop above it has one.
+  "stop.howToResume": "このアカウントだけの停止を解除するボタンは、この画面にありません。全体を止めているときは上のボタンで解除できます。このアカウントだけの停止は、この仕組みを動かしている人に頼んでください。",
+  // pause.ts's synthetic fail-closed record: nobody stopped anything, a slot
+  // just could not be read, and it fails safe by reading as a stop. Its `reason`
+  // is machine text for a log ("the stop file is not valid JSON — it was
+  // treated as a stop"), so this replaces it rather than printing it.
+  "stop.failClosedExplain": "状態を保存した場所（ファイルやデータベースの行）が読み込めなかったため、安全のため全体を停止として扱っています。実際に誰かが止めたわけではありません。再開すると、この状態は消えます。",
+  "stop.resumeAll": "全体を再開する",
+  "stop.resumeConfirmDetail": "{at}に{by}が理由「{reason}」で全体を止めました。",
+  "stop.resumeConfirm": "本当にすべて再開しますか？",
+  "stop.resumed": "再開しました。次のサイクルから通常どおり動きます。",
+  "stop.resumeNothingToDo": "すでに動いています。何も変えていません。",
 
   // The two gates
   "gate.heading": "{gate} — {venture}",
@@ -372,6 +391,8 @@ const en: Messages = {
   "nav.settings": "Settings",
   "settings.heading": "This company's settings",
   "settings.lede": "What is in force, to read. Changes are made in the config file.",
+  "settings.version": "Version running now",
+  "settings.versionUnknown": "Not a numbered release (a development checkout)",
   "settings.autonomy": "How much the machine decides",
   "settings.autonomyManual": "manual — both gates wait for you, with nothing pre-selected",
   "settings.autonomyAssisted": "assisted — both gates wait for you, with the recommendation pre-selected",
@@ -437,13 +458,14 @@ const en: Messages = {
   "handOver.sending": "Recording…",
   "handOver.urlPrompt": "The URL of the post, if you have it (you can leave this empty)",
   "handOver.noEngagement": "Likes and replies cannot be read back on this channel. Clicks and revenue are recorded as usual.",
-  "today.stats": "Recent numbers",
+  "today.stats": "All accounts total — last {days} days",
   "today.activity": "Recently",
   "today.activityEmpty": "Nothing recorded yet.",
   "today.activityFailed": "Stopped at {step} — {reason}",
   "today.activityExpired": "The gate for {day} lapsed unanswered",
   "today.activityClosed": "The gate for {day} was closed when the account was switched off",
   "today.activityHandedOver": "Your turn to post — {hook}",
+  "today.activityResumed": "Lifted the stop on everything.",
   "gate.proposalLabel": "Proposals",
   "gate.publishLabel": "Posts and their order",
   "gate.questionProposal": "Which of today's proposed posts should be written?",
@@ -468,7 +490,13 @@ const en: Messages = {
 
   "stop.all": "Stopped — nothing runs and nothing publishes",
   "stop.one": "Stopped — {label}",
-  "stop.howToResume": "There is no resume button on this screen yet. Only whoever runs this system can undo this.",
+  "stop.howToResume": "There is no button on this screen to lift this account's own stop. When everything is stopped, the button above clears it. This account's own stop is something only whoever runs this system can undo.",
+  "stop.failClosedExplain": "The place this state is stored (a file, or a database row) could not be read, so for safety this is being treated as a stop on everything. Nobody actually stopped it. Resuming clears this.",
+  "stop.resumeAll": "Resume everything",
+  "stop.resumeConfirmDetail": "Everything was stopped at {at} by {by}. Reason: {reason}.",
+  "stop.resumeConfirm": "Resume everything now?",
+  "stop.resumed": "Resumed. It runs normally from the next cycle.",
+  "stop.resumeNothingToDo": "Already running. Nothing was changed.",
 
   "gate.heading": "{gate} — {venture}",
   "gate.day": "For {day}",

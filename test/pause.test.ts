@@ -8,7 +8,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,7 +23,7 @@ import {
 } from "../src/kernel/pause.ts";
 import { BASE_CONFIG, createTestCompany, HOUR_MS, testConfig } from "./helpers.ts";
 import { unwrap } from "../src/core/result.ts";
-import { fileState } from "../src/kernel/state.ts";
+import { fileState, PAUSE_KEY, type StateStore } from "../src/kernel/state.ts";
 import type { VentureId } from "../src/core/types.ts";
 
 async function scratch(): Promise<string> {
@@ -192,6 +192,109 @@ test("resuming clears every stop, including ones set per venture", async () => {
     assert.equal(outcome.ok, true);
     assert.equal(isPaused(readPause(fileState(dir))), false);
     assert.deepEqual(pausedVentures(readPause(fileState(dir))), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A state store that behaves the way `sql-state.ts` does under a database
+ * outage: every read is `unreadable` until `refresh()` succeeds, and
+ * `refresh()` can be told to keep failing. Counts writes, so a test can assert
+ * on the one property that matters here - not that the *outcome* said the
+ * right thing, but that nothing was actually written to disk.
+ */
+function flakyState(options: { recovers: boolean; seed?: string }): StateStore & { writes: number } {
+  let readable = false;
+  let stored = options.seed;
+  const store = {
+    writes: 0,
+    label: (key: string) => `the "${key}" row of the state table`,
+    read(key: string) {
+      if (key !== PAUSE_KEY) return { kind: "absent" as const };
+      if (!readable) return { kind: "unreadable" as const, detail: "D1_ERROR: network hiccup" };
+      return stored === undefined ? { kind: "absent" as const } : { kind: "text" as const, text: stored };
+    },
+    async write(_key: string, text: string) {
+      store.writes += 1;
+      stored = text;
+    },
+    async refresh() {
+      if (options.recovers) readable = true;
+      // A refresh that keeps failing (recovers: false) leaves `readable` false,
+      // matching sql-state.ts: "leave the snapshot unset: reads go back to
+      // reporting unreadable".
+    },
+  };
+  return store;
+}
+
+test("resuming everything refuses when the state is still unreadable after a forced refresh, and writes nothing", async () => {
+  // The D1-hiccup sequence pause.ts's applyResume exists to guard against: the
+  // screen would have shown a phantom whole-platform stop (readPause turns
+  // `unreadable` into a synthetic fail-closed record), and pressing resume must
+  // not write RUNNING over stops that are simply not visible right now.
+  const state = flakyState({ recovers: false });
+
+  const outcome = await applyResume({ state });
+
+  assert.equal(outcome.ok, false, "a state that is still unreadable after refresh must not report success");
+  assert.ok(!outcome.ok && "stillUnreadable" in outcome, "the refusal must name itself, not the unrelated blockedByAll shape");
+  assert.match(!outcome.ok && "stillUnreadable" in outcome ? outcome.detail : "", /hiccup/);
+  assert.equal(state.writes, 0, "a resume that cannot see the real state must not write RUNNING over it");
+});
+
+test("a fail-closed stop that becomes readable resolves against the real record, not the phantom", async () => {
+  // Before refresh: exactly what a database outage looks like. `readPause`
+  // reports the synthetic whole-platform fail-closed stop.
+  const real = JSON.stringify({ ventures: { beauty: { at: "2026-09-01T00:00:00.000Z", by: "operator", reason: "wrong offer went out" } } });
+  const state = flakyState({ recovers: true, seed: real });
+
+  assert.equal(isPaused(readPause(state)), true, "unrefreshed must still fail closed");
+  assert.equal(readPause(state).all?.by, "fail-closed");
+
+  // The transient failure has since cleared - the same "refresh() succeeds
+  // this time" as a recovered D1 connection. applyResume must re-read rather
+  // than trust the phantom it would have reported a moment ago.
+  const outcome = await applyResume({ state });
+
+  assert.equal(outcome.ok, true, "a state that reads cleanly after refresh must resolve, not refuse");
+  assert.ok(outcome.ok && outcome.wasPaused, "the real per-venture stop it uncovered counts as something to resume");
+  assert.equal(isPaused(readPause(state)), false, "the real stop was cleared, not left behind a phantom that never went away");
+});
+
+test("resuming when a forced refresh shows nothing stopped writes nothing", async () => {
+  const state = flakyState({ recovers: true, seed: undefined });
+
+  const outcome = await applyResume({ state });
+
+  assert.equal(outcome.ok, true);
+  assert.ok(outcome.ok && outcome.wasPaused === false, "there was nothing to resume");
+  assert.equal(state.writes, 0, "a resume that changes nothing should not write a no-op RUNNING record");
+});
+
+test("the still-unreadable refusal never fires on the file adapter - there is no snapshot to hide anything behind", async () => {
+  // fileState has no refresh(): its own `unreadable` means readFileSync itself
+  // threw (bad permissions here), not "a snapshot has not loaded yet". Nothing
+  // is hiding behind that - the whole file is the one thing that could not be
+  // read - so refusing here would trap `amp resume`, the one command whose
+  // entire job is being the escape hatch, behind a fix that does not exist:
+  // "try again" never changes a permission bit nobody touched.
+  if (typeof process.getuid === "function" && process.getuid() === 0) return; // root ignores chmod 0
+  const dir = await scratch();
+  try {
+    await applyPause({ state: fileState(dir), reason: "x", by: "t", at: "t" });
+    await chmod(pauseFilePath(dir), 0o000);
+    try {
+      assert.equal(fileState(dir).read(PAUSE_KEY).kind, "unreadable", "the setup must actually reproduce an unreadable slot");
+
+      const outcome = await applyResume({ state: fileState(dir) });
+
+      assert.equal(outcome.ok, true, "fileState must not refuse - see the comment above applyResume's guard");
+      assert.equal(isPaused(readPause(fileState(dir))), false, "the stop is cleared the same way it always was on this adapter");
+    } finally {
+      await chmod(pauseFilePath(dir), 0o644);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

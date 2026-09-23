@@ -174,6 +174,15 @@ export type PageRun = {
    * the guard that stops one.
    */
   press(dataset: Record<string, string>): Promise<FakeElement>;
+  /**
+   * Changes the address the way a person clicking a link (or pressing back)
+   * does: the hash changes first, then the browser fires `hashchange` - not
+   * the other way round, and not both at once. The page's own listener does
+   * not await what it starts, so this does not either; a caller that needs to
+   * know the resulting load() has painted polls for it; a caller that needs
+   * to control what that load() sees mid-flight uses `intercept`.
+   */
+  navigate(hash: string): void;
 };
 
 export type PageOptions = {
@@ -240,6 +249,9 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
   const requests: string[] = [];
   const clicks: ((event: unknown) => unknown)[] = [];
   const toggles: ((event: unknown) => unknown)[] = [];
+  /** The page's own `window.addEventListener("hashchange", ...)`, for navigate(). */
+  const hashchanges: (() => unknown)[] = [];
+  const location = { hash, origin: base };
   /**
    * What a panel this run has opened is showing now.
    *
@@ -287,8 +299,10 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
       querySelectorAll: () => [],
     },
     window: {
-      location: { hash, origin: base },
-      addEventListener: () => {},
+      location,
+      addEventListener(type: string, listener: () => unknown) {
+        if (type === "hashchange") hashchanges.push(listener);
+      },
       scrollTo: () => {},
       prompt: () => "",
       confirm: () => true,
@@ -374,6 +388,13 @@ export async function openPage(options: PageOptions): Promise<PageRun> {
       };
       await Promise.all(clicks.map((listener) => listener({ target })));
       return button;
+    },
+    navigate(next) {
+      location.hash = next;
+      // Fired, not awaited: the page's own listener does not await load()
+      // either (`() => { window.scrollTo(0, 0); load(); }`), and a harness
+      // that awaited it here would be testing a page that does not exist.
+      for (const listener of hashchanges) listener();
     },
   };
 }

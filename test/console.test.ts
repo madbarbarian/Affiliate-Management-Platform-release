@@ -11,7 +11,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,13 +29,13 @@ import { renderPage } from "../src/console/ui.ts";
 import { fill, LOCALES, MESSAGES, type Locale } from "../src/console/messages.ts";
 import { readFileSync } from "node:fs";
 import { repoRoot } from "../src/config/load.ts";
-import { CYCLE_STEPS } from "../src/core/types.ts";
+import { CYCLE_STEPS, type VentureId } from "../src/core/types.ts";
 import { unwrap } from "../src/core/result.ts";
 import { runScout } from "../src/kernel/exploration.ts";
 import type { Runtime } from "../src/runtime.ts";
 import type { ReleaseStamp } from "../src/core/release.ts";
-import { fileState } from "../src/kernel/state.ts";
-import { applyPause } from "../src/kernel/pause.ts";
+import { fileState, PAUSE_KEY, type StateStore } from "../src/kernel/state.ts";
+import { applyPause, pauseFilePath } from "../src/kernel/pause.ts";
 import { guardWithStop } from "../src/kernel/assemble.ts";
 import { deactivateVenture } from "../src/kernel/venture-state.ts";
 import { openPage, waitingJudgementFrom } from "./page-harness.ts";
@@ -70,6 +70,14 @@ async function withConsole(
     release?: ReleaseStamp;
     /** Anything else the config needs - a different channel, a different autonomy. */
     config?: Record<string, unknown>;
+    /**
+     * In place of the file adapter this harness otherwise builds. For the one
+     * class of test that needs a state store shaped like `sql-state.ts`'s - a
+     * database that can be unreadable independently of what is actually
+     * stored - rather than a file, which cannot be unreadable without being
+     * corrupt too.
+     */
+    state?: StateStore;
   } = {},
 ): Promise<void> {
   const dataDir = await mkdtemp(join(tmpdir(), "amp-console-"));
@@ -96,7 +104,7 @@ async function withConsole(
     }),
     ...(options.llm ? { llm: options.llm } : {}),
   });
-  const state = fileState(dataDir);
+  const state = options.state ?? fileState(dataDir);
   const runtime = {
     loaded: { config: company.config, path: "test", dataDir, promptsDir: "prompts" },
     config: company.config,
@@ -406,6 +414,10 @@ test("the page renders its own words, not its placeholders", async () => {
     // The accounts heading is fmt("accounts.heading", { days }) - proof that
     // substitution happened at all, rather than the pattern matching nothing.
     assert.match(page.elements.get("accounts-head")?.textContent ?? "", /全アカウント — 直近\d+日/);
+    // Same shape, same window, for the section that used to be labelled
+    // 「直近の数字」 with no window named at all - the owner's complaint this
+    // heading was rewritten for.
+    assert.match(page.elements.get("stats-head")?.textContent ?? "", /全アカウント合計 — 直近\d+日/);
   });
 });
 
@@ -1814,6 +1826,81 @@ test("a day can be read back from the console, and only that account's", async (
   });
 });
 
+test("a late timeline answer for one date cannot overwrite a different date already open", async () => {
+  // The same shape of race as load()'s (found auditing every other await-then-
+  // paint path on this page), reachable without any navigation at all: click a
+  // failed day (slow to answer), click a different day before that answer
+  // comes back, and the failed day's answer landing last used to overwrite the
+  // day actually open - #timeline is one box shared by every date's panel.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      const real = unwrap(await company.orchestrator.runCycle("main"));
+      const failedDate = "2026-01-01";
+      await company.store.cycles.put({
+        ...real,
+        id: real.id + "_failed",
+        date: failedDate,
+        status: "failed",
+        failure: { step: "analyze", message: "400 not the day that should be showing", code: "llm.bad_request" },
+      } as never);
+
+      let releaseFailed: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseFailed = resolve;
+      });
+      let failedAnswered: Promise<Response> | undefined;
+
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/main",
+        until: "venture-history",
+        intercept(path, forward) {
+          if (!path.endsWith(`/cycles/${failedDate}`)) return undefined;
+          failedAnswered = gate.then(forward);
+          return failedAnswered;
+        },
+      });
+
+      // Not awaited: this click's own handler is stuck awaiting the held
+      // fetch above, and this test controls when that answer arrives -
+      // awaiting the press itself here would wait for the same thing twice.
+      const firstPress = page.press({ act: "timeline", date: failedDate });
+      assert.ok(
+        page.requests.some((p) => p.endsWith(`/cycles/${failedDate}`)),
+        "the failed day's own fetch has to be in flight for this test to prove anything",
+      );
+
+      // A different day, clicked before the first one answered. Its own fetch
+      // is not intercepted, so this press resolves normally.
+      await page.press({ act: "timeline", date: real.date });
+      const untilReal = Date.now() + 5000;
+      while (Date.now() < untilReal && !page.html("timeline").includes("tl-step")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const paintedForReal = page.html("timeline");
+      assert.doesNotMatch(
+        paintedForReal,
+        /400 not the day that should be showing/,
+        "the real day never rendered, so letting the failed day's answer through next would prove nothing",
+      );
+
+      // Now the failed day's answer - requested first, answered last - arrives.
+      releaseFailed!();
+      await failedAnswered;
+      await firstPress;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      assert.equal(
+        page.html("timeline"),
+        paintedForReal,
+        "the failed day's late answer overwrote the real day already open",
+      );
+    },
+  );
+});
+
 test("reading a day back is not on the path the operator walks every morning", async () => {
   // The product promises two decisions a day at thirty seconds each. This
   // screen reads five collections for one date; putting it in the payload the
@@ -1894,6 +1981,41 @@ test("running on the simulated model says so on the settings screen", async () =
     assert.match(body, /機械に任せている範囲/);
     assert.match(body, /リンクの行き先/);
     assert.doesNotMatch(body, /\{(model|fastModel|effort|posts|minutes|smell)\}/, "no placeholder reached the screen");
+  });
+});
+
+test("the running version is visible on the settings screen, not only inside the update panel", async () => {
+  // Before this, the version appeared exactly once - "いまお使いなのは
+  // {version} です" inside #update - which only renders when an update is
+  // available. A licensee who is current never saw their own version anywhere.
+  await withConsole(
+    { AMP_TEST_TOKEN: "tok-version" },
+    async (base, handle) => {
+      const page = await openPage({ base, token: handle.token, hash: "#/settings", until: "settings-body" });
+      assert.match(page.html("settings-body"), /0\.2\.0/, "the running version has to be on this screen");
+    },
+    { release: MINE },
+  );
+});
+
+test("the settings screen's version is the same value checkForUpdate reads, not a second copy of it", async () => {
+  await withConsole(
+    { AMP_TEST_TOKEN: "tok-version-api" },
+    async (base, handle) => {
+      const response = await fetch(`${base}/api/settings`, { headers: { authorization: `Bearer ${handle.token}` } });
+      const body = (await response.json()) as { version?: string };
+      assert.equal(body.version, MINE.version, "runtime.release.version, the same field checkForUpdate is given as `local`");
+    },
+    { release: MINE },
+  );
+});
+
+test("a checkout with no release stamp says so on the settings screen, rather than leaving the row blank", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "tok-noversion" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, hash: "#/settings", until: "settings-body" });
+    const body = page.html("settings-body");
+    assert.match(body, /開発用チェックアウト/, "a dev checkout has no RELEASE.json, and has to say so rather than nothing");
+    assert.doesNotMatch(body, /0\.2\.0/, "and never a version it does not have");
   });
 });
 
@@ -2262,6 +2384,136 @@ test("pressing run on a stopped account shows this platform's own words, not the
 });
 
 // ---------------------------------------------------------------------------
+// The console's exit from the emergency stop.
+// ---------------------------------------------------------------------------
+
+test("the stop card shows at, by and reason before the resume button does anything", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    const stopped = await applyPause({
+      state: runtime.state,
+      reason: "見直し中",
+      by: "owner",
+      at: "2026-09-01T09:00:00.000Z",
+    });
+    assert.ok(stopped.ok);
+
+    // Nothing pressed yet: this is what the very first render draws.
+    const page = await openPage({ base, token: handle.token, until: "stopped" });
+    const card = page.html("stopped");
+    assert.match(card, /owner/, "who stopped it has to be on screen before the button is");
+    assert.match(card, /見直し中/, "why it was stopped has to be on screen before the button is");
+    assert.match(card, /data-resume-all/, "the whole-platform stop gets a resume button");
+    assert.deepEqual(page.requests.filter((path) => path.includes("/api/resume")), [], "nothing was pressed yet");
+  });
+});
+
+test("a per-venture stop offers no resume button of its own", async () => {
+  // The constraint this spec is explicit about: a per-venture resume is
+  // refused while a global stop is on (pause.ts), so a button that offers one
+  // and then refuses is worse than no button. There is no global stop here.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    const stopped = await applyPause({
+      state: runtime.state,
+      ventureId: "main" as VentureId,
+      reason: "wrong offer went out",
+      by: "owner",
+      at: "2026-09-01T09:00:00.000Z",
+    });
+    assert.ok(stopped.ok);
+
+    const page = await openPage({ base, token: handle.token, until: "stopped" });
+    const card = page.html("stopped");
+    assert.match(card, /wrong offer went out/);
+    assert.doesNotMatch(card, /data-resume-all/, "a per-venture stop must not offer the whole-platform button");
+  });
+});
+
+test("a fail-closed stop explains itself in the operator's words, not the machine reason it was given", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    // Nobody called applyPause: the file itself is what a hand-written stop, or
+    // a crash mid-write, leaves behind. readPause() turns this into the
+    // synthetic fail-closed record whose `reason` is machine text for a log.
+    await writeFile(pauseFilePath(runtime.loaded.dataDir), "STOP", "utf8");
+
+    const page = await openPage({ base, token: handle.token, until: "stopped" });
+    const card = page.html("stopped");
+    assert.doesNotMatch(card, /not valid JSON/, "the machine reason must not reach this screen verbatim");
+    assert.match(card, /安全のため全体を停止として扱っています/, "the screen must say what actually happened");
+    assert.match(card, /data-resume-all/, "pressing resume is still how this gets cleared");
+  });
+});
+
+test("resuming through the console clears a real stop, and the activity log shows who and when", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    const stopped = await applyPause({
+      state: runtime.state,
+      reason: "見直し中",
+      by: "owner",
+      at: "2026-09-01T09:00:00.000Z",
+    });
+    assert.ok(stopped.ok);
+
+    const page = await openPage({ base, token: handle.token, until: "stopped" });
+    assert.match(page.html("stopped"), /data-resume-all/);
+
+    // window.confirm() is stubbed to true in this harness (page-harness.ts) -
+    // the same stand-in every other confirmation on this page already runs
+    // against, e.g. window.prompt() for the deactivate reason.
+    await page.press({ resumeAll: "all" });
+
+    assert.ok(page.requests.includes("/api/resume"), `the button did not call the route: ${page.requests.join(", ")}`);
+    assert.equal(page.html("stopped"), "", "the card is gone once the platform is actually running again");
+
+    const headers = { authorization: `Bearer ${handle.token}` };
+    const afterState = (await (await fetch(`${base}/api/state`, { headers })).json()) as {
+      activity: { type: string; actor: string; summary: string }[];
+    };
+    const entry = afterState.activity.find((e) => e.type === "platform.resumed");
+    assert.ok(entry, `no platform.resumed entry in the activity log: ${JSON.stringify(afterState.activity)}`);
+    assert.equal(entry?.actor, "tester", "the record has to name who pressed it, not the person who stopped it");
+  });
+});
+
+test("resuming when nothing is stopped changes nothing and presses no button into a lie", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const headers = { authorization: `Bearer ${handle.token}`, "content-type": "application/json" };
+    const resumed = await fetch(`${base}/api/resume`, { method: "POST", headers });
+    assert.equal(resumed.status, 200);
+    const body = (await resumed.json()) as { wasPaused: boolean };
+    assert.equal(body.wasPaused, false);
+  });
+});
+
+test("a still-unreadable state refuses the resume route and writes nothing", async () => {
+  // The hazard requirement 3 is about, reproduced directly: a store shaped like
+  // sql-state.ts, where every read is `unreadable` until refresh() succeeds,
+  // and here refresh() never does - a D1 outage that has not cleared. Pressing
+  // resume must not write RUNNING over stops this run simply cannot see.
+  let writes = 0;
+  const brokenState: StateStore = {
+    label: (key) => `the "${key}" row of the state table`,
+    read: () => ({ kind: "unreadable", detail: "D1_ERROR: network hiccup" }),
+    async write() {
+      writes += 1;
+    },
+    async refresh() {
+      // Keeps failing on purpose - see sql-state.ts's own comment on what an
+      // unsuccessful refresh leaves behind.
+    },
+  };
+
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const headers = { authorization: `Bearer ${handle.token}`, "content-type": "application/json" };
+    const resumed = await fetch(`${base}/api/resume`, { method: "POST", headers });
+
+    assert.equal(resumed.status, 503);
+    const body = (await resumed.json()) as { code: string };
+    assert.equal(body.code, "state.unreadable");
+    assert.equal(writes, 0, "a resume that cannot see the real state must not write RUNNING over it");
+  }, { state: brokenState });
+});
+
+// ---------------------------------------------------------------------------
 // The page Cloudflare serves, which is not the page Node renders.
 //
 // Every test above renders the console in Node, which strips types and changes
@@ -2406,6 +2658,149 @@ test("on the page Cloudflare serves, an approval whose answer is lost still says
     assert.equal(noticeOn(page), MESSAGES.ja["wait.changed"], "the watch has to reach its answer, not die on the way");
     assert.ok(!page.html("decision-list").includes(MESSAGES.ja["gate.sending"]), "and nothing is left reading 送信中…");
   });
+});
+
+// ---------------------------------------------------------------------------
+// A late response for one account must not paint another's screen.
+//
+// Reported by the owner on the deployed Worker: navigating from one account
+// to another while the first account's own /api/ventures/<id> answer was
+// still in flight left the second account's screen showing the first
+// account's card, with the address bar and the run button disagreeing about
+// which account it was. `outdoor2`/`outdoor3` are the real account ids on the
+// deployed reference environment (STATUS.md's `amp-test`), used here rather
+// than invented ones so this reads as the incident it is.
+// ---------------------------------------------------------------------------
+
+function twoVentures(): [Record<string, unknown>, Record<string, unknown>] {
+  return [
+    { ...structuredClone(BASE_CONFIG.ventures[0]), id: "outdoor2", name: "アウトドア２" },
+    { ...structuredClone(BASE_CONFIG.ventures[0]), id: "outdoor3", name: "アウトドア３" },
+  ];
+}
+
+test("a late answer for the account just left cannot repaint the account just opened", async () => {
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      // Held open until this test chooses to let it go, so outdoor2's own
+      // /api/ventures/outdoor2 answer can be made to land *after* outdoor3's -
+      // deterministically, by ordering the calls below, rather than by racing
+      // real timers and hoping.
+      let releaseOutdoor2: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseOutdoor2 = resolve;
+      });
+      let outdoor2Answered: Promise<Response> | undefined;
+
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-decisions",
+        intercept(path, forward) {
+          if (path !== "/api/ventures/outdoor2") return undefined;
+          outdoor2Answered = gate.then(forward);
+          return outdoor2Answered;
+        },
+      });
+
+      // The first load() has to actually be waiting on outdoor2's own answer,
+      // or this test would prove nothing.
+      assert.ok(
+        page.requests.includes("/api/ventures/outdoor2"),
+        `outdoor2's own venture fetch never went out: ${page.requests.join(", ")}`,
+      );
+
+      // The operator navigates to outdoor3 before outdoor2's answer comes
+      // back - the hashchange listener this fires is a second, independent
+      // load().
+      page.navigate("#/ventures/outdoor3");
+      const untilOutdoor3 = Date.now() + 5000;
+      while (Date.now() < untilOutdoor3 && !page.html("venture-head").includes("outdoor3")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(
+        page.html("venture-head"),
+        /outdoor3/,
+        `outdoor3 never rendered, so releasing outdoor2's answer next would prove nothing: ${page.html("venture-head")}`,
+      );
+      const paintedForOutdoor3 = page.html("venture-head");
+
+      // Now outdoor2's answer - requested first, answered last - arrives.
+      releaseOutdoor2!();
+      await outdoor2Answered;
+      // The continuation after that await (parsing the JSON body, then
+      // load()'s own generation check) is a few more microtask hops, not
+      // bounded by anything this test can await directly - so it is given
+      // real time to finish rather than asserted on immediately.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      assert.equal(
+        page.html("venture-head"),
+        paintedForOutdoor3,
+        "outdoor2's late answer repainted the screen after outdoor3 was already showing",
+      );
+      assert.doesNotMatch(page.html("venture-head"), /アウトドア２/, "outdoor2's name must never appear while outdoor3 is routed");
+      assert.equal(page.elements.get("view-venture")?.hidden, false, "the account view has to stay open");
+      assert.equal(page.elements.get("view-today")?.hidden, true, "and the day's view has to stay closed");
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+test("the run button refuses to start a cycle for an account that is not the one currently routed", async () => {
+  // Independent of the render race above - the last line of defence between a
+  // mispainted button and an actual cycle starting on the wrong account,
+  // which is the harm the owner named ("その後ボタンを押すとそのアカウントの
+  // サイクルが動く"). Proven directly, by pressing a button whose id disagrees
+  // with the address bar, rather than by reproducing the race that could
+  // produce one.
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor3",
+        until: "venture-decisions",
+      });
+
+      await page.press({ ventureRun: "1", venture: "outdoor2" });
+
+      assert.ok(
+        !page.requests.includes("/api/ventures/outdoor2/run"),
+        `pressing outdoor2's button while outdoor3 is routed must not run outdoor2: ${page.requests.join(", ")}`,
+      );
+      assert.equal((await company.stores.open("outdoor2").cycles.all()).length, 0, "no cycle was actually started");
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+test("the account switch refuses to touch an account that is not the one currently routed", async () => {
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor3",
+        until: "venture-decisions",
+      });
+
+      await page.press({ ventureAct: "activate", venture: "outdoor2" });
+
+      assert.ok(
+        !page.requests.includes("/api/ventures/outdoor2/activate"),
+        `pressing outdoor2's switch while outdoor3 is routed must not touch outdoor2: ${page.requests.join(", ")}`,
+      );
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
 });
 
 // ---------------------------------------------------------------------------

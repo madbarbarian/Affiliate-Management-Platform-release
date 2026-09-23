@@ -449,7 +449,10 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
   </section>
 
   <section>
-    <h2>${escapeHtml(t("today.stats"))}</h2>
+    <!-- Empty until render(): the window length is {days} from /api/state,
+         the same value the accounts table's own heading names, and this is
+         not known at the time this shell is served. -->
+    <h2 id="stats-head"></h2>
     <div id="stats"></div>
   </section>
 
@@ -1132,16 +1135,28 @@ function render() {
   // stopped is refused, and finding that out by pressing the button is a worse
   // way to learn it.
   const stopped = state.stopped ?? [];
-  $("stopped").innerHTML = stopped.map((stop) =>
-    '<div class="card stopped">' +
+  $("stopped").innerHTML = stopped.map((stop) => {
+    // pause.ts's synthetic record for a slot it could not read: nobody
+    // actually stopped anything, and "reason" is machine text written for a
+    // log, not this screen. Only possible on the "all" scope - a per-venture
+    // entry is always a real record someone wrote.
+    const failClosed = stop.scope === "all" && stop.by === "fail-closed";
+    const detail = failClosed
+      ? esc(T["stop.failClosedExplain"])
+      : [stop.at, stop.by, stop.reason].map(esc).join(T["punct.sep"]);
+    // Whole-platform only (see the click handler below and pause.ts): a
+    // per-venture resume is refused while a global stop is on, and a button
+    // that is visible but refuses is worse than no button. A per-venture
+    // entry keeps the plain "no button here" line it always had.
+    const action = stop.scope === "all"
+      ? '<div class="row" style="margin-top:8px"><button data-resume-all="all">' + esc(T["stop.resumeAll"]) + "</button></div>"
+      : '<div class="muted">' + esc(T["stop.howToResume"]) + "</div>";
+    return '<div class="card stopped">' +
       "<b>" + (stop.scope === "all" ? esc(T["stop.all"]) : esc(fmt("stop.one", { label: stop.label ?? stop.scope }))) + "</b>" +
-      '<div class="muted">' + [stop.at, stop.by, stop.reason].map(esc).join(T["punct.sep"]) + "</div>" +
-      // No command here: the licensee this screen is built for has no
-      // terminal to run one in (requirements.md §3.1). There is also no
-      // button on this screen that lifts a stop yet - see stop.howToResume -
-      // so this says that plainly instead of naming something unusable.
-      '<div class="muted">' + esc(T["stop.howToResume"]) + "</div>" +
-    "</div>").join("");
+      '<div class="muted">' + detail + "</div>" +
+      action +
+    "</div>";
+  }).join("");
 
   // One gate, one place. Never both: the cards carry id="err-<decisionId>",
   // and with the same decision drawn twice getElementById hands back the copy
@@ -1263,6 +1278,10 @@ function render() {
     ? '<p class="empty">' + T["scout.empty"] + "</p>"
     : proposals.map(renderProposal).join("");
 
+  // Same window, same wording as the accounts table's own heading just above -
+  // "直近の数字" used to leave the window unnamed while meaning exactly the
+  // table's {days}, and the two adjacent headings both read as "recent".
+  $("stats-head").textContent = fmt("today.stats", { days: portfolio.days ?? 30 });
   $("stats").innerHTML = '<div class="card stat-row">' + state.stats.map((stat) =>
     '<div class="stat"><b>' + esc(stat.value) + "</b><span class=\\"muted\\">" + esc(stat.label) + "</span></div>").join("") + "</div>";
 
@@ -1294,6 +1313,13 @@ function activityText(entry) {
   // the stored summary the two read as the same line twice about the same post.
   if (entry.type === "post.handed_over") {
     return esc(fmt("today.activityHandedOver", { hook: entry.summary }));
+  }
+  // src/kernel/resume.ts's audit line. "Who" and "when" are already the row's
+  // own columns; this is only what happened, in the operator's language rather
+  // than the English the stored summary carries for everything that falls
+  // through below.
+  if (entry.type === "platform.resumed") {
+    return esc(T["today.activityResumed"]);
   }
   if (entry.type !== "cycle.failed") return esc(entry.summary);
   const failure = failureSummary(entry.failureCode);
@@ -1414,6 +1440,14 @@ document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-venture-act]");
   if (!target) return;
   const ventureId = target.dataset.venture;
+  // This button only ever exists on the account screen load() painted, so
+  // this can only fire if the operator has since navigated away and the old
+  // screen was still showing at the moment of the press - the same window
+  // load()'s own fix closes for a *response*, not for a click that lands
+  // inside it. Deactivating (or reactivating) an account is not undoable by
+  // pressing it again with no side effects, so this checks again rather than
+  // trusting that a card on screen can only ever be the routed one.
+  if (ventureId !== routedVentureId()) return;
   const act = target.dataset.ventureAct;
   let note = "";
   if (act === "deactivate") {
@@ -1447,10 +1481,63 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+/**
+ * The console's exit from the emergency stop. Whole-platform only - see
+ * pause.ts and the router's /api/resume for why there is no equivalent for
+ * one venture.
+ *
+ * Refetches before asking anything, rather than trusting whatever the last
+ * thirty-second poll drew: the record the operator is asked to confirm has to
+ * be the one actually in force right now, not one that happened to be on
+ * screen when the press landed. The route re-checks this again itself before
+ * writing anything - this is what puts the true record in front of the person,
+ * not the safety property, which lives in applyResume.
+ */
+document.addEventListener("click", async (event) => {
+  const target = event.target.closest("[data-resume-all]");
+  if (!target) return;
+  target.disabled = true;
+  await load();
+  const stop = ((state && state.stopped) || []).find((entry) => entry.scope === "all");
+  if (!stop) {
+    // Resolved itself between the poll that drew this button and the press -
+    // a hiccup that recovered, or someone else already resumed it.
+    notice(T["stop.resumeNothingToDo"], "");
+    return;
+  }
+  const detail = stop.by === "fail-closed"
+    ? T["stop.failClosedExplain"]
+    : fmt("stop.resumeConfirmDetail", { at: stop.at, by: stop.by, reason: stop.reason });
+  // Doubled backslash, same reason as fmt()'s: this file is one template
+  // literal, and a lone one is eaten by it before the browser ever sees it.
+  if (!window.confirm(detail + "\\n\\n" + T["stop.resumeConfirm"])) return;
+  try {
+    await api("/api/resume", { method: "POST" });
+    notice(T["stop.resumed"], "");
+  } catch (error) {
+    notice(failureText(error), "warn");
+  } finally {
+    await load();
+  }
+});
+
 document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-venture-run]");
   if (!target) return;
   const ventureId = target.dataset.venture;
+  // This is the button a stale render used to leave armed: load()'s own fix
+  // stops a late answer from *painting* another account's card while this one
+  // stays routed, but it does nothing about a click that lands in the window
+  // before that fix ever gets to run - the operator navigates, the old card
+  // is still what is on screen for the instant it takes to replace it, and
+  // they press what they can see. Running a cycle is exactly the harm the
+  // owner named, so this checks again at the moment of the press rather than
+  // trusting that a card on screen can only ever carry the routed account's
+  // id. Independent of runningVentureId below, which answers a different
+  // question - not "is this still the right account" but "is this account's
+  // own run already in flight", and has to keep working after the operator
+  // navigates away from the account it is running, not stop working here.
+  if (ventureId !== routedVentureId()) return;
   // The guard that actually holds. Greying the button is what the operator
   // sees, but it sits on a button the poll replaces every thirty seconds, and
   // it is not what stops a second POST - this is. A run whose response was lost
@@ -1580,7 +1667,17 @@ function renderSettings(s) {
     ? fmt("settings.operatorOne", { name: s.operators[0] })
     : fmt("settings.operatorMany", { names: s.operators.join(T["punct.sep"]), n: s.operators.length });
 
+  // First, because it answers "what am I running" before any of the rows
+  // that answer "what is it configured to do" - and because it used to
+  // answer nowhere on this screen at all. A licensee who is current never saw
+  // it: the only place it appeared was inside the update panel's "いまお使いな
+  // のは {version} です", which renders only when an update is available.
+  // No "where" - there is no config key to point at, only RELEASE.json, which
+  // a licensee never opens.
+  const version = s.version ? esc(s.version) : loud(T["settings.versionUnknown"]);
+
   return '<div class="card">' +
+    row(T["settings.version"], version) +
     row(T["settings.autonomy"], autonomy, "company.autonomy") +
     row(T["settings.model"], model, "llm.provider") +
     row(T["settings.operator"], esc(who), "company.operator") +
@@ -1666,8 +1763,18 @@ document.addEventListener("click", async (event) => {
       const day = await api(
         "/api/ventures/" + encodeURIComponent(ventureId) + "/cycles/" + encodeURIComponent(target.dataset.date),
       );
+      // The same shape of race as load()'s, found by the same audit: click a
+      // date, click a different one before the first answers, and the first
+      // answer landing last used to overwrite the second one's timeline with
+      // the wrong day - #timeline is one box shared by every date's panel,
+      // and nothing here checked whether this answer was still wanted. Only
+      // reachable within one render of the history list: renderVenture()
+      // rebuilds #timeline itself (and any reference to the old one goes with
+      // it), so this only guards two clicks between one poll and the next.
+      if (target.dataset.date !== openTimelineDate) return;
       openTimelineHtml = renderTimeline(day);
     } catch (error) {
+      if (target.dataset.date !== openTimelineDate) return;
       openTimelineHtml = '<p class="err">' + esc(failureText(error)) + "</p>";
     }
     box.innerHTML = openTimelineHtml;
@@ -1952,7 +2059,43 @@ const resolving = new Set();
  */
 const posting = new Set();
 
+/**
+ * Which call to load() is the one allowed to paint.
+ *
+ * Three things call load() and none of them knows about the others: the
+ * 30-second poll, the hashchange listener, and the run/approve handlers
+ * waiting out a slow answer. Each awaits twice - /api/state, then
+ * /api/ventures/<id> - and neither await used to be followed by a check that
+ * anything had changed while it was pending. So a load() started on one
+ * account and a load() started on another, moments later after the operator
+ * navigated away, raced: whichever's /api/ventures/<id> happened to answer
+ * last painted #venture-head last, whatever account it was for - while the
+ * hidden flags (set synchronously, before either await, so they are never
+ * stale) already agreed with the address bar. The operator saw the right
+ * account framed around the wrong one's data, with a run button that would
+ * have started the wrong one's cycle.
+ *
+ * The fix is a generation count rather than an AbortController: two fetches
+ * to different paths cannot share one controller without cancelling the one
+ * that is still wanted, and this page never wants to cancel a request that
+ * might be doing real work - only to stop painting its answer. Every call
+ * takes the next number; every write this function makes, on either side of
+ * an await, is gated on still holding the latest one. A load() that is no
+ * longer the latest finishes its request (nothing here is aborted) and
+ * throws its answer away instead of painting it.
+ */
+let loadGeneration = 0;
+
 async function load() {
+  const generation = ++loadGeneration;
+  const isCurrent = () => generation === loadGeneration;
+
+  // Safe to run unguarded: nothing here awaits anything, so no other load()
+  // can start between reading the route and writing these three flags. The
+  // latest call's synchronous prefix always runs to completion before any
+  // earlier call's suspended await can resume - that is what makes the
+  // address bar and the hidden flags agree even while the race below is in
+  // flight.
   const ventureId = routedVentureId();
   const onSettings = window.location.hash === "#/settings";
   $("view-today").hidden = Boolean(ventureId) || onSettings;
@@ -1960,9 +2103,10 @@ async function load() {
   $("view-settings").hidden = !onSettings;
   if (onSettings) {
     try {
-      $("settings-body").innerHTML = renderSettings(await api("/api/settings"));
+      const settings = await api("/api/settings");
+      if (isCurrent()) $("settings-body").innerHTML = renderSettings(settings);
     } catch (error) {
-      $("settings-body").innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
+      if (isCurrent()) $("settings-body").innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
     }
     // The day's state is still loaded below: the header's count and the stop
     // banner belong on every view.
@@ -1970,15 +2114,20 @@ async function load() {
   try {
     // The day's state is loaded either way: the header's count, the stop
     // banner and the window length come from it, and they belong on both.
-    state = await api("/api/state");
+    const fetchedState = await api("/api/state");
+    if (!isCurrent()) return;
+    state = fetchedState;
     render();
     if (ventureId) {
-      venture = await api("/api/ventures/" + encodeURIComponent(ventureId));
+      const fetchedVenture = await api("/api/ventures/" + encodeURIComponent(ventureId));
+      if (!isCurrent()) return;
+      venture = fetchedVenture;
       renderVenture(venture);
     } else {
       venture = null;
     }
   } catch (error) {
+    if (!isCurrent()) return;
     const box = ventureId ? $("venture-head") : $("decision-list");
     box.innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
   }

@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.10.0",
-  "commit": "043e865",
-  "builtAt": "2026-09-23T06:56:11.175Z",
+  "version": "0.11.0",
+  "commit": "bedfd0e",
+  "builtAt": "2026-09-23T18:55:03.872Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 59970,
-      "sha256": "42259034d9a810d4575770e6830d3b870c272d2b26e8d77475c81f4a949fa8b3"
+      "bytes": 63339,
+      "sha256": "b3ab80b700b35ca018a053b962fb58d46bb1763cf9c2362876cdc32f1099bd88"
     },
     {
       "path": "CLAUDE.md",
@@ -257,8 +257,8 @@
     },
     {
       "path": "docs/3-development/console-ux-proposal.md",
-      "bytes": 41006,
-      "sha256": "2b575b69fcf2bf996a5fa4a6c68c1171c81b9aded20e16f5a9f299fc5cf19c65"
+      "bytes": 41442,
+      "sha256": "0e90f824cb85f2c750904bbe557e84bbf655567c4b56f08c409b0212ea6eb141"
     },
     {
       "path": "docs/3-development/exploration-design.md",
@@ -307,8 +307,8 @@
     },
     {
       "path": "docs/5-project-management/decisions.md",
-      "bytes": 51973,
-      "sha256": "888313064909c43bad9d2576b88019e6c77eb81fe0401d23a147d9f68fbbc9d1"
+      "bytes": 56605,
+      "sha256": "97a6f76066fe8f540f1bfa504c85fb432ad771ec9c9ea0783c850ebcaa52e7fd"
     },
     {
       "path": "docs/6-testing/.gitkeep",
@@ -353,7 +353,7 @@
     {
       "path": "package.json",
       "bytes": 1955,
-      "sha256": "17b8123c601f00ca85391c3a99d01f83733bf864bab0c21af610d76c84b8929a"
+      "sha256": "2f790049c3ae06be2c36eef919833c141beaf483c83d41ef5e8a0bcb078540d7"
     },
     {
       "path": "platform.config.example.yaml",
@@ -433,7 +433,7 @@
     {
       "path": "README.md",
       "bytes": 12821,
-      "sha256": "484b74fdd2b2f0ca4e523d6c658ca49bb698f6c08b4fd961c3b31ba1442780bd"
+      "sha256": "7d02c27b8a899b4769595b0f94462e03798581ea7bb2ee199c09a770bcf93a82"
     },
     {
       "path": "scripts/build-canvas.ts",
@@ -502,8 +502,8 @@
     },
     {
       "path": "src/cli.ts",
-      "bytes": 51805,
-      "sha256": "a4b41b5f1172f423deb392aa21737129be7c8fd668bb705eb6d5d0392383a07a"
+      "bytes": 52392,
+      "sha256": "e32d5940fee98baf5e380a740d2da3d7ee54628bca2a2970c16f75ba13e71bc2"
     },
     {
       "path": "src/config/generate.ts",
@@ -532,13 +532,13 @@
     },
     {
       "path": "src/console/labels.ts",
-      "bytes": 6308,
-      "sha256": "f5448d4e8c24f4699c8e8408ea876bed4b7d3f4eabb3e796d092631de1330375"
+      "bytes": 6582,
+      "sha256": "5e7c3013831e12c05829bdc31e62278ec84a8cc32311b50980a0fc34be71a72f"
     },
     {
       "path": "src/console/messages.ts",
-      "bytes": 38234,
-      "sha256": "8b81a9cb3e346a0e23735db7fae23df5b164d2285c086e893eb5f73c213b2044"
+      "bytes": 41112,
+      "sha256": "44193bf2a24cfe7d295440b84d65c071fd31ea3157611cc763ed93ffddfccb9a"
     },
     {
       "path": "src/console/operators.ts",
@@ -552,8 +552,8 @@
     },
     {
       "path": "src/console/router.ts",
-      "bytes": 56620,
-      "sha256": "26c5a3270cec50ff79281027b8059e622d903f8f1a0dd4af1f9eb799c353a637"
+      "bytes": 58483,
+      "sha256": "ff112473c0ef1b67473c58c068165d23527b73900c2dfaf9477f471473adb2dc"
     },
     {
       "path": "src/console/server.ts",
@@ -567,8 +567,8 @@
     },
     {
       "path": "src/console/ui.ts",
-      "bytes": 100184,
-      "sha256": "8ce0cb1bd0a181a2ed2e5b2f1f06274c2e6942a66233be2578672e5840a0108b"
+      "bytes": 108525,
+      "sha256": "7915b85f455ff5796038c18679395f11815ecbecdf3705a7c98d5af7e27a3242"
     },
     {
       "path": "src/console/unlock.ts",
@@ -687,8 +687,8 @@
     },
     {
       "path": "src/kernel/pause.ts",
-      "bytes": 9679,
-      "sha256": "187ce221530ae5983734771f7e6245f4c5deb99f82299934e771ab3e97ebda46"
+      "bytes": 12692,
+      "sha256": "c5bd4a1d19ef6d6c45f99df3d16beb6c2aebab08d027f9b9ab49d4878e7e9e32"
     },
     {
       "path": "src/kernel/policy.ts",
@@ -699,6 +699,11 @@
       "path": "src/kernel/prompts.ts",
       "bytes": 4116,
       "sha256": "adfc85a70382a8d28acda42608df0bed581d1c34d5e03cf989c711ec71ca55a1"
+    },
+    {
+      "path": "src/kernel/resume.ts",
+      "bytes": 2540,
+      "sha256": "62a4ba34a4f464e76d1e3a66d0687a1c6fc6ae82534e477b3e73cb7b3428e0b3"
     },
     {
       "path": "src/kernel/role.ts",
@@ -887,8 +892,8 @@
     },
     {
       "path": "src/worker/handler.ts",
-      "bytes": 20391,
-      "sha256": "d374bbb9b5ee2dfa7ce46355aeb368370a91eabae6dfb0506868cc736ad8414a"
+      "bytes": 20813,
+      "sha256": "0e29fedf7bb4345bf3f2bacb2c4938f7e2765989d09191185531092927c07db8"
     },
     {
       "path": "src/worker/index.ts",
@@ -947,8 +952,8 @@
     },
     {
       "path": "test/console.test.ts",
-      "bytes": 156137,
-      "sha256": "1631950dc1cad80432118180be7ff9a32431d3d1000ae98c62c94a628db8dcf7"
+      "bytes": 174740,
+      "sha256": "17f700b7c3dbb1a603ab31b28c88904a0876b4c2468c8b7ed1135e517f24425b"
     },
     {
       "path": "test/coverage.test.ts",
@@ -1007,13 +1012,13 @@
     },
     {
       "path": "test/page-harness.ts",
-      "bytes": 15664,
-      "sha256": "d2324c05103c5baed2ba201d8112c9055fafbf4ec9193b63710b20c82011c90d"
+      "bytes": 16750,
+      "sha256": "72298fcc5e0fdf817f0ea6cff56e6b867a9684ca038db76791f05332a782ec16"
     },
     {
       "path": "test/pause.test.ts",
-      "bytes": 10882,
-      "sha256": "c4d657ff24a16a32699cdf5db3f3346fafbdf5cd1292a7001db85cffb6a96c0a"
+      "bytes": 16307,
+      "sha256": "adb6a5882f705088f401370eb013d10daa08e8f69110721a0f0cc8fa47c1b389"
     },
     {
       "path": "test/playbook.test.ts",
@@ -1102,8 +1107,8 @@
     },
     {
       "path": "test/worker.test.ts",
-      "bytes": 32332,
-      "sha256": "4d200e9afc1177162637b3262330f0f1173b50110cd65d3e2213f3ebb9f7ce67"
+      "bytes": 33690,
+      "sha256": "aedb15054ebdcd77ce43b399204a86c14f6c4b922e4c4e50b1215b564529d328"
     },
     {
       "path": "test/wrangler-build.ts",

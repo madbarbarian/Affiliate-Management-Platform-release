@@ -19,6 +19,7 @@ import { localDate } from "../core/clock.ts";
 import { composeThreadParts } from "../channels/format.ts";
 import { composerUrlOf } from "../channels/manual.ts";
 import { readPause } from "../kernel/pause.ts";
+import { resumeEverything } from "../kernel/resume.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
 import { formatMoney } from "../affiliate/attribution.ts";
@@ -159,6 +160,13 @@ export async function handleRequest(
       configPath: runtime.loaded.path,
       companyName: config.company.name,
       operator: config.company.operator,
+      // The same source checkForUpdate() already reads (updates.ts), not a
+      // second one: `runtime.release` is undefined for a checkout that was
+      // never released, and then there is genuinely no version to name here
+      // either - the settings screen says so rather than falling back to
+      // package.json, which would be a second copy of this value with no way
+      // to notice the two had drifted.
+      ...(runtime.release ? { version: runtime.release.version } : {}),
       // The two that decide what actually happens, and neither was visible
       // anywhere on this screen: a licensee could be running unattended, or
       // running on the simulated model, and have no way to find out.
@@ -351,6 +359,32 @@ export async function handleRequest(
       beyondRecall: posts.filter((post) => post.status === "scheduled" && post.scheduledFor > nowMs).length,
       closedGates,
     });
+  }
+
+  // The console's exit from the emergency stop. Whole-platform only, never a
+  // venture id: `applyResume` refuses a per-venture resume while a global stop
+  // is on, and a button that is visible but refuses is worse than no button -
+  // see `pause.ts` and `docs/3-development/console-ux-proposal.md` §6.2.
+  if (path === "/api/resume" && request.method === "POST") {
+    const outcome = await resumeEverything({ services: runtime.services, state: runtime.state, by: actor });
+    if (!outcome.ok) {
+      if ("stillUnreadable" in outcome) {
+        // pause.ts's guard: the state could not be re-read after a forced
+        // refresh, so writing RUNNING here could silently erase a stop that is
+        // recorded but simply not visible right now. Refuse rather than guess.
+        return errorJson(503, {
+          kind: "storage",
+          code: "state.unreadable",
+          message: `the state could not be read (${outcome.detail})`,
+          retryable: true,
+        });
+      }
+      // Unreachable: `blockedByAll` is only returned when a ventureId is
+      // given, and this route never gives one.
+      throw new Error("applyResume(no ventureId) returned blockedByAll - this should never happen");
+    }
+    forgetPortfolio(runtime);
+    return json(200, { wasPaused: outcome.wasPaused });
   }
 
   // One account, in full. The list is for comparing; this is what is behind a
