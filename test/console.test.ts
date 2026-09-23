@@ -23,10 +23,10 @@ import { createDemoHandlers } from "../src/llm/demo.ts";
 import type { Lock } from "../src/storage/lock.ts";
 import { CYCLES_LOCK } from "../src/scheduler/tick.ts";
 import { cycleIdFor } from "../src/kernel/orchestrator.ts";
-import { localDate } from "../src/core/clock.ts";
-import { CYCLE_FAILURE_CODES, CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES } from "../src/console/labels.ts";
+import { localDate, localDateTime, timezoneName } from "../src/core/clock.ts";
+import { CYCLE_FAILURE_CODES, CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES, POST_STATUS_KEYS } from "../src/console/labels.ts";
 import { renderPage } from "../src/console/ui.ts";
-import { LOCALES, MESSAGES, type Locale } from "../src/console/messages.ts";
+import { fill, LOCALES, MESSAGES, type Locale } from "../src/console/messages.ts";
 import { readFileSync } from "node:fs";
 import { repoRoot } from "../src/config/load.ts";
 import { CYCLE_STEPS } from "../src/core/types.ts";
@@ -35,6 +35,8 @@ import { runScout } from "../src/kernel/exploration.ts";
 import type { Runtime } from "../src/runtime.ts";
 import type { ReleaseStamp } from "../src/core/release.ts";
 import { fileState } from "../src/kernel/state.ts";
+import { applyPause } from "../src/kernel/pause.ts";
+import { guardWithStop } from "../src/kernel/assemble.ts";
 import { deactivateVenture } from "../src/kernel/venture-state.ts";
 import { openPage, waitingJudgementFrom } from "./page-harness.ts";
 // Shared with test/canvas.test.ts: the design canvases ship to licensees too,
@@ -94,12 +96,20 @@ async function withConsole(
     }),
     ...(options.llm ? { llm: options.llm } : {}),
   });
+  const state = fileState(dataDir);
   const runtime = {
     loaded: { config: company.config, path: "test", dataDir, promptsDir: "prompts" },
     config: company.config,
-    state: fileState(dataDir),
+    state,
     services: company.services,
-    orchestrator: company.orchestrator,
+    // Wrapped the way assemble.ts wraps it in the real app - not the raw
+    // orchestrator. Every console test that presses run or approve while
+    // nothing is stopped passes straight through this unchanged; a test that
+    // applies a pause is the one case where the difference is the whole
+    // point, and without this wrapper here that class of test cannot exist -
+    // the console's own route would call an orchestrator no pause file could
+    // ever reach.
+    orchestrator: guardWithStop(company.orchestrator, company.services, state),
     bus: company.services.bus,
     ...(options.lock ? { lock: options.lock } : {}),
     ...(options.release ? { release: options.release } : {}),
@@ -573,6 +583,48 @@ test("every step and state a cycle can be in has a word the operator can read", 
   assert.match(page, /執筆/);
 });
 
+test("a post's status reaches the schedule as a word, in both languages", async () => {
+  // The cell under the hand-over card printed `scheduled` / `approved` /
+  // `queued` - this platform's own identifiers - on an otherwise Japanese
+  // screen. The design board has drawn 「予約中」 in that cell since the board
+  // existed, so the picture and the code disagreed.
+  //
+  // Driven off POST_STATUS_KEYS rather than a list written here: the map is a
+  // Record over the union, so it is the union, and a status added without a
+  // word fails the typecheck before it reaches this assertion.
+  for (const [status, key] of Object.entries(POST_STATUS_KEYS)) {
+    for (const locale of LOCALES) {
+      const word = MESSAGES[locale][key];
+      assert.ok(word, `the post status "${status}" has no word in ${locale}`);
+      assert.notEqual(word, status, `"${status}" still reads as its own identifier in ${locale}`);
+    }
+    assert.doesNotMatch(MESSAGES.ja[key], /[a-z_]/, `"${status}" is still its own identifier on the Japanese screen`);
+  }
+
+  // And the words are what actually travel. The map above would pass with the
+  // router still putting `post.status` on the wire, which is the bug: the
+  // vocabulary existing is not the same as the screen using it.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      unwrap(await company.orchestrator.runCycle("main"));
+      const state = (await (
+        await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+      ).json()) as { upcoming: { status: string }[] };
+
+      assert.ok(state.upcoming.length > 0, "the day booked slots, so the schedule is not empty");
+      const words = new Set(LOCALES.flatMap((locale) => Object.values(POST_STATUS_KEYS).map((key) => MESSAGES[locale][key])));
+      for (const row of state.upcoming) {
+        assert.ok(
+          words.has(row.status),
+          `the schedule shows "${row.status}", which is the platform's own word and not the operator's`,
+        );
+      }
+    },
+    { config: BY_HAND_CONFIG },
+  );
+});
+
 test("two operators are two names in the record, not one", async () => {
   // The reason this exists at all. With one shared passphrase every approval
   // was recorded against `company.operator`, whoever pressed it - and an
@@ -849,29 +901,44 @@ test("no message on the screen can only be carried out from a terminal", () => {
   }
 });
 
-test("nor does the page's own source splice one in", () => {
-  // The message table is not the only place copy is written. `ui.ts` builds
-  // strings inline and carries comments about them, and a scan of the table
-  // alone walks past both.
+test("nor does any page's own source splice one in", () => {
+  // The message table is not the only place copy is written. These three
+  // files each build a whole page as one big string and carry comments about
+  // it, so a scan of the table alone walks past all three - which is exactly
+  // how the `amp resume` in `ui.ts` survived once already (see the history
+  // below). `unlock.ts` and `setup.ts` hold their Japanese inline rather than
+  // in `messages.ts` at all (a defect named but not fixed in
+  // `test/tester-guide.test.ts`'s file comment) - one more reason a
+  // MESSAGES-only scan cannot see a command spliced into either of them.
   //
   // Deliberately not widened to `src/**`: `src/worker/bundled.generated.ts`
-  // holds a whole config file as one string, commands and all.
-  const source = readFileSync(join(repoRoot(), "src", "console", "ui.ts"), "utf8");
+  // holds a whole config file as one string, commands and all. That is the
+  // only exclusion, it is named here, and it does not skip a line - it skips
+  // a whole generated file that is not hand-written copy.
+  const files = ["src/console/ui.ts", "src/console/unlock.ts", "src/worker/setup.ts"];
 
-  // One exception, and only one. The console has no resume - the router has no
-  // pause/resume route at all - so the stop card has nothing to offer but the
-  // command. Fixing that is a route, not a sentence. The assertion below is
-  // what stops this excuse from outliving the command it excuses.
-  const NO_RESUME_IN_THE_CONSOLE = /"amp resume"/;
-  assert.match(
-    source,
-    NO_RESUME_IN_THE_CONSOLE,
-    "the stop card no longer hands over a command - delete this exception with it",
-  );
-
-  for (const [index, line] of source.split("\n").entries()) {
-    if (!TERMINAL_COMMAND.test(line) || NO_RESUME_IN_THE_CONSOLE.test(line)) continue;
-    assert.fail(`src/console/ui.ts:${index + 1} puts a terminal command on the screen: ${line.trim()}`);
+  // No per-line exception, for any file, ever. There used to be one here
+  // (`NO_RESUME_IN_THE_CONSOLE`), carved out for the stop card's "amp resume"
+  // on the reasoning that the router had no pause/resume route, so the card
+  // had nothing else to offer. That reasoning may have been right the day it
+  // was written, but the exception was a standing skip in the loop below, not
+  // a check that the named debt still existed - so it kept excusing the line
+  // after STATUS.md had already recorded the terminal-command defect as fixed
+  // (PR #60 fixed a different pair of strings, `scout.empty`/`scout.showLater`,
+  // and this one was never revisited). A self-match assertion was meant to
+  // force whoever removed the command to also remove the exception, but
+  // nothing forced anyone to *look* - the suite stayed green with a live
+  // terminal command sitting right next to the check that exists to catch it.
+  // A command this page's own copy cannot be carried out by the reader must
+  // not be here at all, and any argument that it must stay belongs in a code
+  // review, not a hard-coded skip in the test that is supposed to be
+  // independent of it.
+  for (const relative of files) {
+    const source = readFileSync(join(repoRoot(), ...relative.split("/")), "utf8");
+    for (const [index, line] of source.split("\n").entries()) {
+      if (!TERMINAL_COMMAND.test(line)) continue;
+      assert.fail(`${relative}:${index + 1} puts a terminal command on the screen: ${line.trim()}`);
+    }
   }
 });
 
@@ -1560,6 +1627,164 @@ test("reordering the ideas carries the open rationale with the idea, not the slo
   });
 });
 
+/**
+ * The gate as `/api/state` reports it, with every item's own `recommended`
+ * flag - the input the split in `renderDecision` (console-ux-proposal.md
+ * §4.4) actually decides on. `openGate` above throws that away.
+ */
+async function fullGate(base: string, token: string) {
+  const state = (await (
+    await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${token}` } })
+  ).json()) as { pending: { id: string; items: { id: string; recommended: boolean }[] }[] };
+  const gate = state.pending[0];
+  assert.ok(gate, "this test needs a gate standing open");
+  return gate;
+}
+
+/**
+ * Rewrites every item's `recommended` flag on the way through, so a test can
+ * force "nothing is recommended" or "everything is" without a config the
+ * schema and the orchestrator's own capacity math will not actually produce
+ * (`buildProposalDecision` always recommends at least the top idea, and
+ * `buildPublishDecision` always recommends every post) - both of which are
+ * exactly the cases `renderDecision` has to refuse to split.
+ */
+function forceRecommended(value: boolean) {
+  return (path: string, forward: () => Promise<Response>) => {
+    if (path !== "/api/state") return undefined;
+    return (async () => {
+      const real = await forward();
+      const body = (await real.json()) as { pending: { items: { recommended: boolean }[] }[] };
+      for (const decision of body.pending) {
+        for (const item of decision.items) item.recommended = value;
+      }
+      return new Response(JSON.stringify(body), {
+        status: real.status,
+        headers: { "content-type": "application/json" },
+      });
+    })();
+  };
+}
+
+test("the approval gate splits into 推奨 and そのほか when the recommendation is a real subset", async () => {
+  // test/helpers.ts's fixture (ideasPerCycle: 6, postsPerDay/maxPostsPerDay: 2)
+  // recommends the planner's top 2 of 6 - see "the cap on a gate..." above.
+  // Ten identical cards at the same weight is the complaint
+  // docs/3-development/console-ux-proposal.md §4.4 records; this is the fix.
+  await withConsole({ AMP_TEST_TOKEN: "tok-gate-split" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await fullGate(base, handle.token);
+    const rest = gate.items.filter((item) => !item.recommended);
+    assert.ok(rest.length > 0 && rest.length < gate.items.length, "this test needs a real mix to prove anything");
+
+    const html = page.html("decision-list");
+    assert.ok(html.includes('class="group-heading">' + MESSAGES.ja["gate.recommended"]), "推奨の見出しが要る");
+    assert.ok(
+      html.includes(fill(MESSAGES.ja, "gate.others", { n: rest.length })),
+      `the toggle has to say how many are folded away: ${html}`,
+    );
+    assert.equal(
+      page.detailsOpen("decision-list", { decision: gate.id, item: "__rest__" }),
+      false,
+      "そのほかは既定で畳んである",
+    );
+  });
+});
+
+test("the gate does not split when nothing is recommended, but starts splitting the moment a choice is made", async () => {
+  // Asserting only the absence of group-heading/gate-rest here would be
+  // exactly as true of a gate with no split feature at all - "nothing is
+  // recommended, so nothing is grouped" and "grouping was never built" render
+  // identically at rest, and no mutation of the guard alone tells them apart.
+  // Ticking an idea the platform never recommended does: it proves splitGate
+  // is recomputed live from selection, not cached from item.recommended once
+  // at gate-open time, which only a real implementation can do.
+  await withConsole({ AMP_TEST_TOKEN: "tok-gate-none" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({
+      base,
+      token: handle.token,
+      until: "decision-list",
+      intercept: forceRecommended(false),
+    });
+    const gate = await fullGate(base, handle.token);
+    assert.ok(gate.items.length > 1, "this test needs a second idea left over once one is promoted");
+
+    const before = page.html("decision-list");
+    assert.ok(!before.includes('class="group-heading"'), "推奨が0件なら見出しを出す理由がない");
+    assert.ok(!before.includes('class="gate-rest"'), "畳む対象がないので<details>ごと出ない");
+
+    await page.press({ act: "toggle", decision: gate.id, item: gate.items[0]!.id });
+    const after = page.html("decision-list");
+    assert.ok(after.includes('class="group-heading"'), "選んだ1件を境に、推奨0件のままでも分割が動き出す");
+    assert.ok(
+      after.includes(fill(MESSAGES.ja, "gate.others", { n: gate.items.length - 1 })),
+      `残り${gate.items.length - 1}件がそのほかに畳まれていなければならない: ${after}`,
+    );
+  });
+});
+
+// "the gate does not split when everything is recommended" was deleted rather
+// than fixed: when every item is recommended, entry.selected can never move
+// one into restItems (item.recommended alone already puts it in openItems,
+// unconditionally, for every possible selection state) - so restItems.length
+// is 0 in every reachable state, not only the initial one. There is no live
+// interaction, and therefore no assertion on rendered output, that a correct
+// implementation produces here and a deleted feature does not; the two are
+// observably identical in every state, not just at rest. The invariant this
+// would-be test names is instead pinned by "the approval gate splits into
+// 推奨 and そのほか..." above (which requires a real non-recommended remainder
+// to pass) and by buildPublishDecision always setting recommended: true
+// (src/kernel/orchestrator.ts) - the publish gate never splits, and that gate
+// is exercised elsewhere without ever showing group-heading/gate-rest.
+
+test("an idea ticked out of そのほか renders in the open half, not hidden behind the toggle", async () => {
+  // Un-ticking the recommendation and choosing a different idea is normal use;
+  // having that choice vanish behind a collapsed panel would be an accident.
+  await withConsole({ AMP_TEST_TOKEN: "tok-gate-tick-rest" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await fullGate(base, handle.token);
+    const restItem = gate.items.find((item) => !item.recommended);
+    assert.ok(restItem, "this test needs a non-recommended idea to promote");
+
+    await page.press({ act: "toggle", decision: gate.id, item: restItem!.id });
+    const html = page.html("decision-list");
+
+    const restIndex = html.indexOf('class="gate-rest"');
+    const itemIndex = html.indexOf('data-item="' + restItem!.id + '"');
+    assert.ok(restIndex >= 0, "選ばなかった案がまだ残っているので、そのほかの畳みは立ったまま");
+    assert.ok(
+      itemIndex >= 0 && itemIndex < restIndex,
+      "選んだ案は畳んだ<details>より前 - 開いている側 - に出なければならない",
+    );
+    assert.match(
+      html.slice(itemIndex, itemIndex + 200),
+      /checked/,
+      "選んだのだからチェックも入っていなければならない",
+    );
+  });
+});
+
+test("the そのほか toggle survives the page redrawing itself, the same way ねらいと根拠 does", async () => {
+  // openDetails/detailsKey (ui.ts) already exist because "ねらいと根拠"
+  // collapsed under the operator mid-read; the rest-toggle is built on the
+  // same Set under a synthetic item id rather than a second mechanism.
+  await withConsole({ AMP_TEST_TOKEN: "tok-gate-rest-persist" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const gate = await fullGate(base, handle.token);
+    const panel = { decision: gate.id, item: "__rest__" };
+
+    assert.equal(page.detailsOpen("decision-list", panel), false, "既定は畳んである");
+    await page.toggleDetails("decision-list", panel, true);
+    // Any redraw will do - this is the one the 30-second poll ends in too.
+    await page.press({ act: "none", decision: gate.id });
+    assert.equal(page.detailsOpen("decision-list", panel), true, "再描画のあとも開いたまま");
+  });
+});
+
 test("a day can be read back from the console, and only that account's", async () => {
   await withConsole({ AMP_TEST_TOKEN: "tok-timeline" }, async (base, _handle, company) => {
     const auth = { cookie: "amp_console=tok-timeline" };
@@ -1997,6 +2222,45 @@ test("pressing run twice starts one day, not two", async () => {
   });
 });
 
+test("pressing run on a stopped account shows this platform's own words, not the raw failure", async () => {
+  // The real path, end to end, not a pattern match on the source: pause.ts's
+  // describePause() names a terminal command; guardWithStop() (assemble.ts)
+  // uses it as the platform.stopped error; the run route used to hand that
+  // whole string to the page with describeError(); ui.ts used to print
+  // error.message straight into the DOM. Four files, each correct on its own
+  // - describePause() is right to name the command for the CLI, the route was
+  // right to have an error to report, ui.ts was right to show something - and
+  // the terminal command still reached a screen with nobody able to type it.
+  // A grep for "error.message" in ui.ts would not have caught this: the bug
+  // was never in what the assignment was called, it was in what value it
+  // held. Only pressing the real button and reading the real DOM does.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    const stop = await applyPause({
+      state: runtime.state,
+      reason: "見直し中",
+      by: "test",
+      at: company.clock.nowIso(),
+    });
+    assert.ok(stop.ok);
+
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-cycle" });
+    await page.press({ ventureRun: "1", venture: "main" });
+
+    // .textContent, not page.html() (which reads .innerHTML): the run
+    // button's failure writes box.textContent directly, and this fake
+    // element does not mirror one into the other the way a real DOM node
+    // does - the first version of this test asserted against the wrong
+    // property and passed by finding nothing at all, which is worth naming
+    // here so the next person does not repeat it.
+    const shown = page.elements.get("verr-main")?.textContent ?? "";
+    assert.doesNotMatch(shown, TERMINAL_COMMAND, `the stopped account's run failure still names a command: ${shown}`);
+    // Not just "no command" - the platform's own words for this exact code
+    // (src/console/labels.ts), so a regression that swaps in some other
+    // placeholder still fails this.
+    assert.equal(shown, FAILURE_SUMMARIES["platform.stopped"]!.short);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The page Cloudflare serves, which is not the page Node renders.
 //
@@ -2298,6 +2562,171 @@ test("a post the platform cannot publish reaches the operator as text, a link an
   );
 });
 
+/**
+ * The config the hand-over tests run on: the one channel the platform cannot
+ * publish to, on the account whose timezone is `Asia/Tokyo`.
+ *
+ * Shared so the two tests below cannot drift into describing different screens.
+ */
+const BY_HAND_CONFIG = {
+  company: { name: "Hand Co", operator: "owner", autonomy: "auto" },
+  channels: [
+    {
+      id: "by-hand",
+      adapter: "manual",
+      enabled: true,
+      credentialEnv: {},
+      research: { queries: [], minLikes: 0, maxItems: 1, lookbackHours: 24 },
+      options: { maxCharacters: 500, format: "thread", composerUrl: "https://www.threads.net/" },
+    },
+  ],
+  ventures: BASE_CONFIG.ventures.map((venture) => ({ ...venture, channels: ["by-hand"] })),
+};
+
+/**
+ * A draft that goes out as more than one post.
+ *
+ * Scripted rather than left to the mock, which writes a single part: the
+ * defect being fixed is about eight copy-and-pastes in the right order, and a
+ * one-part post never reaches the instruction that says how the parts chain.
+ */
+const THREADED_DRAFT = (() => {
+  const hook = "結論から言うと、設営の最初の20分が全部です。";
+  const cta = "僕が最初に下ろすのは椅子でした。あなたは何ですか？";
+  const first = `${hook}\n\nキャンプ場8回分、ぜんぶ順番の問題でした。道具ではなかった。`;
+  const second = `僕が固定した手順はこれです。ペグを打つ前に荷物を降ろしきる。それだけ。\n\n${cta}`;
+  return { hook, body: `${first}\n\n${second}`, cta, disclosure: "", hashtags: [] as string[], threadParts: [first, second] };
+})();
+
+function threadedWriter(): MockProvider {
+  return createMockProvider({
+    responses: {
+      ...createDemoHandlers(),
+      "write.draft": () => THREADED_DRAFT,
+      "inspect.review": () => ({
+        aiSmellScore: 40,
+        revisedAiSmellScore: 12,
+        findings: [],
+        revised: THREADED_DRAFT,
+        unfixable: "",
+      }),
+    } as never,
+  });
+}
+
+/** Runs a day until a post is sitting on the screen waiting for a person. */
+async function handedOver(base: string, token: string, company: TestCompany) {
+  unwrap(await company.orchestrator.runCycle("main"));
+  const approved = await company.store.posts.find((post) => post.status === "approved");
+  assert.ok(approved.length > 0);
+  company.clock.set(new Date(Math.max(...approved.map((post) => post.scheduledFor)) + 60_000).toISOString());
+  unwrap(await company.orchestrator.dispatchDue(company.clock.now()));
+
+  const state = (await (
+    await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${token}` } })
+  ).json()) as {
+    handOver: {
+      postId: string;
+      at: string;
+      parts: string[];
+      comments: { name: string; text: string; carriesLink?: boolean }[];
+    }[];
+  };
+  const card = state.handOver[0];
+  assert.ok(card, "a handed-over post has to be on the screen");
+  const stored = (await company.store.posts.get(card.postId))!;
+  return { card, stored };
+}
+
+test("the slot on the hand-over card is the account's own clock, and says which clock", async () => {
+  // The screen read `2026-09-21 22:30` for a slot chosen for 07:30 in Tokyo:
+  // `toISOString()` sliced up and shown as if it were the time. It was wrong
+  // for the licensee it was handed to and wrong for an operator in New York,
+  // and a slot is picked for the hour the *readers* are awake - so the
+  // account's clock is the only one the number means anything in.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      const { card, stored } = await handedOver(base, handle.token, company);
+      const zone = BASE_CONFIG.ventures[0]!.timezone;
+
+      assert.equal(
+        card.at,
+        `${localDateTime(stored.scheduledFor, zone)}（${timezoneName(stored.scheduledFor, zone, "ja")}）`,
+        "the slot is not the account's wall clock with its zone named",
+      );
+      // Said separately, because the line above would still pass if this
+      // account's zone were ever UTC: the exact string the defect produced must
+      // not be what the card leads with.
+      const asUtc = new Date(stored.scheduledFor).toISOString().replace("T", " ").slice(0, 16);
+      assert.notEqual(card.at.slice(0, asUtc.length), asUtc, "the slot is being shown in UTC again");
+    },
+    { config: BY_HAND_CONFIG },
+  );
+});
+
+test("the hand-over card names each comment, and says what to paste where", async () => {
+  // Three comments all called 「最初のコメント」, each followed by this
+  // platform's own identifier for it - `self_reply`, `link_drop`, `objection` -
+  // on the one screen a licensee has and with no terminal to look them up in.
+  // Which one carried the affiliate link, and which of the three was actually
+  // first, were both unanswerable from the screen.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      const { card, stored } = await handedOver(base, handle.token, company);
+      const page = await openPage({ base, token: handle.token, until: "hand-over" });
+      const html = page.html("hand-over");
+
+      // Taken from the post itself rather than written out here, so a purpose
+      // added to `CommentPurpose` is covered the day it first reaches a card.
+      for (const purpose of stored.commentDrafts.map((comment) => comment.purpose)) {
+        assert.ok(
+          !html.includes(purpose),
+          `the platform's own name for a comment reached the screen: ${purpose}`,
+        );
+      }
+
+      const labels = card.comments.map((comment, index) =>
+        fill(MESSAGES.ja, "handOver.comment", {
+          n: index + 1,
+          total: card.comments.length,
+          name: comment.name,
+        }),
+      );
+      for (const label of labels) assert.ok(html.includes(label), `a comment is not labelled: ${label}`);
+      assert.equal(new Set(labels).size, labels.length, "two comments are labelled the same thing");
+
+      // What to paste where. The body is a reply chain and every comment
+      // answers the *first* post - which is what threads.ts does when it
+      // publishes this itself, and what a person guessing would get wrong.
+      assert.ok(card.parts.length > 1, "a one-part post never reaches the instruction about chaining");
+      const firstPart = fill(MESSAGES.ja, "handOver.part", { n: 1, total: card.parts.length });
+      assert.ok(html.includes(MESSAGES.ja["handOver.order"]), "the card does not say there is an order");
+      assert.ok(
+        html.includes(fill(MESSAGES.ja, "handOver.orderFirst", { label: firstPart })),
+        "the card does not say the first part is a new post",
+      );
+      assert.ok(
+        html.includes(MESSAGES.ja["handOver.orderRest"]),
+        "the card does not say the rest of the body replies to the part before it",
+      );
+      assert.ok(
+        html.includes(fill(MESSAGES.ja, "handOver.orderComments", { label: firstPart })),
+        "the card does not say which post the comments reply to",
+      );
+
+      const linkComment = card.comments.filter((comment) => comment.carriesLink)[0];
+      assert.ok(linkComment, "this post carries an offer, so one comment holds the affiliate link");
+      assert.ok(
+        html.includes(fill(MESSAGES.ja, "handOver.orderLink", { name: linkComment.name })),
+        "the card does not name the comment the affiliate link is in",
+      );
+    },
+    { config: BY_HAND_CONFIG, llm: threadedWriter() },
+  );
+});
+
 test("stopping an account stops it asking to be approved", async () => {
   // The owner stopped the reference environment and the console kept showing
   // its ideas gate. The tick hears "stopped" - no new cycle opens - but the
@@ -2568,5 +2997,93 @@ test("a gate the operator closed does not read as a gate they missed", async () 
     const feed = page.html("activity");
     assert.match(feed, /アカウントを止めたので閉じました/);
     assert.doesNotMatch(feed, /答えのないまま日が変わりました/);
+  });
+});
+
+test("the headline numbers are windowed to the same days as the table under them", async () => {
+  // `CLAUDE.md` names this defect once already: "a report whose totals were
+  // lifetime figures the billing command then charged against." It happened
+  // again here - `today.stats` (heading: 直近の数字) summed every published
+  // post, click and conversion ever recorded, with no window at all,
+  // directly above `accounts.heading` (直近{days}日), which genuinely windows.
+  // Two adjacent sections both read as "直近"; one meant 30 days and one meant
+  // forever. This seeds one post 90 days old - outside any window this
+  // product uses - and one 2 days old, and fails if the old one is ever
+  // counted again.
+  //
+  // There used to be a fifth number here, "エンゲージ合計" - dropped after
+  // review, because summing engagement across posts of different ages is not
+  // a meaningful number regardless of the window (see the comment where
+  // `stats` is built, in router.ts). This test no longer seeds a metric or
+  // asserts on that key; the length check at the end is what stops a sum
+  // like it coming back into this row unnoticed.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const { store, clock, config } = company;
+    const offer = config.offers[0]!;
+    const nowMs = clock.now();
+    const DAY = 86_400_000;
+
+    const seed = async (tag: string, daysAgo: number, amount: number) => {
+      const at = new Date(nowMs - daysAgo * DAY).toISOString();
+      await store.links.put({
+        id: `lnk_${tag}`,
+        ventureId: "main",
+        postId: `pst_${tag}`,
+        offerId: offer.id,
+        code: tag,
+        subId: `sub_${tag}`,
+        destinationUrl: "https://example.invalid",
+        createdAt: at,
+      } as never);
+      await store.posts.put({
+        id: `pst_${tag}`,
+        ventureId: "main",
+        cycleId: `cyc_${tag}`,
+        draftId: `drf_${tag}`,
+        channel: "threads",
+        status: "published",
+        scheduledFor: nowMs - daysAgo * DAY,
+        publishedAt: at,
+        content: { hook: tag, body: "b", cta: "c", disclosure: "#PR", hashtags: [] },
+        comments: [],
+      } as never);
+      await store.clicks.put({ id: `clk_${tag}`, linkId: `lnk_${tag}`, at } as never);
+      await store.conversions.put({
+        id: `cnv_${tag}`,
+        linkId: `lnk_${tag}`,
+        externalId: `ext_${tag}`,
+        at,
+        amount,
+        currency: "JPY",
+        status: "approved",
+      } as never);
+    };
+
+    // A big number on the old post: if the window ever leaks, the assertion
+    // below fails loudly rather than by a rounding error.
+    await seed("old", 90, 100_000);
+    await seed("recent", 2, 3_000);
+
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as {
+      stats: { label: string; value: string }[];
+      portfolio: { days: number };
+    };
+
+    // The window this test's expected values are computed against. If this
+    // ever changes, the numbers below must be recomputed, not just this line.
+    assert.equal(state.portfolio.days, 30);
+
+    const byLabel = new Map(state.stats.map((stat) => [stat.label, stat.value]));
+    assert.equal(byLabel.get(MESSAGES.ja["stats.posts"]), "1", "the 90-day-old post is outside a 30-day window");
+    assert.equal(byLabel.get(MESSAGES.ja["stats.clicks"]), "1");
+    assert.equal(byLabel.get(MESSAGES.ja["stats.conversions"]), "1");
+    assert.equal(
+      byLabel.get(MESSAGES.ja["stats.revenue"]),
+      "3,000 JPY",
+      "not the old post's 100,000 JPY",
+    );
+    assert.equal(byLabel.size, 4, `expected exactly 4 headline numbers (no engagement total), found ${byLabel.size}`);
   });
 });

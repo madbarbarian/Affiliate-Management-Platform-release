@@ -59,9 +59,9 @@
     /* The overview toggle. CSS transform rather than the zoom property:
        zoom re-lays-out an iframe's contents at the shrunken width, and these
        boards are fixed-width frames, so they would be cropped, not scaled. */
-    .stage { width: 3450px; height: 5835px; }
-    .canvas { width: 3450px; height: 5835px; }
-    .overview:checked ~ .stage { width: 1035px; height: 1751px; }
+    .stage { width: 3450px; height: 6619px; }
+    .canvas { width: 3450px; height: 6619px; }
+    .overview:checked ~ .stage { width: 1035px; height: 1986px; }
     .overview:checked ~ .stage .canvas { transform: scale(0.3); }
 </style>
 </head>
@@ -1669,7 +1669,7 @@
   &lt;/main&gt;
 &lt;/div&gt;
 &lt;/body&gt;&lt;/html&gt;"></iframe></figure>
-<figure class="board" style="left:820px;top:4112px;width:390px"><figcaption>あなたが投稿する番です（実装済 v0.6.0）</figcaption><iframe title="あなたが投稿する番です（実装済 v0.6.0）" style="width:390px;height:1040px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
+<figure class="board" style="left:820px;top:4112px;width:390px"><figcaption>あなたが投稿する番です（実装済 v0.6.0）</figcaption><iframe title="あなたが投稿する番です（実装済 v0.6.0）" style="width:390px;height:1200px" srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;style&gt;html,body{margin:0;padding:0}&lt;/style&gt;
   &lt;style&gt;
     :root {
       --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
@@ -1682,7 +1682,7 @@
       margin: 0; background: var(--bg); color: var(--ink);
       font: 15px/1.65 ui-sans-serif, -apple-system, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, sans-serif;
     }
-    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    .frame { width: 390px; height: 1200px; display: flex; flex-direction: column; overflow: hidden; }
     header {
       padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
       display: flex; align-items: center; gap: 8px;
@@ -1731,6 +1731,11 @@
       font-size: 13px; color: var(--ink); text-decoration: none;
       border: 1px solid #d3d3cd; border-radius: 8px; padding: 8px 14px;
     }
+    .order { margin: 10px 0 14px; }
+    .order .lab { color: var(--muted); font-size: 13px; }
+    .order ol { margin: 4px 0 0; padding-left: 20px; font-size: 13px; }
+    .order li { margin: 2px 0; }
+    .order .link-note { color: var(--warn); font-size: 12px; margin: 6px 0 0; }
     .after { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th {
@@ -1758,7 +1763,18 @@
     &lt;div class=&quot;card handover&quot;&gt;
       &lt;h3&gt;あなたが投稿する番です — 朝のツール部屋&lt;/h3&gt;
       &lt;p class=&quot;muted&quot;&gt;この投稿は、あなたのアカウントから手で出してください。文面をコピーして、アプリを開いて、貼って投稿します。&lt;/p&gt;
-      &lt;p class=&quot;muted&quot;&gt;予定していた時刻：2026-09-19 06:30 ・ threads&lt;/p&gt;
+      &lt;p class=&quot;muted&quot;&gt;予定していた時刻：2026-09-19 06:30（日本標準時） ・ threads&lt;/p&gt;
+
+      &lt;div class=&quot;order&quot;&gt;
+        &lt;div class=&quot;lab&quot;&gt;貼る順番&lt;/div&gt;
+        &lt;ol&gt;
+          &lt;li&gt;「本文 1/2」を、新しい投稿として出します。&lt;/li&gt;
+          &lt;li&gt;残りの本文は、そのひとつ前の投稿への返信として、上から順に出します。連なった投稿になります。&lt;/li&gt;
+          &lt;li&gt;コメントは、2つめ以降の本文ではなく、どれも最初の投稿（「本文 1/2」）への返信として、上から順に出します。&lt;/li&gt;
+          &lt;li&gt;全部出し終えたら、下の「投稿しました」を押します。&lt;/li&gt;
+        &lt;/ol&gt;
+        &lt;p class=&quot;link-note&quot;&gt;アフィリエイトリンクは「リンクの案内」のコメントだけに入っています。これを出さないと、この投稿からの報酬は記録されません。&lt;/p&gt;
+      &lt;/div&gt;
 
       &lt;div class=&quot;part&quot;&gt;
         &lt;span class=&quot;lab&quot;&gt;本文 1/2&lt;/span&gt;
@@ -1775,10 +1791,8 @@ https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f21&lt;/pre&gt;
         &lt;button class=&quot;copy&quot;&gt;コピー&lt;/button&gt;
       &lt;/div&gt;
 
-      &lt;p class=&quot;muted&quot;&gt;アフィリエイトリンクはこのコメントに入っています。投稿したあと、最初の返信として貼ってください。&lt;/p&gt;
-
       &lt;div class=&quot;part&quot;&gt;
-        &lt;span class=&quot;lab&quot;&gt;最初のコメント（affiliate）&lt;/span&gt;
+        &lt;span class=&quot;lab&quot;&gt;コメント 1/1：リンクの案内&lt;/span&gt;
         &lt;pre class=&quot;post&quot;&gt;挽き目の話はここに書きました。※PR・アフィリエイトリンクを含みます
 https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22&lt;/pre&gt;
         &lt;button class=&quot;copy&quot;&gt;コピー&lt;/button&gt;
@@ -1796,8 +1810,8 @@ https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22&lt;/pre&gt;
 
     &lt;table&gt;
       &lt;tr&gt;&lt;th&gt;時刻&lt;/th&gt;&lt;th&gt;投稿&lt;/th&gt;&lt;th&gt;状態&lt;/th&gt;&lt;/tr&gt;
-      &lt;tr&gt;&lt;td&gt;12:10&lt;/td&gt;&lt;td&gt;保温マグ、3年目の話&lt;/td&gt;&lt;td&gt;予約中&lt;/td&gt;&lt;/tr&gt;
-      &lt;tr&gt;&lt;td&gt;19:40&lt;/td&gt;&lt;td&gt;ケトルを買い替えなかった理由&lt;/td&gt;&lt;td&gt;予約中&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;2026-09-19 12:10（日本標準時）&lt;/td&gt;&lt;td&gt;保温マグ、3年目の話&lt;/td&gt;&lt;td&gt;予約中&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;2026-09-19 19:40（日本標準時）&lt;/td&gt;&lt;td&gt;ケトルを買い替えなかった理由&lt;/td&gt;&lt;td&gt;予約中&lt;/td&gt;&lt;/tr&gt;
     &lt;/table&gt;
   &lt;/div&gt;
 &lt;/div&gt;
@@ -1974,7 +1988,7 @@ https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22&lt;/pre&gt;
 <aside class="note" id="note-timeline-not-daily" style="left:2000px;top:3680px;width:390px"><p><strong>「この日を見る」（v0.4.0 で実装済）。</strong>役割が何をどの順でやり、何と言ったかを、1日ぶん読み戻す画面。</p><p><strong>日課ではない。</strong>製品の約束は「1日2回・30秒」で、毎朝見ないと不安になる画面を作った時点でその約束は失われる。だからアカウントの履歴の日付から開く形にして、今日の画面は変えていない。答えるのは、何かおかしいと思ったときにだけ出る問い — <strong>なぜこれを出そうとしたのか</strong>。</p><p>企画の行には、その案の根拠（過去のどの数字から言っているか）が付く。それが無ければ進捗バーにすぎない。</p><p><strong>門は左の線が緑になり「人が決めた」と付く。</strong>`autonomy: auto` の日は機械が両方決めるので、その印は付かない — ここは誰が決めたかの記録で、見ていない日に自分の名前が出ることだけは許されない。</p><p><strong>選ばれなかった案も残す。</strong>2件承認とだけ書くと、8件出ていたことが消える。検品で止まったものも赤で残る。</p><p>通貨は足さない。円とドルは別の行で出る。</p></aside>
 <aside class="note" id="note-new-in-0-7-0" style="left:120px;top:3920px;width:1560px"><p><strong>2026-09-19 に増えた画面（v0.7.0 で実装済）。</strong>上の板と違って、ここは提案ではなく動いているものの写し。</p><p>左から、<strong>合言葉</strong>（承認画面を開く前の1枚）、<strong>あなたが投稿する番です</strong>（`adapter: manual` のとき「今日」の予約中の投稿の先頭に出るカード）、<strong>配色：暗い</strong>（ヘッダーの切替で、同じ「今日」がこう見える）。</p></aside>
 <aside class="note" id="note-note-unlock" style="left:120px;top:4820px;width:560px"><p><strong>合言葉をアドレスに載せなくてよくなった。</strong>以前は `?token=…` で渡す形で、記号の入った合言葉がURLで壊れ、実デプロイで承認画面に入れなくなった（2026-09-18）。入力欄にしたので、記号も空白もそのまま届く。</p><p><strong>初回はこの画面から赤い帯が無いだけ。</strong>失敗すると帯が出て、<strong>入力欄は空に戻る</strong> — 打った値は絶対に埋め戻さない。</p><p>入ると30日はその端末で開いたままになる（Cookie）。合言葉は人ごとで、共有すると承認の記録が全部その1人の名前になる。</p><p>⚠️ <strong>この画面とセットアップ画面だけ、配色の切替が効かない。</strong>ライト固定で `prefers-color-scheme` も見ていないので、OSが暗いと承認画面だけ暗く、この2枚は白いまま出る。直すかどうかは未決。</p></aside>
-<aside class="note" id="note-note-handover" style="left:820px;top:5240px;width:390px"><p><strong>手動投稿は橋であって、行き先ではない</strong>（2026-09-19 オーナー）。アダプタを書いてチャネルを増やす方針は変わらない。`threads.ts` が本物を相手にしたことがなく、API接続がオンボードの最難関であるいま、先に進むために入れた。</p><p>位置は「今日」の<strong>予約中の投稿の見出しの直下・予約表の上</strong>。押されるまで消えないので、表より上でなければ見落とす。</p><p><strong>本文が複数に割れるときは、割れた形のままコピーさせる。</strong>ここで人につなぎ直させると、開示が末尾から落ちる — Threads で実際に起きた事故と同じ形になる。</p><p><strong>「投稿しました」の前に投稿のURLを聞く。</strong>空でも進む。聞かないと、あとから記録と実物を突き合わせる手段が無くなる。</p><p><strong>いいね・返信はこのチャネルでは取れない。</strong>画面でそう言っておかないと、数字が伸びないことを製品の不具合と読む。クリックと報酬は `/go/` を通るので、これまでどおり記録される。</p></aside>
+<aside class="note" id="note-note-handover" style="left:820px;top:5400px;width:390px"><p><strong>手動投稿は橋であって、行き先ではない</strong>（2026-09-19 オーナー）。アダプタを書いてチャネルを増やす方針は変わらない。`threads.ts` が本物を相手にしたことがなく、API接続がオンボードの最難関であるいま、先に進むために入れた。</p><p>位置は「今日」の<strong>予約中の投稿の見出しの直下・予約表の上</strong>。押されるまで消えないので、表より上でなければ見落とす。</p><p><strong>本文が複数に割れるときは、割れた形のままコピーさせる。</strong>ここで人につなぎ直させると、開示が末尾から落ちる — Threads で実際に起きた事故と同じ形になる。</p><p><strong>「投稿しました」の前に投稿のURLを聞く。</strong>空でも進む。聞かないと、あとから記録と実物を突き合わせる手段が無くなる。</p><p><strong>いいね・返信はこのチャネルでは取れない。</strong>画面でそう言っておかないと、数字が伸びないことを製品の不具合と読む。クリックと報酬は `/go/` を通るので、これまでどおり記録される。</p><p><strong>予定時刻はアカウントの時計で、どの時計かを必ず書く</strong>（2026-09-22、`amp-test` で実物を見て）。それまでは `toISOString()` を切り出した世界標準時を、ラベルも付けずに出していた — 07:30（日本時間）の枠が `2026-09-21 22:30` と読めた。読む人が東京にいても米国にいても同じ嘘になる。枠は<strong>読者が起きている時刻</strong>として選ばれているので、意味があるのはアカウントの時計だけ。時差は足し引きせず `src/core/clock.ts` に出す。</p><p><strong>コメントは目的の名前で呼び、番号を振る。</strong>`self_reply` / `link_drop` / `objection` はプラットフォーム側の識別子で、それが画面にそのまま出ていた。しかも3つとも「最初のコメント」で、どれが最初か言えていなかった。言葉は `src/console/messages.ts` の ja/en 対で選ぶ。<strong>アフィリエイトリンクがどれに入っているかは画面が名指しする</strong> — そのコメントだけがリンクの在り処で、出し忘れるとこの投稿の報酬は1件も記録されない。</p><p><strong>貼る順番を、実際の操作の順で書く。</strong>本文5つ＋コメント3つで8回のコピー＆貼り付けになる日がある。本文は1つめが新規投稿で、2つめ以降は<strong>ひとつ前への返信</strong>（`threads.ts` が自分で出すときの連鎖と同じ）。コメントは<strong>どれも最初の投稿への返信</strong>（`postComments` が root の id に付けるのと同じ）。画面が言わなければ、人は本文をつなぎ直すか、コメントを最後の本文にぶら下げる。</p></aside>
 <aside class="note" id="note-note-theme" style="left:1290px;top:5040px;width:390px"><p><strong>配色は3つ。</strong>ボタンを押すたび 自動 → 明るい → 暗い → 自動 と回る。「自動」はOSに従う（`data-theme` を外す）。選ぶと端末に覚える（`localStorage`）。</p><p><strong>アカウント側の設定ではない。</strong>同じ承認画面を2人が別の配色で開ける。</p><p>暗いほうの緑は `#7fcf9f` で、明るいほうの `#2f6f4f` の反転ではない。暗い背景に濃い緑を置くと沈むので、<strong>色は付け替えるのではなく引き直す</strong>。ボタンの文字は逆に濃い（`#102016`）。</p><p>判断に使う色（注意・危険）も別の値にしてある — 暗い画面で `#a13a2a` は黒と見分けがつかない。</p></aside>
 </div></div>
 </body>

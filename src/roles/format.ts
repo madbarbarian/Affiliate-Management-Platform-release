@@ -6,6 +6,8 @@
  */
 
 import { engagementScore } from "../domain/engagement.ts";
+import { shortUrl } from "../affiliate/links.ts";
+import type { TrackingConfig } from "../config/schema.ts";
 import type {
   Draft,
   DraftContent,
@@ -15,6 +17,7 @@ import type {
   Pattern,
   ScheduledPost,
   SwipeItem,
+  TrackedLink,
 } from "../core/types.ts";
 import type { RevenueRollup } from "../affiliate/attribution.ts";
 
@@ -64,12 +67,30 @@ export function formatOffers(offers: readonly Offer[]): string {
     .join("\n\n");
 }
 
-export function formatOffer(offer: Offer | undefined, linkUrl: string | undefined): string {
+/**
+ * The offer block every role that writes text puts in front of the model.
+ *
+ * It takes the link *record*, never a URL, and derives the reader-facing one
+ * itself. Three callers used to each choose which URL to hand over, and the
+ * inspector chose the network's own landing page instead of the redirect. The
+ * inspector rewrites the whole body, so every post that carried an offer
+ * shipped that direct URL in place of `/go/<code>`, and a click from a post
+ * body was never counted. A caller that cannot pass a URL cannot pass the
+ * wrong one, so the choice lives here or nowhere.
+ *
+ * A per-offer `direct` mode (Amazon forbids redirecting its links) would be
+ * decided in this function, not back at the call sites.
+ */
+export function formatOffer(
+  offer: Offer | undefined,
+  link: TrackedLink | undefined,
+  tracking: TrackingConfig,
+): string {
   if (!offer) return "(no offer on this post - write it with nothing to sell)";
   return [
     `- name: ${offer.name}`,
     `- what it is: ${offer.category}`,
-    `- link to use: ${linkUrl ?? "(no link issued)"}`,
+    `- link to use: ${link ? shortUrl(tracking, link) : "(no link issued)"}`,
     offer.complianceNotes.length > 0 ? `- rules you must honour: ${offer.complianceNotes.join("; ")}` : "",
   ]
     .filter((line) => line !== "")

@@ -170,6 +170,31 @@ test("the shipped example can be read in English without touching src/", async (
   }
 });
 
+test("doctor refuses an Amazon offer through the real binary, naming the offer and the fix", async () => {
+  // Unit tests in test/config.test.ts exercise parseConfig directly; this is
+  // the band those are structurally blind to - the real binary, reading a
+  // real file off disk, through the same path `doctor` and every other
+  // command take on a licensee's machine or Worker.
+  const { config, cleanup } = await scratchConfig((yaml) =>
+    yaml.replace(
+      'landingUrl: "https://example.com/lp/demo-tool"',
+      'landingUrl: "https://www.amazon.co.jp/dp/B000000000"',
+    ),
+  );
+  try {
+    const outcome = await amp(["doctor", "--config", config]);
+    assert.notEqual(outcome.code, 0, "doctor must refuse a config carrying an Amazon offer");
+    const text = `${outcome.stdout}${outcome.stderr}`;
+    assert.match(text, /offer_demo_tool/, "the offending offer is named");
+    assert.match(text, /amazon\.co\.jp/, "the offending host is named");
+    assert.match(text, /forfeited/i, "the loss is named as forfeited, not merely uncounted");
+    assert.match(text, /platform\.config\.yaml/, "the fix names the file a licensee edits, not a command");
+    assert.ok(!looksLikeACrash(outcome), text);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("every read-only command runs without throwing", async () => {
   const { config, cleanup } = await scratchConfig();
   try {

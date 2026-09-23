@@ -2,7 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULT_SLOT_MINUTES, planSlots } from "../src/domain/scheduling.ts";
-import { localMinutesOfDay, nextLocalTime, parseTimeOfDay, formatTimeOfDay } from "../src/core/clock.ts";
+import {
+  formatTimeOfDay,
+  localDateTime,
+  localMinutesOfDay,
+  nextLocalTime,
+  parseTimeOfDay,
+  timezoneName,
+} from "../src/core/clock.ts";
 
 const TZ = "Asia/Tokyo";
 const NOW = Date.parse("2026-04-01T00:00:00Z"); // 09:00 JST
@@ -129,4 +136,24 @@ test("nextLocalTime lands on the right wall clock across a DST boundary", () => 
 
   const afterSpring = nextLocalTime(Date.parse("2026-03-08T12:00:00Z"), parseTimeOfDay("09:00"), "America/New_York");
   assert.equal(localMinutesOfDay(afterSpring, "America/New_York"), parseTimeOfDay("09:00"));
+});
+
+test("an instant reads as the wall clock of whatever zone it is asked for, named", () => {
+  // The slot the hand-over card was getting wrong: 22:30 UTC is the next
+  // morning in Tokyo and the same evening in New York. The console printed the
+  // UTC one to both.
+  const slot = Date.parse("2026-09-21T22:30:00Z");
+  assert.equal(localDateTime(slot, "Asia/Tokyo"), "2026-09-22 07:30");
+  assert.equal(localDateTime(slot, "America/New_York"), "2026-09-21 18:30");
+  assert.equal(localDateTime(slot, "UTC"), "2026-09-21 22:30");
+
+  // And says which clock it is, in the language the console is set to.
+  assert.equal(timezoneName(slot, "Asia/Tokyo", "ja"), "日本標準時");
+  assert.equal(timezoneName(slot, "America/New_York", "en"), "Eastern Daylight Time");
+
+  // Summer time is named as summer time rather than by the zone's winter name -
+  // the same instant of the year is the difference between the two.
+  const winter = Date.parse("2026-01-15T22:30:00Z");
+  assert.equal(timezoneName(winter, "America/New_York", "en"), "Eastern Standard Time");
+  assert.equal(localDateTime(winter, "America/New_York"), "2026-01-15 17:30");
 });

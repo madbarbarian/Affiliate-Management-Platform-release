@@ -195,6 +195,51 @@ test("a missing model key is reported by name rather than crashing the worker", 
   await db.close();
 });
 
+/**
+ * The example, with its one offer pointed at Amazon.
+ *
+ * Amazon's Associates terms forbid the redirect this platform issues for
+ * every offer (`src/config/schema.ts`, `FORBIDDEN_OFFER_HOSTS`) - a licensee
+ * who added one like this would otherwise see the platform run normally and
+ * earn nothing from it, silently.
+ */
+async function configWithAmazonOffer(): Promise<string> {
+  const text = await exampleConfig();
+  const wanted = text.replace(
+    'landingUrl: "https://example.com/lp/demo-tool"',
+    'landingUrl: "https://www.amazon.co.jp/dp/B000000000"',
+  );
+  assert.notEqual(wanted, text, "the example's demo offer landingUrl changed - update this helper");
+  return wanted;
+}
+
+test("an Amazon offer is reported in Japanese on the screen a licensee reads, with the English detail kept underneath", async () => {
+  // licenseeProblem translates this one specifically (keyed on the issue's
+  // code, not the English prose) - every other config.invalid failure still
+  // falls through untranslated, which is a separate, tracked gap.
+  const db = fakeD1();
+  const runtime = await createWorkerRuntime({
+    env: { DB: db },
+    configText: await configWithAmazonOffer(),
+    prompts: {},
+  });
+  assert.equal(runtime.ok, false);
+  assert.equal(runtime.ok ? "" : runtime.error.code, "config.invalid");
+  if (!runtime.ok) {
+    const problem = licenseeProblem(runtime.error);
+    assert.match(problem, /Amazon/);
+    assert.match(problem, /没収されます/, "forfeited, not merely uncounted");
+    assert.match(problem, /直リンク/, "says there is no direct-link mode yet");
+    assert.match(problem, /platform\.config\.yaml/);
+    assert.match(problem, /active: false/);
+    assert.match(problem, /GitHub の画面/, "the fix is worked in the browser, not a shell the licensee does not have");
+    // The English original - which names the specific offer - is kept below it.
+    assert.match(problem, /offer_demo_tool/);
+    assert.match(problem, /amazon\.co\.jp/);
+  }
+  await db.close();
+});
+
 test("the example a licensee deploys opens the console with no key at all", async () => {
   // The promise is that you reach a working product holding no key. This ran
   // the other way for months: the example asked for the real model, so the

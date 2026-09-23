@@ -4,7 +4,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { ConfigError, DEFAULT_MAX_CYCLE_ATTEMPTS, parseConfig } from "../src/config/schema.ts";
+import {
+  ConfigError,
+  DEFAULT_MAX_CYCLE_ATTEMPTS,
+  OFFER_FORBIDDEN_REDIRECT_HOST_ISSUE,
+  parseConfig,
+} from "../src/config/schema.ts";
 import { buildConfig, interpolate, repoRoot } from "../src/config/load.ts";
 import { BASE_CONFIG, testConfig } from "./helpers.ts";
 
@@ -147,6 +152,90 @@ test("an offer with no landing URL is a config error, not a surprise at write ti
       ),
     /landingUrl.*is required/s,
   );
+});
+
+test("refuses an offer on an Amazon domain, naming the offer and the fix", () => {
+  // Amazon's Associates terms forbid the redirect every tracked link is
+  // (docs/3-development/integrations.md), so an offer like this would run to
+  // completion - links issued, posts published - and earn nothing, silently.
+  const broken = structuredClone(BASE_CONFIG) as Record<string, unknown>;
+  broken["offers"] = [{ ...BASE_CONFIG.offers[0], landingUrl: "https://www.amazon.co.jp/dp/B000000000" }];
+  try {
+    parseConfig(broken, "broken.yaml");
+    assert.fail("expected ConfigError");
+  } catch (error) {
+    assert.ok(error instanceof ConfigError);
+    const paths = error.issues.map((issue) => issue.path);
+    assert.ok(paths.includes("offers[0].landingUrl"), paths.join(", "));
+    const messages = error.issues.map((issue) => issue.message).join(" | ");
+    assert.match(messages, /offer "offer_test"/, "the offer is named");
+    assert.match(messages, /amazon\.co\.jp/, "the offending host is named");
+    assert.match(messages, /forbid/i, "Amazon's terms are named as the reason");
+    assert.match(messages, /forfeited/i, "it must say forfeited, not merely uncounted");
+    assert.match(messages, /platform\.config\.yaml/, "the fix names the file a licensee actually edits");
+  }
+});
+
+test("the Amazon-offer issue carries a code, not just English prose, for licenseeProblem to key on", () => {
+  // src/worker/handler.ts renders this one issue in Japanese on the screen a
+  // licensee actually reads - it recognises it by this code so it never has
+  // to pattern-match the English message above, which is free to keep changing.
+  const broken = structuredClone(BASE_CONFIG) as Record<string, unknown>;
+  broken["offers"] = [{ ...BASE_CONFIG.offers[0], landingUrl: "https://www.amazon.co.jp/dp/B000000000" }];
+  try {
+    parseConfig(broken, "broken.yaml");
+    assert.fail("expected ConfigError");
+  } catch (error) {
+    assert.ok(error instanceof ConfigError);
+    const issue = error.issues.find((entry) => entry.path === "offers[0].landingUrl");
+    assert.equal(issue?.code, OFFER_FORBIDDEN_REDIRECT_HOST_ISSUE);
+  }
+});
+
+test("a short link on amzn.to is refused the same way a full amazon.com URL is", () => {
+  const broken = structuredClone(BASE_CONFIG) as Record<string, unknown>;
+  broken["offers"] = [{ ...BASE_CONFIG.offers[0], landingUrl: "https://amzn.to/3xample" }];
+  assert.throws(
+    () => parseConfig(broken, "broken.yaml"),
+    /offers\[0\]\.landingUrl.*amzn\.to/s,
+  );
+});
+
+test("collects every Amazon offer in one run, not just the first", () => {
+  const broken = structuredClone(BASE_CONFIG) as Record<string, unknown>;
+  broken["offers"] = [
+    { ...BASE_CONFIG.offers[0], id: "offer_a", landingUrl: "https://www.amazon.com/dp/1" },
+    { ...BASE_CONFIG.offers[0], id: "offer_b", landingUrl: "https://amzn.to/xyz" },
+  ];
+  broken["ventures"] = [{ ...BASE_CONFIG.ventures[0], offers: ["offer_a", "offer_b"] }];
+  try {
+    parseConfig(broken, "broken.yaml");
+    assert.fail("expected ConfigError");
+  } catch (error) {
+    assert.ok(error instanceof ConfigError);
+    const paths = error.issues.map((issue) => issue.path);
+    assert.ok(paths.includes("offers[0].landingUrl"), paths.join(", "));
+    assert.ok(paths.includes("offers[1].landingUrl"), paths.join(", "));
+  }
+});
+
+test("a plain merchant offer, and hosts that only resemble Amazon, all pass", () => {
+  // A naive substring check would also catch these two - neither is Amazon.
+  const config = testConfig({
+    offers: [
+      { ...BASE_CONFIG.offers[0], id: "offer_test", landingUrl: "https://example.com/lp" },
+      { ...BASE_CONFIG.offers[0], id: "offer_lookalike_1", landingUrl: "https://notamazon.com/lp" },
+      { ...BASE_CONFIG.offers[0], id: "offer_lookalike_2", landingUrl: "https://amazon.com.evil.example/lp" },
+    ],
+  });
+  assert.equal(config.offers.length, 3);
+});
+
+test("an inactive offer on an Amazon domain is not refused - active: false is the deactivate path the message names", () => {
+  const config = testConfig({
+    offers: [{ ...BASE_CONFIG.offers[0], landingUrl: "https://www.amazon.co.jp/dp/1", active: false }],
+  });
+  assert.equal(config.offers[0]?.active, false);
 });
 
 test("two operators cannot share a name or a passphrase", () => {

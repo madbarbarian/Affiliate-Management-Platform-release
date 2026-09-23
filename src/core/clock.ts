@@ -120,3 +120,33 @@ export function nextLocalTime(afterMs: number, minutesOfDay: number, timezone: s
   }
   return afterMs + DAY_MS;
 }
+
+/**
+ * An instant as the wall clock reads it in `timezone`: `YYYY-MM-DD HH:MM`.
+ *
+ * The console used to slice this out of `toISOString()`, which is the wall
+ * clock in UTC and therefore nobody's: a Tokyo account's 07:30 slot was shown
+ * to every reader as the previous day's 22:30, and an operator in New York was
+ * told the same wrong thing as an operator in Tokyo. Built from `zonedParts`
+ * rather than by adding an offset, because an offset is a guess that is wrong
+ * twice a year.
+ */
+export function localDateTime(epochMs: number, timezone: string): string {
+  return `${localDate(epochMs, timezone)} ${formatTimeOfDay(localMinutesOfDay(epochMs, timezone))}`;
+}
+
+/**
+ * What `timezone` is called at `epochMs`, in `locale`: 日本標準時,
+ * アメリカ東部夏時間, Eastern Daylight Time.
+ *
+ * From Intl rather than a table of our own, so every IANA zone has a name and a
+ * zone on summer time says so. A time printed without one is a time the reader
+ * has to guess at, and the guess is wrong for everyone who is not standing
+ * where the account is.
+ */
+export function timezoneName(epochMs: number, timezone: string, locale: string): string {
+  const parts = new Intl.DateTimeFormat(locale, { timeZone: timezone, timeZoneName: "long" }).formatToParts(
+    new Date(epochMs),
+  );
+  return parts.find((part) => part.type === "timeZoneName")?.value ?? timezone;
+}

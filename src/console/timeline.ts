@@ -18,6 +18,7 @@
  * Nothing here reads a store or a clock.
  */
 
+import { formatTimeOfDay, localMinutesOfDay } from "../core/clock.ts";
 import { CYCLE_STEPS } from "../core/types.ts";
 import type {
   Cycle,
@@ -34,6 +35,15 @@ export type TimelineEntry = {
   readonly step: CycleStep;
   readonly startedAt: string;
   readonly finishedAt: string;
+  /**
+   * When it ran, on the account's own clock: `HH:MM`.
+   *
+   * `startedAt` stays the durable UTC record. The page used to slice the hour
+   * out of it and print that, which is the server's midnight shown as the
+   * account's - so a day's work appeared to have happened nine hours before it
+   * did. Which clock this is, the screen says once above the steps.
+   */
+  readonly clock: string;
   readonly durationMs: number;
   /** The role's own one-line note, recorded when it ran. */
   readonly note: string;
@@ -62,6 +72,8 @@ export type Timeline = {
   readonly cycleId: string;
   readonly date: string;
   readonly status: string;
+  /** What the account's clock is called, said once for the whole day. */
+  readonly zone: string;
   readonly entries: readonly TimelineEntry[];
   /** Present when the day ended on an error. */
   readonly failure?: { readonly step: CycleStep; readonly message: string; readonly code: string };
@@ -76,6 +88,16 @@ export type TimelineSources = {
   readonly inspections: readonly InspectionReport[];
   readonly posts: readonly ScheduledPost[];
   readonly decisions: readonly Decision[];
+  /**
+   * The account's IANA timezone, and what to call it on the screen.
+   *
+   * Required rather than defaulted: this module renders times, and a default
+   * would be UTC pretending to be somebody's local clock - the defect this
+   * pair exists to close. The name is passed in already localised because the
+   * caller knows `console.locale` and this module reads no config.
+   */
+  readonly timezone: string;
+  readonly zoneLabel: string;
 };
 
 export function buildTimeline(sources: TimelineSources): Timeline {
@@ -84,6 +106,7 @@ export function buildTimeline(sources: TimelineSources): Timeline {
     cycleId: cycle.id,
     date: cycle.date,
     status: cycle.status,
+    zone: sources.zoneLabel,
     // Ordered by when they ran rather than by the canonical step order: a
     // resumed day runs its remaining steps later, and a reader trying to work
     // out what happened wants the order it happened in.
@@ -100,6 +123,7 @@ export function buildTimeline(sources: TimelineSources): Timeline {
         step: record.step,
         startedAt: record.startedAt,
         finishedAt: record.finishedAt,
+        clock: formatTimeOfDay(localMinutesOfDay(Date.parse(record.startedAt), sources.timezone)),
         durationMs: record.durationMs,
         note: record.note,
         ...describe(record.step, sources),
@@ -214,7 +238,7 @@ function describe(
       return {
         said: [`${posts.length} 件の枠を決めた`],
         items: posts.map((post) => ({
-          title: new Date(post.scheduledFor).toISOString(),
+          title: formatTimeOfDay(localMinutesOfDay(post.scheduledFor, sources.timezone)),
           detail: post.content.hook,
         })),
       };

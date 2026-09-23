@@ -20,6 +20,8 @@
  * `{name}`-style placeholders are filled by the page's own `fmt`.
  */
 
+import type { CommentPurpose } from "../core/types.ts";
+
 export const LOCALES = ["ja", "en"] as const;
 export type Locale = (typeof LOCALES)[number];
 
@@ -50,6 +52,9 @@ const ja = {
   // 知りたくなったときだけ開くもの。運用者の30秒は別の画面にある。
   "timeline.open": "この日を見る",
   "timeline.byHuman": "人が決めた",
+  // 各段の時刻はアカウントの時計。どの時計かを1度だけ言う — 段ごとに
+  // 添えると8回繰り返すことになる。
+  "timeline.zone": "時刻は{zone}です",
   "nav.today": "今日",
   "nav.settings": "設定",
 
@@ -95,6 +100,16 @@ const ja = {
   "today.upcomingTime": "時刻",
   "today.upcomingStatus": "状態",
   "today.upcomingHook": "冒頭",
+  // 状態は queued / approved / scheduled … というプラットフォーム側の識別子で、
+  // それが日本語の画面にそのまま出ていた。表のセルは狭いので短く。
+  // 対応は `labels.ts` の POST_STATUS_KEYS が持つ。
+  "postStatus.queued": "順番待ち",
+  "postStatus.approved": "承認済み",
+  "postStatus.scheduled": "予約中",
+  "postStatus.handedOver": "あなたの番",
+  "postStatus.published": "公開済み",
+  "postStatus.failed": "失敗",
+  "postStatus.cancelled": "取り消し",
 
   // 自分で投稿するチャンネル。ここだけは、押さなければ何も起きません。
   // 文面は投稿時点でチャンネルが組み立てたものをそのまま出しています
@@ -104,8 +119,22 @@ const ja = {
   "handOver.slot": "予定していた時刻：{at}",
   "handOver.part": "本文 {n}/{total}",
   "handOver.onePart": "本文",
-  "handOver.comment": "最初のコメント（{purpose}）",
-  "handOver.commentLede": "アフィリエイトリンクはこのコメントに入っています。投稿したあと、最初の返信として貼ってください。",
+  // 本文とコメントで8回の貼り付けになる日がある。どれを・いつ・どこへ貼るのかを
+  // 画面が言わなければ、本文を1つの投稿につなぎ直したり、コメントを最後の本文に
+  // ぶら下げたりする。どちらも実際のプラットフォームの組み立てと違う形になる。
+  "handOver.order": "貼る順番",
+  "handOver.orderFirst": "「{label}」を、新しい投稿として出します。",
+  "handOver.orderRest": "残りの本文は、そのひとつ前の投稿への返信として、上から順に出します。連なった投稿になります。",
+  "handOver.orderComments": "コメントは、2つめ以降の本文ではなく、どれも最初の投稿（「{label}」）への返信として、上から順に出します。",
+  "handOver.orderLink": "アフィリエイトリンクは「{name}」のコメントだけに入っています。これを出さないと、この投稿からの報酬は記録されません。",
+  "handOver.orderDone": "全部出し終えたら、下の「{button}」を押します。",
+  "handOver.comment": "コメント {n}/{total}：{name}",
+  // コメントの目的は self_reply / link_drop / objection / faq という
+  // プラットフォーム側の識別子。画面に出す言葉はここで選ぶ。
+  "handOver.purpose.self_reply": "補足",
+  "handOver.purpose.link_drop": "リンクの案内",
+  "handOver.purpose.objection": "反論への返答",
+  "handOver.purpose.faq": "よくある質問への答え",
   "handOver.copy": "コピー",
   "handOver.copied": "コピーしました",
   "handOver.copyFailed": "コピーできませんでした。文面を選んで手でコピーしてください。",
@@ -132,7 +161,8 @@ const ja = {
   "gate.questionProposal": "今日の企画のうち、どれを書きますか。",
   "gate.questionPublish": "どれを出しますか。順番も決めてください。",
   "stats.posts": "公開済み投稿",
-  "stats.engagement": "エンゲージ合計",
+  // There is no "engagement total" here on purpose - see router.ts's stats
+  // array, where the number used to be, for why one is not coming back.
   "stats.clicks": "クリック",
   "stats.conversions": "成果",
   "stats.revenue": "確定報酬",
@@ -153,7 +183,13 @@ const ja = {
   // The stop
   "stop.all": "停止中 — 何も動かず、何も投稿されません",
   "stop.one": "停止中 — {label}",
-  "stop.howToResume": "再開するには {command} を実行してください。",
+  // No {command} here on purpose. This used to name `amp resume`, a terminal
+  // command the licensee this screen is built for cannot run
+  // (requirements.md §3.1: no shell is assumed). There is also no button on
+  // this screen yet that lifts a stop (docs/3-development/console-ux-proposal.md
+  // §6.2), so this says that plainly rather than pointing at something the
+  // reader has no way to do.
+  "stop.howToResume": "この画面に、再開のボタンはまだありません。この仕組みを動かしている人だけが解除できます。",
 
   // The two gates
   "gate.heading": "{gate} — {venture}",
@@ -178,6 +214,13 @@ const ja = {
   // are chosen. "本文を見る" promised the text and opened the reasoning, and the
   // first person through read the brief looking for the post.
   "gate.openIdea": "ねらいと根拠を見る",
+
+  // 門の中を「推奨」と「そのほか」に割るための3つ。10案が同じ重さで並ぶと
+  // 30秒では終わらない、という docs/3-development/console-ux-proposal.md §4.4
+  // の実装。推奨が0件、または全件のときは分割せず、この3つは出さない。
+  "gate.recommended": "推奨",
+  "gate.recommendedWhy": "昨日までの実績から選びました。このまま承認できます。",
+  "gate.others": "そのほかの{n}件を見る",
 
   // 「動かす」と「承認して進める」は、本物のモデルだと数分かかります。返事が
   // 来ないまま黙って元の画面に戻るのが、この画面がついた唯一の嘘でした。
@@ -324,6 +367,7 @@ const en: Messages = {
   "theme.dark": "Theme: dark",
   "timeline.open": "See this day",
   "timeline.byHuman": "decided by a person",
+  "timeline.zone": "Times are in {zone}",
   "nav.today": "Today",
   "nav.settings": "Settings",
   "settings.heading": "This company's settings",
@@ -361,14 +405,30 @@ const en: Messages = {
   "today.upcomingTime": "Time",
   "today.upcomingStatus": "State",
   "today.upcomingHook": "Opening",
+  "postStatus.queued": "Queued",
+  "postStatus.approved": "Approved",
+  "postStatus.scheduled": "Scheduled",
+  "postStatus.handedOver": "Yours to post",
+  "postStatus.published": "Published",
+  "postStatus.failed": "Failed",
+  "postStatus.cancelled": "Cancelled",
 
   "handOver.heading": "Your turn to post",
   "handOver.lede": "This one goes out from your own account. Copy the text, open the app, paste, post.",
   "handOver.slot": "Slot it was planned for: {at}",
   "handOver.part": "Post {n}/{total}",
   "handOver.onePart": "Post",
-  "handOver.comment": "First comment ({purpose})",
-  "handOver.commentLede": "The affiliate link is in this comment. Paste it as the first reply once the post is up.",
+  "handOver.order": "The order to paste them",
+  "handOver.orderFirst": "Post “{label}” as a new post.",
+  "handOver.orderRest": "Post the rest of the body in order, each one as a reply to the one before it. That is what makes it a thread.",
+  "handOver.orderComments": "Post the comments in order, each one as a reply to the first post (“{label}”) — not to the last part of the body.",
+  "handOver.orderLink": "The affiliate link is only in the “{name}” comment. Leave it out and nothing this post earns is recorded.",
+  "handOver.orderDone": "When they are all up, press “{button}” below.",
+  "handOver.comment": "Comment {n}/{total}: {name}",
+  "handOver.purpose.self_reply": "Follow-up",
+  "handOver.purpose.link_drop": "Link and context",
+  "handOver.purpose.objection": "Answer to an objection",
+  "handOver.purpose.faq": "Answer to a common question",
   "handOver.copy": "Copy",
   "handOver.copied": "Copied",
   "handOver.copyFailed": "Could not copy. Select the text and copy it by hand.",
@@ -389,7 +449,6 @@ const en: Messages = {
   "gate.questionProposal": "Which of today's proposed posts should be written?",
   "gate.questionPublish": "Which posts go out, and in what order?",
   "stats.posts": "Posts published",
-  "stats.engagement": "Engagement total",
   "stats.clicks": "Clicks",
   "stats.conversions": "Conversions",
   "stats.revenue": "Approved revenue",
@@ -409,7 +468,7 @@ const en: Messages = {
 
   "stop.all": "Stopped — nothing runs and nothing publishes",
   "stop.one": "Stopped — {label}",
-  "stop.howToResume": "Run {command} to start again.",
+  "stop.howToResume": "There is no resume button on this screen yet. Only whoever runs this system can undo this.",
 
   "gate.heading": "{gate} — {venture}",
   "gate.day": "For {day}",
@@ -425,6 +484,10 @@ const en: Messages = {
   "gate.disclosureNotNeeded": "No offer. No disclosure needed",
   "gate.openPost": "Evidence, findings, comment draft",
   "gate.openIdea": "Aim and evidence",
+
+  "gate.recommended": "Recommended",
+  "gate.recommendedWhy": "Chosen from what has worked so far. You can approve them as they are.",
+  "gate.others": "See the other {n}",
 
   "wait.stillRunning": "Still running. The work carries on even if you close this page, and the screen will bring itself up to date when it finishes.",
   "wait.gateStillRunning": "Your approval went through and the posts are being written. The work carries on even if you close this page, and the screen will bring itself up to date when it finishes.",
@@ -544,4 +607,30 @@ export function messagesFor(locale: string): Messages {
 export function fill(messages: Messages, key: MessageKey, values: Record<string, string | number>): string {
   return messages[key].replace(/\{(\w+)\}/g, (whole, name: string) =>
     name in values ? String(values[name]) : whole);
+}
+
+/**
+ * The word for a comment's purpose, as the operator reads it.
+ *
+ * `self_reply`, `link_drop`, `objection` and `faq` are this platform's own
+ * identifiers, chosen for the prompt and the code. The hand-over card printed
+ * them - 「最初のコメント（link_drop）」 - on the one screen a licensee has, with
+ * no terminal and nowhere to look them up, and the three it showed all called
+ * themselves 「最初の」 so none of them was.
+ *
+ * A `switch` rather than a lookup table on purpose: a purpose added to
+ * `CommentPurpose` without a word to go with it fails the typecheck here,
+ * instead of reaching a licensee's screen in English.
+ */
+export function commentPurposeKey(purpose: CommentPurpose): MessageKey {
+  switch (purpose) {
+    case "self_reply":
+      return "handOver.purpose.self_reply";
+    case "link_drop":
+      return "handOver.purpose.link_drop";
+    case "objection":
+      return "handOver.purpose.objection";
+    case "faq":
+      return "handOver.purpose.faq";
+  }
 }

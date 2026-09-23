@@ -41,6 +41,7 @@ import { createWorkerRuntime, type WorkerEnv } from "./runtime.ts";
 import { resolveOperators } from "../console/operators.ts";
 import { renderSetup } from "./setup.ts";
 import { generateConfig, marketsWithAnOffer } from "../config/generate.ts";
+import { ConfigError, OFFER_FORBIDDEN_REDIRECT_HOST_ISSUE } from "../config/schema.ts";
 
 /**
  * What the build put in the Worker. Passed in rather than imported here so a
@@ -403,7 +404,37 @@ export function licenseeProblem(error: PlatformError): string {
       describeError(error)
     );
   }
+  if (hasForbiddenOfferHostIssue(error)) {
+    return (
+      "Amazon の商品ページを指す案件が platform.config.yaml にあります。Amazon アソシエイト・プログラムの規約は、" +
+      "このプラットフォーム自身の /go/<code> のようなリダイレクトを経由してリンクを紹介することを禁じています。" +
+      "そのまま投稿すると、そのリンク経由の購入は成果報酬の対象外になります。「集計されない」のではなく、" +
+      "報酬そのものが没収されます。リダイレクトを経由しない直リンクの仕組みはまだありません。\n" +
+      "GitHub の画面で platform.config.yaml を開き、対象の案件のブロックを削除するか、" +
+      "\"active: false\" を追加してください（端末の操作は不要です）。対象の案件名は下の英文にあるとおりです。\n\n" +
+      describeError(error)
+    );
+  }
+  // Every other config.invalid failure - there are many, from a duplicate id
+  // to a missing cross-border note - still lands here untranslated. That is
+  // a real gap, tracked separately; the two cases above are the only ones
+  // narrow enough to translate without mistranslating something else.
   return describeError(error);
+}
+
+/**
+ * True when the config failed validation because at least one offer sits on
+ * a forbidden redirect host (`src/config/schema.ts`). Keyed on the issue's
+ * `code`, not on matching the English message, so this stays correct however
+ * that prose changes, and stays narrow: `error.code` alone is `config.invalid`
+ * for every validation failure, so checking that would translate all of them,
+ * not just this one.
+ */
+function hasForbiddenOfferHostIssue(error: PlatformError): boolean {
+  return (
+    error.cause instanceof ConfigError &&
+    error.cause.issues.some((issue) => issue.code === OFFER_FORBIDDEN_REDIRECT_HOST_ISSUE)
+  );
 }
 
 /** 303, so refreshing where they land does not re-post the passphrase. */

@@ -12,7 +12,35 @@
  * licensee's screen in English.
  */
 
-import type { CycleStatus, CycleStep } from "../core/types.ts";
+import type { CycleStatus, CycleStep, PostStatus } from "../core/types.ts";
+import type { MessageKey } from "./messages.ts";
+
+/**
+ * The operator's word for a post's status, as a key into `messages.ts`.
+ *
+ * The key and not the word, unlike everything else in this file: the schedule
+ * table printed `scheduled` / `approved` / `queued` - this platform's own
+ * identifiers - straight onto a Japanese screen, in the cell directly under the
+ * hand-over card, and the design board has always drawn 「予約中」 there. The
+ * words themselves belong in `messages.ts` because that file is paired ja/en
+ * and this file is not; an English console showing Japanese is the same defect
+ * wearing the other language.
+ *
+ * A `Record` over the union, so a status added to `PostStatus` without a word
+ * fails the typecheck here rather than reaching a licensee's screen as its own
+ * identifier. Every member is covered even though the schedule only ever shows
+ * three of them - the filter that picks those three is somewhere else, and is
+ * free to change.
+ */
+export const POST_STATUS_KEYS: Readonly<Record<PostStatus, MessageKey>> = {
+  queued: "postStatus.queued",
+  approved: "postStatus.approved",
+  scheduled: "postStatus.scheduled",
+  handed_over: "postStatus.handedOver",
+  published: "postStatus.published",
+  failed: "postStatus.failed",
+  cancelled: "postStatus.cancelled",
+};
 
 export const CYCLE_STATUS_LABELS: Readonly<Record<CycleStatus, string>> = {
   running: "動作中",

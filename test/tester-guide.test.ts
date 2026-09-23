@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { repoRoot } from "../src/config/load.ts";
+import { MESSAGES, type MessageKey } from "../src/console/messages.ts";
 import { TERMINAL_COMMAND } from "./terminal-command.ts";
 
 const SETUP_DIR = join(repoRoot(), "docs", "2-setup");
@@ -99,6 +100,146 @@ test("anything that says Run workflow also says how the updater is installed", (
       text.includes(INSTALLED_AT),
       `${path} tells the reader to press Run workflow but never says to put the updater at ` +
         `${INSTALLED_AT}. The Deploy button's copy has no workflows, so that button does not exist yet.`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Screen copy the guide quotes
+// ---------------------------------------------------------------------------
+
+/*
+ * The guide quotes the console. That is the right thing for it to do - a tester
+ * reading 「あなたが投稿する番です」 here and seeing it there knows they are in
+ * the right place - and it is also how the guide rots, because the quote and
+ * the screen are two copies of one sentence with nothing joining them.
+ *
+ * It rotted exactly that way. §13 told a tester to look for a 「最初のコメント
+ * （…）」 panel and quoted 「アフィリエイトリンクはこのコメントに入っています。
+ * 投稿したあと、最初の返信として貼ってください。」 - both were the screen's own
+ * words when they were written, and neither existed any more by the time anyone
+ * noticed. The stale quotes were the symptom; the absence of any join was the
+ * defect.
+ *
+ * So a quote declares which message it is: `<!--screen:handOver.lede-->` at the
+ * end of the line. Two checks hang off that, and they fail for opposite
+ * reasons:
+ *
+ *   1. a declared quote that no longer matches its message - the rot itself;
+ *   2. an *undeclared* line that matches a message - screen copy pasted in
+ *      without a declaration, caught on the day it is pasted, while it still
+ *      matches and while fixing it is one comment long.
+ *
+ * What this does not cover, said plainly rather than left to look covered:
+ *
+ * - Copy that does not live in `messages.ts`. The unlock screen
+ *   (`src/console/unlock.ts`) and the Worker's setup page (`src/worker/setup.ts`)
+ *   hold their Japanese inline, so the guide's quotes of those screens are not
+ *   joined to anything. That is a defect in those two files - they are also
+ *   untranslatable - and it is not fixed here.
+ * - Copy short enough that the message is mostly punctuation. 「{text}」 would
+ *   match every quotation in the file, so a message has to carry
+ *   `FINGERPRINT_MIN` characters of its own to be recognisable as itself.
+ * - A second, undeclared quote on a line that already declares one. Check 2
+ *   reads the line, not each quotation in it.
+ */
+
+/**
+ * How much literal text a message needs before an unmarked line matching it is
+ * evidence of anything. 「{text}」 and 「{gate} — {venture}」 are punctuation with
+ * a hole in them: they match any quotation at all, and requiring a declaration
+ * on every 「」 in the guide would bury the declarations that mean something.
+ */
+const FINGERPRINT_MIN = 8;
+
+const SCREEN_MARKER = /<!--\s*screen:\s*([A-Za-z0-9_.]+)\s*-->/g;
+
+/** A message as a pattern: its own words fixed, its `{placeholders}` open. */
+function shapeOf(message: string): RegExp {
+  const literal = message
+    .split(/\{\w+\}/g)
+    .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${literal.join(".+?")}$`);
+}
+
+/** The characters a message carries itself, with the holes taken out. */
+function fingerprintLength(message: string): number {
+  return message.replace(/\{\w+\}/g, "").length;
+}
+
+/**
+ * The quotations in one line of the guide: the line itself, and anything it
+ * sets off with 「」 or **bold**.
+ *
+ * All three, because the guide quotes all three ways - a blockquote is the
+ * whole line, a button name is 「コピー」, and a heading is bold inside a
+ * sentence - and a check that knew only one of them would pass by not looking.
+ */
+function quotations(line: string): string[] {
+  const text = line.replace(SCREEN_MARKER, "");
+  const bare = text.replace(/^[\s>\-*]*/, "").replace(/\*\*/g, "").trim();
+  const found = [bare];
+  for (const match of text.matchAll(/「([^」]+)」/g)) found.push(match[1]!.replace(/\*\*/g, "").trim());
+  for (const match of text.matchAll(/\*\*([^*]+)\*\*/g)) found.push(match[1]!.trim());
+  return found;
+}
+
+const SCREEN_WORDS = Object.entries(MESSAGES.ja).map(([key, message]) => ({
+  key: key as MessageKey,
+  message,
+  shape: shapeOf(message),
+  fingerprint: fingerprintLength(message),
+}));
+
+test("every quote the guide declares still matches what the screen says", () => {
+  const stale: string[] = [];
+  for (const [index, line] of read(GUIDE).split("\n").entries()) {
+    for (const marker of line.matchAll(SCREEN_MARKER)) {
+      const key = marker[1] as MessageKey;
+      const word = SCREEN_WORDS.find((candidate) => candidate.key === key);
+      if (!word) {
+        stale.push(`${GUIDE}:${index + 1}: there is no message called "${key}" any more`);
+        continue;
+      }
+      if (!quotations(line).some((quotation) => word.shape.test(quotation))) {
+        stale.push(
+          `${GUIDE}:${index + 1}: quotes "${key}" but the screen now says 「${word.message}」\n      the guide says: ${line.replace(SCREEN_MARKER, "").trim()}`,
+        );
+      }
+    }
+  }
+  if (stale.length > 0) {
+    assert.fail(
+      "the guide quotes screen copy that has changed under it:\n  " +
+        stale.join("\n  ") +
+        "\nRewrite the line to what the screen says now, or point the declaration at the message that replaced it.",
+    );
+  }
+});
+
+test("screen copy in the guide says which message it is quoting", () => {
+  const undeclared: string[] = [];
+  for (const [index, line] of read(GUIDE).split("\n").entries()) {
+    if (SCREEN_MARKER.test(line)) {
+      SCREEN_MARKER.lastIndex = 0;
+      continue;
+    }
+    SCREEN_MARKER.lastIndex = 0;
+    for (const quotation of quotations(line)) {
+      const word = SCREEN_WORDS.find(
+        (candidate) => candidate.fingerprint >= FINGERPRINT_MIN && candidate.shape.test(quotation),
+      );
+      if (word) {
+        undeclared.push(`${GUIDE}:${index + 1}: 「${quotation}」 is ${word.key}`);
+        break;
+      }
+    }
+  }
+  if (undeclared.length > 0) {
+    assert.fail(
+      "these lines quote the console without saying so, so nothing will notice when the console changes:\n  " +
+        undeclared.join("\n  ") +
+        "\nPut <!--screen:the.key--> at the end of the line.",
     );
   }
 });

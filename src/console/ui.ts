@@ -107,6 +107,13 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
   .chip.danger { color: var(--danger); }
   details { margin-top: 8px; }
   summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  /*
+   * 推奨/そのほか: 10案が同じ重さで並ぶと30秒で終わらない、という設計提案
+   * (console-ux-proposal.md §4.4 / docs/_proposed/design/Main.dc.html) の実装。
+   */
+  .group-heading { font-size: 13px; font-weight: 600; color: var(--ink); margin: 4px 0 2px; }
+  .gate-rest { margin-top: 10px; }
+  .gate-rest > summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 6px 0; }
   pre {
     white-space: pre-wrap; word-break: break-word; background: var(--bg);
     border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13px;
@@ -267,6 +274,16 @@ export function renderPage(options: { companyName: string; locale?: Locale }): s
   .handover-part { margin: 12px 0; }
   .handover-part .muted { font-size: 12px; margin-bottom: 4px; }
   .handover-part button { font-size: 12px; padding: 4px 10px; }
+  /*
+   * The order to paste them. Eight copy-and-pastes is the worst day this card
+   * has, and until this block existed the screen said which texts but never
+   * which goes where - so the only way to find out was to guess, on somebody
+   * else's live account.
+   */
+  .handover-order { margin: 10px 0 14px; }
+  .handover-order ol { margin: 4px 0 0; padding-left: 20px; font-size: 13px; }
+  .handover-order li { margin: 2px 0; }
+  .handover-order .link-note { color: var(--warn); font-size: 12px; margin: 6px 0 0; }
   .pr-ok { color: var(--accent); font-size: 12px; margin-top: 6px; }
   .pr-missing { color: var(--danger); font-size: 13px; font-weight: 600; margin-top: 6px; }
   .pr-none { color: var(--muted); font-size: 12px; margin-top: 6px; }
@@ -510,7 +527,23 @@ async function api(path, options) {
   });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(body || ("HTTP " + response.status));
+    // (No backticks in here: this file is one big template literal.)
+    // errorJson() on the server (src/console/router.ts) answers a failure
+    // with both fields: "error" is describeError's full string - the
+    // "[kind/code]", the message written for a log or a terminal, the raw
+    // "details" - and "code" is the only one a screen may show. This used to
+    // throw "body" itself as the message, which is how a stopped account's
+    // now-removed terminal-command instruction once reached this DOM straight
+    // from the server: nothing downstream ever looked past .message. It is
+    // kept here only so a genuine failure this parse cannot make sense of -
+    // a network drop, a host with no JSON body at all - still leaves
+    // something for console.error to log; no caller on this page reads it
+    // for display any more. See failureText() below.
+    let parsed;
+    try { parsed = JSON.parse(body); } catch { parsed = null; }
+    const err = new Error(parsed && typeof parsed.error === "string" ? parsed.error : (body || "HTTP " + response.status));
+    if (parsed && typeof parsed.code === "string") err.code = parsed.code;
+    throw err;
   }
   return response.status === 204 ? null : response.json();
 }
@@ -640,6 +673,22 @@ const cycleStepLabel = (step) => (${JSON.stringify(CYCLE_STEP_LABELS)})[step] ||
 // mid-clause, in English, or before the word that carried the meaning.
 const failureSummary = (code) =>
   (${JSON.stringify(FAILURE_SUMMARIES)})[code] || { short: code || "?", hint: "" };
+
+/**
+ * What a caught failure may say on screen: this platform's own words for its
+ * code, by way of failureSummary() - never whatever a server put in
+ * error.message for a log or a terminal. Every catch block and every
+ * !outcome.ok branch on this page renders a failure through this, not
+ * error.message directly, which is what once let a stopped account's
+ * now-removed terminal-command instruction reach the DOM. A code this table
+ * has no entry for falls back to the bare code (or "?" for a failure with
+ * none at all, such as a dropped connection) rather than to the message -
+ * ugly on purpose, the same trade failureSummary() already makes for a cycle.
+ */
+function failureText(error) {
+  if (error) console.error(error);
+  return failureSummary(error && error.code).short;
+}
 
 /** Every word this page says, in the language console.locale asked for. */
 const T = ${JSON.stringify(T)};
@@ -820,6 +869,18 @@ function detailsKey(decisionId, itemId) {
 }
 
 /**
+ * A synthetic item id for the 「そのほかのN件を見る」 <details> that wraps the
+ * non-recommended half of a split gate (renderDecision, below).
+ *
+ * It is not a real item, but detailsKey() only needs two strings that identify
+ * a panel, and this one already does: no decision ever has a real item whose
+ * id is this. Giving the wrapper this id, rather than a second Set or a second
+ * key scheme, is what lets it survive the 30-second poll through the exact
+ * same mechanism "ねらいと根拠" already survives it with.
+ */
+const REST_ITEM_ID = "__rest__";
+
+/**
  * Drops the panels of gates that are no longer on the screen.
  *
  * Answering a gate takes it out of the list without ever closing its <details>,
@@ -828,8 +889,13 @@ function detailsKey(decisionId, itemId) {
  */
 function forgetGoneDetails(pending) {
   const here = new Set();
-  pending.forEach((decision) =>
-    decision.items.forEach((item) => here.add(detailsKey(decision.id, item.id))));
+  pending.forEach((decision) => {
+    decision.items.forEach((item) => here.add(detailsKey(decision.id, item.id)));
+    // The rest-toggle's panel is not in decision.items, so without this line
+    // it was never in "here" and this function forgot it on every render -
+    // the one case this whole function exists to prevent.
+    here.add(detailsKey(decision.id, REST_ITEM_ID));
+  });
   openDetails.forEach((key) => {
     if (!here.has(key)) openDetails.delete(key);
   });
@@ -872,7 +938,7 @@ function renderDecision(decision) {
   // fade the section the way a gone day does; nothing here is over.
   const sending = resolving.has(decision.id);
 
-  const items = ordered.map((item, index) => {
+  const renderItem = (item, index) => {
     const checked = entry.selected.has(item.id);
     const shut = locked || sending || (atMax && !checked);
     const rank = checked ? [...entry.order.filter((id) => entry.selected.has(id))].indexOf(item.id) + 1 : "";
@@ -903,7 +969,42 @@ function renderDecision(decision) {
           </div>
         </div>
       </div>\`;
-  }).join("");
+  };
+
+  // 「推奨」と「そのほか」に割る。10案が同じ重さで平らに並ぶと30秒で終わらない、
+  // というオーナーの指摘への実装で、板 (Main.dc.html) と
+  // docs/3-development/console-ux-proposal.md §4.4 が先に設計を持っている。
+  const openItems = [];
+  const restItems = [];
+  // チェックの入った案は、畳んだ側に隠れてはいけない。推奨を外して別の案を
+  // 選ぶのは普通の操作で、選んだ瞬間にその案が見えなくなるのは事故である。
+  ordered.forEach((item) => {
+    (item.recommended || entry.selected.has(item.id) ? openItems : restItems).push(item);
+  });
+  // 両方に少なくとも1件あるときだけ割る。recommended は企画担当（ロール）が
+  // 決める値で0件・全件のこともあり、選び直してそのほか側が空になることも
+  // あるので、そのどちらでも「機械がN件選んだ」という嘘の区切りは出さない。
+  const splitGate = openItems.length > 0 && restItems.length > 0;
+
+  let itemsHtml;
+  if (!splitGate) {
+    itemsHtml = ordered.map((item, index) => renderItem(item, index)).join("");
+  } else {
+    const openHtml = openItems.map((item) => renderItem(item, ordered.indexOf(item))).join("");
+    const restHtml = restItems.map((item) => renderItem(item, ordered.indexOf(item))).join("");
+    // openDetails をそのまま伸ばして使う。新しい仕組みを作ると、この
+    // <details> だけ30秒のポーリングで閉じる、という同じ不具合をもう一度
+    // 起こすことになる。
+    const restOpen = openDetails.has(detailsKey(decision.id, REST_ITEM_ID)) ? " open" : "";
+    itemsHtml =
+      '<h3 class="group-heading">' + esc(T["gate.recommended"]) + "</h3>" +
+      '<p class="muted">' + esc(T["gate.recommendedWhy"]) + "</p>" +
+      openHtml +
+      '<details class="gate-rest" data-decision="' + esc(decision.id) + '" data-item="' + esc(REST_ITEM_ID) + '"' + restOpen + ">" +
+        "<summary>" + esc(fmt("gate.others", { n: restItems.length })) + "</summary>" +
+        restHtml +
+      "</details>";
+  }
 
   const count = entry.selected.size;
   return \`
@@ -911,7 +1012,7 @@ function renderDecision(decision) {
       <h2>\${esc(fmt("gate.heading", { gate: decision.gateLabel, venture: decision.ventureName }))}</h2>
       \${decision.day ? '<p class="' + (locked ? "gate-stale" : "muted") + '">' + esc(gateDay(decision)) + "</p>" : ""}
       <p class="muted">\${esc(fmt("gate.question", { question: decision.question, max: decision.max }))}\${atMax && !locked ? " " + esc(fmt("gate.atMax", { max: decision.max })) : ""}</p>
-      \${items}
+      \${itemsHtml}
       <div class="row">
         <button class="primary" data-act="submit" data-decision="\${esc(decision.id)}" \${locked || sending || count === 0 ? "disabled" : ""}>
           \${esc(sending ? T["gate.sending"] : fmt("gate.approve", { n: count }))}
@@ -933,6 +1034,7 @@ function renderDecision(decision) {
  */
 function renderHandOver(post) {
   const parts = post.parts ?? [];
+  const comments = post.comments ?? [];
   const sending = posting.has(post.postId);
   const block = (label, text, key) =>
     '<div class="handover-part">' +
@@ -942,19 +1044,46 @@ function renderHandOver(post) {
         esc(T["handOver.copy"]) + "</button>" +
     "</div>";
 
-  const body = parts.map((part, index) =>
-    block(parts.length > 1 ? fmt("handOver.part", { n: index + 1, total: parts.length }) : T["handOver.onePart"],
-      part, "p" + index)).join("");
+  const partLabel = (index) =>
+    parts.length > 1 ? fmt("handOver.part", { n: index + 1, total: parts.length }) : T["handOver.onePart"];
 
-  const comments = (post.comments ?? []).map((comment, index) =>
-    block(fmt("handOver.comment", { purpose: comment.purpose }), comment.text, "c" + index)).join("");
+  const body = parts.map((part, index) => block(partLabel(index), part, "p" + index)).join("");
+
+  // Numbered and named. Every comment was labelled 「最初のコメント」, so three
+  // of them claimed the same place and none of them said what it was for; the
+  // name is chosen in messages.ts and arrives already in the operator's
+  // language, so there is no identifier here to print by accident.
+  const commentBlocks = comments.map((comment, index) =>
+    block(fmt("handOver.comment", { n: index + 1, total: comments.length, name: comment.name }),
+      comment.text, "c" + index)).join("");
+
+  // The order, as the app is actually operated: part one is a new post, the
+  // rest reply to the part before them, and every comment replies to the first
+  // post - which is what the publishing adapter does when it does this itself
+  // (threads.ts chains the parts, and comments go to the root's id).
+  const linkComment = comments.filter((comment) => comment.carriesLink)[0];
+  const steps = [fmt("handOver.orderFirst", { label: partLabel(0) })]
+    .concat(parts.length > 1 ? [T["handOver.orderRest"]] : [])
+    .concat(comments.length > 0 ? [fmt("handOver.orderComments", { label: partLabel(0) })] : [])
+    .concat([fmt("handOver.orderDone", { button: T["handOver.done"] })]);
+  const order = parts.length === 0 ? "" :
+    '<div class="handover-order"><div class="muted">' + esc(T["handOver.order"]) + "</div><ol>" +
+      steps.map((step) => "<li>" + esc(step) + "</li>").join("") +
+    "</ol>" +
+    // Outside the list: it is not a step, it is what happens if one is skipped.
+    // That comment is the only place the affiliate URL exists.
+    (linkComment
+      ? '<p class="link-note">' + esc(fmt("handOver.orderLink", { name: linkComment.name })) + "</p>"
+      : "") +
+    "</div>";
 
   return '<div class="card handover">' +
     "<h3>" + esc(T["handOver.heading"]) + " — " + esc(post.ventureName) + "</h3>" +
     '<p class="muted">' + esc(T["handOver.lede"]) + "</p>" +
     '<p class="muted">' + esc(fmt("handOver.slot", { at: post.at })) + T["punct.sep"] + esc(post.channel) + "</p>" +
+    order +
     body +
-    (comments === "" ? "" : '<p class="muted">' + esc(T["handOver.commentLede"]) + "</p>" + comments) +
+    commentBlocks +
     '<div class="row">' +
       '<button class="primary" data-hand-over-act="done" data-post="' + esc(post.postId) + '"' +
         (sending ? " disabled" : "") + ">" +
@@ -1007,11 +1136,11 @@ function render() {
     '<div class="card stopped">' +
       "<b>" + (stop.scope === "all" ? esc(T["stop.all"]) : esc(fmt("stop.one", { label: stop.label ?? stop.scope }))) + "</b>" +
       '<div class="muted">' + [stop.at, stop.by, stop.reason].map(esc).join(T["punct.sep"]) + "</div>" +
-      '<div class="muted">' +
-        fmt("stop.howToResume", {
-          command: "<code>" + (stop.scope === "all" ? "amp resume" : "amp resume --venture " + esc(stop.scope)) + "</code>",
-        }) +
-      "</div>" +
+      // No command here: the licensee this screen is built for has no
+      // terminal to run one in (requirements.md §3.1). There is also no
+      // button on this screen that lifts a stop yet - see stop.howToResume -
+      // so this says that plainly instead of naming something unusable.
+      '<div class="muted">' + esc(T["stop.howToResume"]) + "</div>" +
     "</div>").join("");
 
   // One gate, one place. Never both: the cards carry id="err-<decisionId>",
@@ -1228,7 +1357,7 @@ document.addEventListener("click", async (event) => {
     }
   } catch (error) {
     const box = $("perr-" + proposalId);
-    if (box) box.textContent = String(error.message ?? error);
+    if (box) box.textContent = failureText(error);
     target.disabled = false;
   }
 });
@@ -1275,7 +1404,7 @@ document.addEventListener("click", async (event) => {
   } catch (error) {
     posting.delete(postId);
     const box = $("hoerr-" + postId);
-    if (box) box.textContent = String(error.message ?? error);
+    if (box) box.textContent = failureText(error);
     target.disabled = false;
     target.textContent = T["handOver.done"];
   }
@@ -1313,7 +1442,7 @@ document.addEventListener("click", async (event) => {
     }
   } catch (error) {
     const box = $("verr-" + ventureId);
-    if (box) box.textContent = String(error.message ?? error);
+    if (box) box.textContent = failureText(error);
     target.disabled = false;
   }
 });
@@ -1372,7 +1501,7 @@ document.addEventListener("click", async (event) => {
       const box = $("verr-" + ventureId);
       if (box) {
         box.className = "err";
-        box.textContent = String(error.message ?? error);
+        box.textContent = failureText(error);
       }
       target.disabled = false;
       target.textContent = label;
@@ -1487,6 +1616,9 @@ let openTimelineHtml = "";
 function renderTimeline(day) {
   const seconds = (ms) => (ms / 1000).toFixed(1) + "s";
   return '<div class="card tl">' +
+    // Once, above the steps: every row below is this clock, and repeating the
+    // name on each of nine steps would bury the steps.
+    (day.zone ? '<div class="muted">' + esc(fmt("timeline.zone", { zone: day.zone })) + "</div>" : "") +
     day.entries.map((entry) => {
       const items = (entry.items ?? []).map((item) =>
         '<div class="tl-item' + (item.blocked ? " blocked" : "") + (item.chosen ? " chosen" : "") + '">' +
@@ -1496,7 +1628,7 @@ function renderTimeline(day) {
         "</span></div>").join("");
       return '<div class="tl-step' + (entry.byHuman ? " human" : "") + '">' +
         '<div class="tl-head"><b>' + esc(cycleStepLabel(entry.step)) + "</b>" +
-        '<span class="muted">' + esc(entry.startedAt.slice(11, 16)) + T["punct.sep"] + seconds(entry.durationMs) + "</span>" +
+        '<span class="muted">' + esc(entry.clock) + T["punct.sep"] + seconds(entry.durationMs) + "</span>" +
         (entry.byHuman ? '<span class="chip">' + esc(T["timeline.byHuman"]) + "</span>" : "") +
         "</div>" +
         (entry.note ? '<div class="muted">' + esc(entry.note) + "</div>" : "") +
@@ -1536,7 +1668,7 @@ document.addEventListener("click", async (event) => {
       );
       openTimelineHtml = renderTimeline(day);
     } catch (error) {
-      openTimelineHtml = '<p class="err">' + esc(error.message ?? error) + "</p>";
+      openTimelineHtml = '<p class="err">' + esc(failureText(error)) + "</p>";
     }
     box.innerHTML = openTimelineHtml;
     return;
@@ -1609,7 +1741,7 @@ document.addEventListener("click", async (event) => {
         // that press disabled.
         render();
         const box = $("err-" + decisionId);
-        if (box) box.textContent = String(error.message ?? error);
+        if (box) box.textContent = failureText(error);
         return;
       }
       draft.delete(decisionId);
@@ -1830,7 +1962,7 @@ async function load() {
     try {
       $("settings-body").innerHTML = renderSettings(await api("/api/settings"));
     } catch (error) {
-      $("settings-body").innerHTML = '<p class="err">' + esc(error.message ?? error) + "</p>";
+      $("settings-body").innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
     }
     // The day's state is still loaded below: the header's count and the stop
     // banner belong on every view.
@@ -1848,7 +1980,7 @@ async function load() {
     }
   } catch (error) {
     const box = ventureId ? $("venture-head") : $("decision-list");
-    box.innerHTML = '<p class="err">' + esc(error.message ?? error) + "</p>";
+    box.innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
   }
 }
 

@@ -7,7 +7,18 @@
  * path instead, and the loader reports all of them at once.
  */
 
-export type Issue = { readonly path: string; readonly message: string };
+export type Issue = {
+  readonly path: string;
+  readonly message: string;
+  /**
+   * Machine-readable, and optional: most issues exist only for a person to
+   * read. Set this when something downstream needs to recognise *this*
+   * failure without pattern-matching the English message - e.g. a screen
+   * that renders a specific issue in the licensee's own language rather than
+   * `describeError`'s `[kind/code] message`.
+   */
+  readonly code?: string;
+};
 
 export type Reader = {
   readonly issues: Issue[];
@@ -25,7 +36,7 @@ export type Field = {
   object(): Record<string, unknown>;
   oneOf<T extends string>(allowed: readonly T[], fallback?: T): T;
   /** Records an issue at this path without reading a value. */
-  reject(message: string): void;
+  reject(message: string, code?: string): void;
   present(): boolean;
 };
 
@@ -33,8 +44,8 @@ export function createReader(): Reader {
   const issues: Issue[] = [];
 
   const at = (path: string, value: unknown): Field => {
-    const record = (message: string): void => {
-      issues.push({ path, message });
+    const record = (message: string, code?: string): void => {
+      issues.push({ path, message, ...(code ? { code } : {}) });
     };
 
     return {

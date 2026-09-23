@@ -89,6 +89,13 @@ export const inspector: Role<InspectInput, InspectionReport> = {
       ...(offer ? { offer } : {}),
     });
 
+    const link = draft.linkId ? await store.links.get(draft.linkId) : undefined;
+    // Loaded before the first pass, not between the two, because both passes
+    // have to see it. Handed over unconditionally, including when there is no
+    // link at all: whether that is acceptable depends on whether the draft
+    // carries an offer, and `checkCompliance` is the one place that decides.
+    const linkContext = { issued: link, tracking: config.tracking };
+
     // Pass one: what can be known without a model.
     const mechanical = [
       ...checkCompliance({
@@ -97,13 +104,12 @@ export const inspector: Role<InspectInput, InspectionReport> = {
         voice: venture.voice,
         profile,
         ...(offer ? { offer } : {}),
+        link: linkContext,
         maxCharacters,
       }),
       ...detectAiSmell(draft.content, venture.voice).findings,
     ];
     const heuristicScore = detectAiSmell(draft.content, venture.voice).score;
-
-    const link = draft.linkId ? await store.links.get(draft.linkId) : undefined;
 
     const response = await context.llm.completeJson<InspectResponse>({
       purpose: "inspect.review",
@@ -111,7 +117,7 @@ export const inspector: Role<InspectInput, InspectionReport> = {
       system: `${ventureBrief(venture, config)}\n\n${context.prompts.render("inspector.system")}`,
       user: context.prompts.render("inspector.user", {
         draft: formatDraftContent(draft.content),
-        offer: formatOffer(offer, link?.destinationUrl),
+        offer: formatOffer(offer, link, config.tracking),
         mechanicalFindings: formatFindings(mechanical),
         firstPerson: venture.voice.firstPerson,
         tone: venture.voice.tone.join(" / ") || "(unspecified)",
@@ -138,6 +144,7 @@ export const inspector: Role<InspectInput, InspectionReport> = {
       voice: venture.voice,
       profile,
       ...(offer ? { offer } : {}),
+      link: linkContext,
       maxCharacters,
     });
     const afterSmell = detectAiSmell(revised, venture.voice);

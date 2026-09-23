@@ -307,6 +307,90 @@ const DEFAULT_PROHIBITED_CLAIMS = [
 ];
 
 /**
+ * Hosts this platform must never issue a tracked link for, because the
+ * merchant's own terms forbid exactly what `issueLink` does to every offer:
+ * wrap it behind a redirect (`/go/<code>`) that hides the referring page.
+ *
+ * Verified 2026-09 against the primary sources - both
+ * `affiliate-program.amazon.com/help/operating/policies` and
+ * `affiliate.amazon.co.jp/help/operating/policies`: Operating Agreement §6(v)
+ * forbids obscuring the referring URL, including via a redirect page; §6(w)
+ * forbids a shortened link that hides that it is an Amazon link; and the fee
+ * schedule §2(e) excludes from qualifying purchases anything reached through
+ * an intermediate site. A licensee who adds one of these anyway would see the
+ * platform run normally - links issued, posts published - while Amazon pays
+ * nothing for a single one of them, and nothing on screen says why.
+ *
+ * **What this does and does not cover.** This is a fixed list of hosts, and
+ * only that: it catches an offer whose `landingUrl` sits on one of these
+ * names, or a subdomain of one. It does not know Amazon's actual domain
+ * inventory (a storefront or short domain launched after this was written is
+ * invisible to it), it does not know a network's own redirect that itself
+ * wraps an Amazon link before handing the URL to this platform, and it says
+ * nothing about any other merchant whose terms impose the same restriction.
+ * Add a host here the day it turns up in a real config, rather than treating
+ * this list as protection against Amazon in general.
+ */
+const FORBIDDEN_OFFER_HOSTS = [
+  // Storefronts. Not the full set of countries Amazon Associates operates in.
+  "amazon.com",
+  "amazon.co.jp",
+  "amazon.co.uk",
+  "amazon.de",
+  "amazon.fr",
+  "amazon.it",
+  "amazon.es",
+  "amazon.ca",
+  "amazon.com.au",
+  "amazon.com.mx",
+  "amazon.com.br",
+  "amazon.in",
+  "amazon.nl",
+  "amazon.se",
+  "amazon.pl",
+  "amazon.com.tr",
+  "amazon.sg",
+  "amazon.ae",
+  "amazon.sa",
+  "amazon.eg",
+  // Amazon's own link shorteners.
+  "amzn.to",
+  "amzn.asia",
+  "amzn.eu",
+  "a.co",
+] as const;
+
+/**
+ * True when `host` is exactly one of `FORBIDDEN_OFFER_HOSTS`, or a subdomain
+ * of one (`www.amazon.co.jp`). A substring check would also match
+ * `notamazon.com` and `amazon.com.evil.example` - neither of which is Amazon -
+ * so this compares whole labels: equal, or ending in `.` plus the forbidden
+ * host.
+ */
+function forbiddenOfferHost(host: string): string | undefined {
+  const lower = host.toLowerCase();
+  return FORBIDDEN_OFFER_HOSTS.find((forbidden) => lower === forbidden || lower.endsWith(`.${forbidden}`));
+}
+
+/** `undefined` for a URL that does not parse - already reported by `readUrl`. */
+function hostnameOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The `Issue.code` on a forbidden-offer-host rejection. Exported so
+ * `licenseeProblem` (`src/worker/handler.ts`) can recognise this specific
+ * failure among a config's other issues and render it in Japanese, without
+ * pattern-matching the English message - the same reason `Issue.code` exists
+ * at all.
+ */
+export const OFFER_FORBIDDEN_REDIRECT_HOST_ISSUE = "offer.forbidden_redirect_host";
+
+/**
  * Turns a parsed YAML/JSON document into a validated config.
  * Collects every problem before throwing so one run fixes the whole file.
  */
@@ -766,6 +850,24 @@ function checkReferentialIntegrity(config: PlatformConfig, reader: ReturnType<ty
   }
 
   config.offers.forEach((offer, index) => {
+    // Fail-closed: the alternative is this offer running to completion -
+    // links issued, posts published - and earning nothing, silently, until a
+    // per-offer direct link mode exists to carry it instead. `active: false`
+    // is a real out, not a loophole: the planner (src/roles/planner.ts) never
+    // selects an inactive offer, so nothing gets built for it.
+    const forbiddenHost = offer.active ? forbiddenOfferHost(hostnameOf(offer.landingUrl) ?? "") : undefined;
+    if (forbiddenHost) {
+      at(`offers[${index}].landingUrl`, offer.landingUrl).reject(
+        `offer "${offer.id}" ("${offer.name}") points at ${forbiddenHost}. Amazon's Associates terms forbid ` +
+          `promoting a link through a redirect like this platform's own /go/<code> (Operating Agreement §6(v) ` +
+          `obscuring the referring page, §6(w) a shortened link) - the fee schedule then excludes any purchase ` +
+          `reached that way from commission, so this would not go uncounted, it would be forfeited. There is no ` +
+          `direct (non-redirected) link mode yet. Fix: remove this offer's block from platform.config.yaml, or ` +
+          `add "active: false" to it, in the GitHub editor.`,
+        OFFER_FORBIDDEN_REDIRECT_HOST_ISSUE,
+      );
+    }
+
     if (offer.network !== "" && !networkIds.has(offer.network)) {
       at(`offers[${index}].network`, offer.network).reject(
         `references unknown network "${offer.network}" (declared: ${[...networkIds].join(", ") || "none"})`,

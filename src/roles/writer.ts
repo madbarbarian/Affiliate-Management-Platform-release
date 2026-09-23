@@ -8,12 +8,12 @@
 
 import { fail, ok, type PlatformError, type Result } from "../core/result.ts";
 import { publishedHooks } from "../domain/coverage.ts";
-import { issueLink, shortUrl } from "../affiliate/links.ts";
+import { issueLink } from "../affiliate/links.ts";
 import { describeCompliance, findMarket, resolveCompliance, type ComplianceProfile } from "../domain/market.ts";
 import { describeFormat } from "../channels/format.ts";
 import { ventureBrief, type Role, type RoleContext } from "../kernel/role.ts";
 import { array, object, string } from "../llm/schema.ts";
-import type { Draft, DraftContent, Idea, Pattern } from "../core/types.ts";
+import type { Draft, DraftContent, Idea, Pattern, TrackedLink } from "../core/types.ts";
 import { formatOffer, truncate } from "./format.ts";
 
 export type WriteInput = {
@@ -63,8 +63,7 @@ export const writer: Role<WriteInput, Draft> = {
     const offer = idea.offerId ? config.offers.find((entry) => entry.id === idea.offerId) : undefined;
 
     // Issue the link now so the writer places a real URL, not a placeholder.
-    let linkUrl: string | undefined;
-    let linkId: string | undefined;
+    let issuedLink: TrackedLink | undefined;
     if (offer) {
       const network = context.networks.get(offer.network);
       if (!network.ok) return network;
@@ -78,8 +77,7 @@ export const writer: Role<WriteInput, Draft> = {
       });
       if (!link.ok) return link;
       await store.links.put(link.value);
-      linkId = link.value.id;
-      linkUrl = shortUrl(config.tracking, link.value);
+      issuedLink = link.value;
     }
 
     const recentHooks = await recentHookList(context, 8);
@@ -101,7 +99,7 @@ export const writer: Role<WriteInput, Draft> = {
         rationale: idea.rationale,
         risk: idea.risk,
         pattern: describePattern(pattern),
-        offer: formatOffer(offer, linkUrl),
+        offer: formatOffer(offer, issuedLink, config.tracking),
         channel: channelId,
         format: describeFormat(channel.value.capabilities.format, channel.value.capabilities.maxCharacters),
         maxCharacters: channel.value.capabilities.maxCharacters,
@@ -126,7 +124,7 @@ export const writer: Role<WriteInput, Draft> = {
       channel: channelId,
       content,
       ...(offer ? { offerId: offer.id } : {}),
-      ...(linkId ? { linkId } : {}),
+      ...(issuedLink ? { linkId: issuedLink.id } : {}),
       ...(pattern ? { patternId: pattern.id } : {}),
       createdAt: clock.nowIso(),
       revision: 1,

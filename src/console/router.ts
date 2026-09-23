@@ -21,9 +21,7 @@ import { composerUrlOf } from "../channels/manual.ts";
 import { readPause } from "../kernel/pause.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
-import { engagementScore } from "../domain/engagement.ts";
-import { formatMoney, revenueByPost, totalCounts, totalsByCurrency } from "../affiliate/attribution.ts";
-import { latestMetricByPost } from "../domain/performance.ts";
+import { formatMoney } from "../affiliate/attribution.ts";
 import { buildPortfolio } from "../domain/portfolio.ts";
 import { findMarket, resolveCompliance } from "../domain/market.ts";
 import { appendVentureBlock, listProposals, markAppended, renderVentureBlock, resolveProposal } from "../kernel/exploration.ts";
@@ -37,7 +35,9 @@ import type { Services } from "../kernel/role.ts";
 import type { Store } from "../storage/store.ts";
 import { COMPANY_SCOPE, type VentureId } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
-import { fill, messagesFor, type Messages } from "./messages.ts";
+import { commentPurposeKey, fill, messagesFor, type Messages } from "./messages.ts";
+import { POST_STATUS_KEYS } from "./labels.ts";
+import { companyTimezone, createWhen, type When } from "./when.ts";
 import { checkForUpdate } from "./updates.ts";
 import { isVentureActive, readVentureState } from "../kernel/venture-state.ts";
 import { readUnlockSubmission, renderUnlock, UNLOCK_MISMATCH, UNLOCK_PATH } from "./unlock.ts";
@@ -224,7 +224,7 @@ export async function handleRequest(
   const resolveMatch = /^\/api\/decisions\/([^/]+)\/resolve$/.exec(path);
   if (resolveMatch && request.method === "POST") {
     const body = await readJson(request);
-    if (!body.ok) return json(400, { error: body.error.message });
+    if (!body.ok) return errorJson(400, body.error);
     const payload = body.value as { selectedIds?: unknown; ordering?: unknown; note?: unknown };
     const result = await runtime.orchestrator.resolveGate(decodeURIComponent(resolveMatch[1] as string), {
       decidedBy: actor,
@@ -233,7 +233,7 @@ export async function handleRequest(
       ...(typeof payload.note === "string" ? { note: payload.note } : {}),
       nowIso: runtime.services.clock.nowIso(),
     });
-    if (!result.ok) return json(result.error.kind === "validation" ? 400 : 409, { error: result.error.message });
+    if (!result.ok) return errorJson(result.error.kind === "validation" ? 400 : 409, result.error);
     // The table's "判断待ち" and last-cycle columns just changed.
     forgetPortfolio(runtime);
     return json(200, { cycleId: result.value.id, status: result.value.status });
@@ -247,7 +247,7 @@ export async function handleRequest(
   const proposalMatch = /^\/api\/proposals\/([^/]+)\/(accept|dismiss)$/.exec(path);
   if (proposalMatch && request.method === "POST") {
     const body = await readJson(request);
-    if (!body.ok) return json(400, { error: body.error.message });
+    if (!body.ok) return errorJson(400, body.error);
     const payload = body.value as { note?: unknown };
     const status = proposalMatch[2] === "accept" ? "accepted" : "dismissed";
     const result = await resolveProposal(runtime.services, {
@@ -257,7 +257,7 @@ export async function handleRequest(
       nowIso: runtime.services.clock.nowIso(),
       ...(typeof payload.note === "string" && payload.note.trim() !== "" ? { note: payload.note.trim() } : {}),
     });
-    if (!result.ok) return json(result.error.kind === "not_found" ? 404 : 409, { error: result.error.message });
+    if (!result.ok) return errorJson(result.error.kind === "not_found" ? 404 : 409, result.error);
     if (status !== "accepted") return json(200, { proposal: result.value });
     // Appended as text under `ventures:`, inactive, with a backup - the same
     // append the CLI does. If the file cannot take it, the block is returned
@@ -289,7 +289,7 @@ export async function handleRequest(
   const postedMatch = /^\/api\/posts\/([^/]+)\/posted$/.exec(path);
   if (postedMatch && request.method === "POST") {
     const body = await readJson(request);
-    if (!body.ok) return json(400, { error: body.error.message });
+    if (!body.ok) return errorJson(400, body.error);
     const payload = body.value as { url?: unknown };
     const url = typeof payload.url === "string" ? payload.url.trim() : "";
     const result = await runtime.orchestrator.recordPostedByHand(decodeURIComponent(postedMatch[1] as string), {
@@ -297,7 +297,7 @@ export async function handleRequest(
       ...(url !== "" ? { url } : {}),
       nowIso: runtime.services.clock.nowIso(),
     });
-    if (!result.ok) return json(result.error.kind === "not_found" ? 404 : 409, { error: result.error.message });
+    if (!result.ok) return errorJson(result.error.kind === "not_found" ? 404 : 409, result.error);
     // The row's post count and the day's numbers just changed.
     forgetPortfolio(runtime);
     return json(200, { postId: result.value.id, status: result.value.status, publishedAt: result.value.publishedAt });
@@ -311,7 +311,7 @@ export async function handleRequest(
     const venture = runtime.config.ventures.find((entry) => entry.id === ventureId);
     if (!venture) return json(404, { error: `No venture "${ventureId}".` });
     const body = await readJson(request);
-    if (!body.ok) return json(400, { error: body.error.message });
+    if (!body.ok) return errorJson(400, body.error);
     const payload = body.value as { note?: unknown };
     // The whole of switching off - the state file, the gate that is still
     // open, the line in the account's trail - is one call, and `amp venture
@@ -332,11 +332,11 @@ export async function handleRequest(
         ...switching,
         reason: typeof payload.note === "string" ? payload.note.trim() : "",
       });
-      if (!off.ok) return json(500, { error: describeError(off.error) });
+      if (!off.ok) return errorJson(500, off.error);
       closedGates = off.value.closedGates;
     } else {
       const on = await switchVentureOn(switching);
-      if (!on.ok) return json(500, { error: describeError(on.error) });
+      if (!on.ok) return errorJson(500, on.error);
     }
     forgetPortfolio(runtime);
     // What deactivating does and does not reach, so the page can say so.
@@ -375,7 +375,7 @@ export async function handleRequest(
     }
     try {
       const result = await runtime.orchestrator.runCycle(decodeURIComponent(runMatch[1] as string));
-      if (!result.ok) return json(400, { error: describeError(result.error) });
+      if (!result.ok) return errorJson(400, result.error);
       forgetPortfolio(runtime);
       return json(200, {
         cycleId: result.value.id,
@@ -442,6 +442,15 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // works in - entirely Japanese, and the gate's own question English in both.
   const T = messagesFor(runtime.config.console.locale);
   const ventureName = new Map(runtime.config.ventures.map((venture) => [venture.id, venture.name]));
+
+  // Every timestamp on the day's page goes through this. It is built once here
+  // rather than at each call site because the rule it carries - the account's
+  // clock, and always named - is the whole of the fix, and a call site that
+  // formatted its own time would quietly opt out of it.
+  const when = createWhen(T, runtime.config.console.locale);
+  const ventureZone = new Map(runtime.config.ventures.map((venture) => [venture.id as string, venture.timezone]));
+  const companyZone = companyTimezone(runtime.config.ventures);
+  const zoneOf = (ventureId: string): string => ventureZone.get(ventureId) ?? companyZone;
 
   // The day's page is the whole company's: what is waiting, what goes out
   // next, the numbers, what just happened. So this is a named crossing, and
@@ -525,7 +534,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       title: item.title,
       summary: item.summary,
       recommended: item.recommended,
-      chips: buildChips(item.detail, runtime.config.policy.maxAiSmellScore, T),
+      chips: buildChips(item.detail, runtime.config.policy.maxAiSmellScore, T, when, zoneOf(decision.ventureId)),
       preview: buildPreview(item.detail, T),
       // At the publishing gate the operator is the last thing between a draft
       // and someone else's followers. Collapsing the text they are approving
@@ -556,8 +565,12 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     .sort((a, b) => a.scheduledFor - b.scheduledFor)
     .slice(0, 12)
     .map((post) => ({
-      at: new Date(post.scheduledFor).toISOString().replace("T", " ").slice(0, 16),
-      status: post.status,
+      at: when.at(post.scheduledFor, zoneOf(post.ventureId)),
+      // The word, not the identifier. `scheduled` reached the screen as
+      // `scheduled`, in the cell under a card that had just been fixed for the
+      // same fault; sending the word means there is nothing for the page to
+      // print raw.
+      status: T[POST_STATUS_KEYS[post.status]],
       hook: post.content.hook.slice(0, 70),
     }));
 
@@ -585,41 +598,56 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       postId: post.id,
       ventureName: ventureName.get(post.ventureId) ?? post.ventureId,
       channel: post.channel,
-      at: new Date(post.scheduledFor).toISOString().replace("T", " ").slice(0, 16),
+      at: when.at(post.scheduledFor, zoneOf(post.ventureId)),
       parts: post.handOverParts ?? [],
       // The link drop goes with it. It is where the affiliate URL lives on a
       // channel with comments, and on this one nobody is going to post it
       // unless it is on the screen next to the post it belongs under.
-      comments: post.commentDrafts.map((comment) => ({ purpose: comment.purpose, text: comment.text })),
+      //
+      // Named, not classified: `purpose` is this platform's own English and the
+      // screen printed it - 「最初のコメント（link_drop）」 - to a licensee who
+      // has no way to look it up. The name travels instead of the identifier so
+      // there is no identifier on the page to leak, and `carriesLink` is the one
+      // thing the screen has to be able to say out loud about a comment.
+      comments: post.commentDrafts.map((comment) => ({
+        name: T[commentPurposeKey(comment.purpose)],
+        text: comment.text,
+        carriesLink: comment.purpose === "link_drop",
+      })),
       ...(composerUrlByChannel.get(post.channel) ? { composerUrl: composerUrlByChannel.get(post.channel) } : {}),
     }));
 
-  const published = await gather((store) => store.posts.find((post) => post.status === "published"));
-  const publishedIds = published.map((post) => post.id);
-  const latest = new Map<string, Awaited<ReturnType<typeof latestMetricByPost>> extends Map<string, infer M> ? M : never>();
-  for (const scope of scopes) {
-    for (const [postId, metric] of await latestMetricByPost(scope.store, publishedIds)) latest.set(postId, metric);
-  }
-  const [links, clicks, conversions] = await Promise.all([
-    gather((store) => store.links.all()),
-    gather((store) => store.clicks.all()),
-    gather((store) => store.conversions.all()),
-  ]);
-  const revenue = totalsByCurrency(
-    revenueByPost({
-      links,
-      clicks,
-      conversions,
-      offers: runtime.config.offers,
-      defaultCurrency: runtime.config.offers[0]?.currency ?? "JPY",
-    }).values(),
-  );
-  const counts = totalCounts(revenue.values());
-
-  const engagementTotal = [...latest.values()].reduce(
-    (sum, metric) => sum + engagementScore(metric.snapshot),
-    0,
-  );
+  // The four headline numbers below (`stats`) are windowed to the same
+  // `{days}` as the accounts table under them, both from this one
+  // company-wide computation - so "直近" cannot mean two different things on
+  // the same page. It used to: this block queried every published post, link,
+  // click and conversion ever recorded, with no window at all, directly under
+  // a heading that says "直近の数字", while the table underneath correctly
+  // windowed itself to "直近30日". CLAUDE.md names the same defect in a
+  // different place - "a report whose totals were lifetime figures the
+  // billing command then charged against" - and `computePerformance`
+  // (`src/domain/performance.ts`) already carries the scar from fixing it
+  // there once. `portfolio.totals` is that fix, reused rather than
+  // re-derived: a second computation of "clicks" is a second answer.
+  //
+  // There is no fifth "engagement total" here. There was, briefly: a sum of
+  // every post's raw engagement score in the window, windowed the same way as
+  // the other four. It was still wrong, in a smaller version of the same way -
+  // not because it was unwindowed, but because a sum of this particular
+  // number is not a meaningful quantity at all. `medianScore`, on the
+  // accounts table right below this, is age-normalised
+  // (`src/domain/engagement.ts`'s `normaliseForAge`) precisely so a two-hour-
+  // old post can be compared with a three-day-old one; summing the raw score
+  // instead makes the total dominated by *when in the window* a post landed,
+  // not by how it did. Summing the *normalised* score instead does not fix
+  // that - it turns the total into a forecast of what engagement will mature
+  // to, presented as a number that already happened. Both are dishonest in a
+  // different way, because engagement here was built for ranking one post
+  // against another, not for adding up. If this needs a company-wide
+  // engagement figure again, it wants a real design - a pooled median across
+  // every venture's posts in the window, most likely - not a sum revived
+  // because the row felt empty without a fourth number in it.
+  const portfolio = await memoisedPortfolio(runtime);
 
   // `type` travels with the entry so the page can say a failure in the
   // operator's words. The summary is the durable English record and stays the
@@ -628,7 +656,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 12)
     .map((event) => ({
-    at: event.at.replace("T", " ").slice(0, 16),
+    at: when.atIso(event.at, zoneOf(event.ventureId)),
     actor: event.actor,
     summary: event.summary,
     type: event.type,
@@ -650,7 +678,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // Every stop, not just the first. Showing one of three stopped ventures left
   // the other two looking like a calm schedule that was going out on time.
   const stopped = stop.all
-    ? [{ scope: "all", ...stop.all }]
+    ? [{ scope: "all", ...stop.all, at: when.atIso(stop.all.at, companyZone) }]
     // `scope` is the id, because the console prints it inside a command the
     // operator pastes. `label` is what they read. Rendering the display name
     // into `amp resume --venture <name>` produced a command that reported
@@ -659,6 +687,9 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
         scope: ventureId,
         label: ventureName.get(ventureId as never) ?? ventureId,
         ...record,
+        // After the spread, not before it: `record` carries its own raw `at`,
+        // and an override written above it is silently thrown away.
+        at: when.atIso(record.at, zoneOf(ventureId)),
       }));
 
   // The weekly decision, below the daily ones. Open proposals, plus the ones
@@ -679,7 +710,9 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     ...(proposal.status === "accepted"
       ? { block: renderVentureBlock(proposal, runtime.config), appended: proposal.appended !== undefined }
       : {}),
-    createdAt: proposal.createdAt.replace("T", " ").slice(0, 16),
+    // The company's clock, not one account's: a proposal is an account that
+    // does not exist yet, so there is no account timezone to read.
+    createdAt: when.atIso(proposal.createdAt, companyZone),
     niche: proposal.niche,
     audience: proposal.audience,
     market: proposal.market,
@@ -693,11 +726,9 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     killSignal: proposal.killSignal,
   }));
 
-  // The per-venture performance windows are not free on a thirty-second poll,
-  // and the page polls every thirty seconds; the table is memoised for that
-  // long so the poll costs one computation, not one per venture per poll.
-  const portfolio = await memoisedPortfolio(runtime);
-
+  // `portfolio` was already fetched above, memoised, to window the headline
+  // numbers - the per-venture performance windows underneath are not free on
+  // a thirty-second poll, and this is the same computation, not a second one.
   return {
     now: clock.nowIso(),
     ...(stopped.length > 0 ? { stopped } : {}),
@@ -732,11 +763,16 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     upcoming,
     handOver,
     stats: [
-      { label: T["stats.posts"], value: String(published.length) },
-      { label: T["stats.engagement"], value: String(Math.round(engagementTotal)) },
-      { label: T["stats.clicks"], value: String(counts.clicks) },
-      { label: T["stats.conversions"], value: String(counts.conversions) },
-      { label: T["stats.revenue"], value: formatMoney(revenue, "approvedRevenue") },
+      { label: T["stats.posts"], value: String(portfolio.totals.posts) },
+      { label: T["stats.clicks"], value: String(portfolio.totals.clicks) },
+      { label: T["stats.conversions"], value: String(portfolio.totals.conversions) },
+      {
+        label: T["stats.revenue"],
+        value: formatMoney(
+          new Map(portfolio.totals.byCurrency.map((rollup) => [rollup.currency, rollup])),
+          "approvedRevenue",
+        ),
+      },
     ],
     activity,
   };
@@ -850,10 +886,12 @@ function buildChips(
   detail: Readonly<Record<string, unknown>>,
   maxAiSmellScore: number,
   T: Messages,
+  when: When,
+  timezone: string,
 ): { label: string; tone?: string }[] {
   const chips: { label: string; tone?: string }[] = [];
   if (typeof detail["scheduledFor"] === "string") {
-    chips.push({ label: String(detail["scheduledFor"]).replace("T", " ").slice(0, 16) });
+    chips.push({ label: when.atIso(String(detail["scheduledFor"]), timezone) });
   }
   if (typeof detail["expectedEngagement"] === "number") {
     chips.push({ label: fill(T, "chip.expected", { n: Math.round(detail["expectedEngagement"]) }) });
@@ -932,6 +970,13 @@ async function readTimeline(runtime: Runtime, ventureId: string, date: string): 
   if (!cycle) return undefined;
 
   const drafts = await store.drafts.find((draft) => draft.cycleId === cycle.id);
+  // The day is read back on the clock the account keeps, not the server's. The
+  // name is resolved for the instant the day started, so a day inside summer
+  // time is named as summer time rather than by the zone's winter name.
+  const locale = runtime.config.console.locale;
+  const timezone =
+    runtime.config.ventures.find((venture) => venture.id === ventureId)?.timezone ??
+    companyTimezone(runtime.config.ventures);
   return buildTimeline({
     cycle,
     ideas: await store.ideas.find((idea) => idea.cycleId === cycle.id),
@@ -939,6 +984,8 @@ async function readTimeline(runtime: Runtime, ventureId: string, date: string): 
     inspections: await store.inspections.forCycle(drafts.map((draft) => draft.id)),
     posts: await store.posts.find((post) => post.cycleId === cycle.id),
     decisions: await store.decisions.find((decision) => decision.cycleId === cycle.id),
+    timezone,
+    zoneLabel: createWhen(messagesFor(locale), locale).zone(Date.parse(cycle.createdAt), timezone),
   });
 }
 
@@ -996,7 +1043,7 @@ function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): s
  */
 async function handleUnlock(request: Request, operators: readonly Operator[]): Promise<Response> {
   const body = await readBodyText(request);
-  if (!body.ok) return json(400, { error: body.error.message });
+  if (!body.ok) return errorJson(400, body.error);
 
   const submitted = readUnlockSubmission(body.value);
   if (holderOf(submitted.token, operators) === undefined) {
@@ -1118,6 +1165,24 @@ function json(status: number, body: unknown): Response {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
+}
+
+/**
+ * A `PlatformError`, to the client - for a route the running console page
+ * reads with `api()`, not a plain form post.
+ *
+ * `error` is `describeError`'s full string: the `[kind/code]`, the message
+ * written for a log or a terminal, and the raw `details`. It is here for the
+ * network tab, because throwing it away would cost whoever debugs the next
+ * one. It is not what `ui.ts` shows: `code` is, looked up in
+ * `FAILURE_SUMMARIES` (`src/console/labels.ts`), which already has this
+ * platform's own words for `platform.stopped` and the rest, in the operator's
+ * language. `describePause`'s "run `amp resume`" reaching the screen through
+ * this exact field, unrouted, was the bug - `ui.ts`'s `failureText()` is the
+ * other half of this fix.
+ */
+function errorJson(status: number, error: PlatformError): Response {
+  return json(status, { error: describeError(error), code: error.code });
 }
 
 function html(status: number, body: string): Response {

@@ -12,9 +12,24 @@
  * scored generously, so the two have to agree before a draft passes.
  */
 
-import type { PolicyConfig } from "../config/schema.ts";
-import type { CommentDraft, DraftContent, InspectionFinding, Offer, VoiceProfile } from "../core/types.ts";
+import { shortUrl } from "../affiliate/links.ts";
+import type { PolicyConfig, TrackingConfig } from "../config/schema.ts";
+import type { CommentDraft, DraftContent, InspectionFinding, Offer, TrackedLink, VoiceProfile } from "../core/types.ts";
 import type { ComplianceProfile } from "../domain/market.ts";
+
+/**
+ * The link a post was issued, for the check that readers are never sent
+ * straight to the merchant.
+ *
+ * It carries the link record and the tracking config rather than a URL, for
+ * the same reason `formatOffer` does: a caller that cannot hand over a URL
+ * cannot hand over the wrong one. `issued` may be undefined; what that means
+ * is decided here, against the offer, and never by the caller.
+ */
+export type LinkContext = {
+  readonly issued: TrackedLink | undefined;
+  readonly tracking: TrackingConfig;
+};
 
 export type ComplianceInput = {
   readonly content: DraftContent;
@@ -23,6 +38,18 @@ export type ComplianceInput = {
   /** The rules that apply to *this audience*, resolved from their market. */
   readonly profile: ComplianceProfile;
   readonly offer?: Offer;
+  /**
+   * Required, not optional, and the requirement is the point.
+   *
+   * It was optional for one review round, which keyed the whole URL check on
+   * a caller remembering to pass it: a draft with an offer and no link id got
+   * no check at all, body or comments. Today `writer.ts` issues a link for
+   * every offer so that never happens - but nothing asserted it, and the
+   * per-offer `direct` mode still awaiting a decision is precisely the change
+   * that would stop issuing one. The guard would have switched itself off
+   * with no test going red. Being unable to omit it is what stops that.
+   */
+  readonly link: LinkContext;
   readonly maxCharacters: number;
 };
 
@@ -37,41 +64,83 @@ export type ComplianceInput = {
  * The disclosure is repaired rather than reported. A link drop is generated
  * text with one required element; appending it is unambiguous and always
  * correct, where refusing would cost the post its link for no benefit. A
- * prohibited claim is not repairable - that comment has to go.
+ * direct link to the merchant is repaired for the same reason and by the same
+ * argument. A prohibited claim is not repairable - that comment has to go.
  */
 export function checkComments(input: {
   readonly comments: readonly CommentDraft[];
   readonly profile: ComplianceProfile;
   readonly policy: PolicyConfig;
   readonly hasOffer: boolean;
+  /** Required for the same reason as on `ComplianceInput`; see the note there. */
+  readonly link: LinkContext;
 }): { readonly comments: readonly CommentDraft[]; readonly findings: readonly InspectionFinding[] } {
   const findings: InspectionFinding[] = [];
   const disclosure = input.profile.disclosureText.trim();
   const kept: CommentDraft[] = [];
+  const issued = input.link.issued;
+
+  // Once, not once per comment: an offer with no readable link leaves nothing
+  // to compare any of them against.
+  if (!issued && input.hasOffer) findings.push(unresolvedLinkFinding("comment"));
 
   for (const comment of input.comments) {
+    if (!issued && comment.purpose === "link_drop") {
+      // A link drop with no verifiable link is the one comment that must not
+      // ship: there is nothing in it a click could be credited to.
+      continue;
+    }
+
+    let current = comment;
+
+    if (issued) {
+      const repair = repairDirectLinks(current.text, issued, input.link.tracking);
+      if (!repair.clean) {
+        // Fail closed. Unreachable in practice - see `repairDirectLinks`.
+        findings.push(...directLinkFindings(current.text, issued, input.link.tracking, "comment"));
+        continue;
+      }
+      if (repair.replaced.length > 0) {
+        current = { ...current, text: repair.text };
+        // `warn`, not `blocking`: nothing was blocked, the comment ships with
+        // the tracked URL in it, and the publisher logs a blocking comment
+        // finding as a refusal - which would send the operator hunting for a
+        // comment that is fine. It is louder than the disclosure repair's
+        // `note` because a direct link means something upstream put a URL in
+        // front of a model that should never have seen one.
+        findings.push({
+          severity: "warn",
+          code: "affiliate.comment_direct_link_repaired",
+          message:
+            `A ${current.purpose} comment linked straight to the merchant ` +
+            `(${repair.replaced.join(", ")}); it was rewritten to ${shortUrl(input.link.tracking, issued)} ` +
+            `so the click is counted. Check why a direct URL was available to write in the first place.`,
+        });
+      }
+    }
+
     const claim = input.profile.prohibitedClaims.find(
-      (phrase) => phrase.trim() !== "" && comment.text.includes(phrase),
+      (phrase) => phrase.trim() !== "" && current.text.includes(phrase),
     );
     if (claim) {
       findings.push({
         severity: "blocking",
         code: "compliance.comment_prohibited_claim",
         message:
-          `A ${comment.purpose} comment makes the prohibited claim "${claim}" and was removed. ` +
+          `A ${current.purpose} comment makes the prohibited claim "${claim}" and was removed. ` +
           `${input.profile.regulator} does not care whether a claim is in the post or under it.`,
       });
       continue;
     }
 
     if (
-      comment.purpose === "link_drop" &&
+      current.purpose === "link_drop" &&
       input.hasOffer &&
       input.policy.requireDisclosure &&
       disclosure !== "" &&
-      !comment.text.includes(disclosure)
+      !current.text.includes(disclosure)
     ) {
-      kept.push({ ...comment, text: `${comment.text.trimEnd()}\n\n${disclosure}` });
+      kept.push({ ...current, text: `${current.text.trimEnd()}\n\n${disclosure}` });
       findings.push({
         severity: "note",
         code: "compliance.comment_disclosure_added",
@@ -80,7 +149,7 @@ export function checkComments(input: {
       continue;
     }
 
-    kept.push(comment);
+    kept.push(current);
   }
 
   return { comments: kept, findings };
@@ -118,6 +187,16 @@ export function checkCompliance(input: ComplianceInput): InspectionFinding[] {
           `before the link (${profile.regulator}).`,
       });
     }
+  }
+
+  // Keyed on the offer, not on the link: a post that has something to sell and
+  // no readable link cannot be cleared. A body that leaked is blocked and never
+  // repaired - the inspector has a rewrite loop behind it, so a lost draft is
+  // recoverable in a way a silently mis-attributed published post is not.
+  if (input.link.issued) {
+    findings.push(...directLinkFindings(fullText, input.link.issued, input.link.tracking, "post"));
+  } else if (offer) {
+    findings.push(unresolvedLinkFinding("post"));
   }
 
   // Cross-border facts are checked by presence, not by asking a model whether
@@ -195,6 +274,217 @@ export function checkCompliance(input: ComplianceInput): InspectionFinding[] {
   }
 
   return findings;
+}
+
+// ---------------------------------------------------------------------------
+// The tracked link
+// ---------------------------------------------------------------------------
+
+/**
+ * The reader is never handed the network's own destination URL.
+ *
+ * Every click this platform counts happens because the reader went through
+ * `/go/<code>` first: the redirect records the click, then hands over. A
+ * direct URL still reaches the merchant and can still pay out, so nothing
+ * looks broken - the click simply never happened as far as this platform is
+ * concerned, and a post that earned it cannot be told apart from one that
+ * earned nothing. That is how it survived from the first commit: the
+ * inspector rewrote every body around the destination URL it had been handed,
+ * and no check in this file looked at a URL at all.
+ *
+ * Deliberately not a `compliance.*` code. `blockOnComplianceFindings: false`
+ * relaxes what a market's regulator demands of the copy; it must not also
+ * switch off the platform's own accounting.
+ */
+function directLinkFindings(
+  text: string,
+  issued: TrackedLink,
+  tracking: TrackingConfig,
+  where: "post" | "comment",
+): InspectionFinding[] {
+  const hit = findDirectLink(text, directLinkCandidates(issued.destinationUrl));
+  if (!hit) return [];
+
+  const expected = shortUrl(tracking, issued);
+  return [
+    {
+      severity: "blocking",
+      code: "affiliate.direct_link",
+      message:
+        `This ${where} sends readers straight to the merchant ("${hit.text}") instead of through the ` +
+        `tracked link. Put ${expected} there instead: the redirect is what records the click, so a ` +
+        `direct URL means the click is never counted and no revenue can be attributed to this post.`,
+      excerpt: excerptAround(text, hit.text),
+      suggestion: `Use ${expected} wherever the offer is linked.`,
+    },
+  ];
+}
+
+/**
+ * Rewrites a comment's direct links into the tracked one, in place.
+ *
+ * Removing the comment was the first answer and it was wrong. The publisher
+ * appends the tracked URL to the link drop immediately before this runs, so
+ * dropping the comment threw that away too and left a post carrying an offer,
+ * a link id and no URL anywhere - indistinguishable from a normal post, and
+ * earning nothing. Losing a draft is recoverable, because the inspector has a
+ * rewrite loop behind it; losing the link on a post that still ships is not.
+ *
+ * Replacing is deterministic and unambiguous, which is the argument this file
+ * already makes for appending a missing disclosure rather than refusing.
+ * The post body is a different case and is still blocked, never repaired.
+ */
+function repairDirectLinks(
+  text: string,
+  issued: TrackedLink,
+  tracking: TrackingConfig,
+): { readonly text: string; readonly replaced: readonly string[]; readonly clean: boolean } {
+  const expected = shortUrl(tracking, issued);
+  const candidates = directLinkCandidates(issued.destinationUrl);
+  const replaced: string[] = [];
+  let out = text;
+
+  while (replaced.length < MAX_DIRECT_LINK_REPAIRS) {
+    const hit = findDirectLink(out, candidates);
+    if (!hit) return { text: out, replaced, clean: true };
+    replaced.push(hit.text);
+    out = `${out.slice(0, hit.index)}${expected}${out.slice(hit.index + hit.length)}`;
+  }
+
+  // Only reachable if the replacement itself matches a candidate, which would
+  // mean `tracking.baseUrl` sits under the merchant's own domain. Fail closed
+  // rather than loop: the caller drops the comment.
+  return { text: out, replaced, clean: findDirectLink(out, candidates) === undefined };
+}
+
+/** More direct links than any real comment holds; past this, stop and fail closed. */
+const MAX_DIRECT_LINK_REPAIRS = 8;
+
+/**
+ * Fail closed: the post carries an offer, and either no tracked link was
+ * issued for it or the record cannot be read. Either way there is no
+ * destination URL to look for, so nothing here can clear the text. Staying
+ * quiet would be a green light with nothing behind it.
+ */
+function unresolvedLinkFinding(where: "post" | "comment"): InspectionFinding {
+  return {
+    severity: "blocking",
+    code: "affiliate.link_unresolved",
+    message:
+      `This ${where} carries an offer with no readable tracked link, so there is no way to tell whether ` +
+      `it sends readers through the redirect or straight to the merchant. This draft cannot be fixed by ` +
+      `re-running the cycle - that writes a new draft and leaves this one blocked. Check the data ` +
+      `directory still holds the link records (runtime.dataDir, "links"); restore them from backup if ` +
+      `it does not, and if they are gone for good, take the offer off this account until links issue again.`,
+  };
+}
+
+/**
+ * The spellings of the destination URL that still bypass the redirect.
+ *
+ * Two shapes - the destination verbatim, and the destination with its query
+ * string dropped, because a model copying a long URL out of a prompt loses the
+ * tail far more often than it mistypes the host - each in the interchangeable
+ * forms a browser treats identically: `http` or `https`, with or without a
+ * leading `www.`. Host case is handled by comparing ASCII-lowercased copies of
+ * both sides.
+ *
+ * The line is drawn there deliberately. Percent-encoded characters, a URL
+ * split across a newline, and third-party shorteners are all left alone: no
+ * model emits the first two, and a shortener is undetectable by anything that
+ * only reads the text - catching one needs a network call, which a guardrail
+ * does not get to make.
+ *
+ * Every candidate is built from this link's own destination, so none of them
+ * can match a URL the post mentions for an unrelated reason.
+ */
+function directLinkCandidates(destinationUrl: string): string[] {
+  const shapes = [destinationUrl];
+  try {
+    const parsed = new URL(destinationUrl);
+    const path = parsed.pathname.replace(/\/+$/, "");
+    // Skipped when the path is just "/": that would amount to matching the
+    // bare domain, and a post may legitimately name the merchant's site.
+    if (path !== "") shapes.push(`${parsed.origin}${path}`);
+  } catch {
+    // An unparseable destination is matched verbatim; inventing variants of a
+    // string that is not a URL would only invent false hits.
+    return [asciiLower(destinationUrl)];
+  }
+
+  const candidates = new Set<string>();
+  for (const shape of shapes) {
+    const bare = asciiLower(shape).replace(/^https?:\/\//, "").replace(/^www\./, "");
+    for (const scheme of ["https://", "http://"]) {
+      candidates.add(`${scheme}${bare}`);
+      candidates.add(`${scheme}www.${bare}`);
+    }
+  }
+  return [...candidates];
+}
+
+/** Where a text links straight to the merchant, and exactly what it wrote there. */
+type DirectLinkHit = { readonly index: number; readonly length: number; readonly text: string };
+
+/**
+ * The earliest and longest direct link in the text, if there is one.
+ *
+ * Longest at the same position matters: the full destination and the same URL
+ * without its query string both start where the URL starts, and repairing
+ * only the shorter of the two would leave `?subid=...` dangling after the
+ * replacement.
+ */
+function findDirectLink(text: string, candidates: readonly string[]): DirectLinkHit | undefined {
+  const haystack = asciiLower(text);
+  let best: DirectLinkHit | undefined;
+
+  for (const candidate of candidates) {
+    let from = 0;
+    while (from <= haystack.length) {
+      const index = haystack.indexOf(candidate, from);
+      if (index === -1) break;
+      if (!continuesPath(haystack, index + candidate.length)) {
+        const better = !best || index < best.index || (index === best.index && candidate.length > best.length);
+        if (better) {
+          best = { index, length: candidate.length, text: text.slice(index, index + candidate.length) };
+        }
+        break;
+      }
+      from = index + 1;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Lowercases ASCII letters and nothing else.
+ *
+ * `toLowerCase()` is not length-preserving for every input - a few non-ASCII
+ * letters fold into two characters - and this copy is used to map a match back
+ * onto the original text by index, which a shifted length would corrupt.
+ * Schemes and hosts are ASCII by definition, so folding those is all the
+ * comparison needs.
+ */
+function asciiLower(text: string): string {
+  return text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+/** Characters that would make the text's URL a longer path than the one matched. */
+const PATH_CHARACTER = /[A-Za-z0-9\-._~%]/;
+
+/**
+ * True when the text carries on into a longer path than the one matched.
+ *
+ * ".../lp" must not be read as a hit on ".../lp-other" or ".../lp/deeper":
+ * those are different pages, and a guard that blocks honest posts is worse
+ * than no guard. A bare trailing slash, a query, a fragment, punctuation or
+ * the end of the line are all the same page, so those count.
+ */
+function continuesPath(text: string, at: number): boolean {
+  const next = text.charAt(at);
+  if (next === "/") return PATH_CHARACTER.test(text.charAt(at + 1));
+  return PATH_CHARACTER.test(next);
 }
 
 /** True when nothing found is severe enough to stop publication. */

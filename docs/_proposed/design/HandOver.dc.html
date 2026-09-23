@@ -19,7 +19,7 @@
       margin: 0; background: var(--bg); color: var(--ink);
       font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
     }
-    .frame { width: 390px; height: 1040px; display: flex; flex-direction: column; overflow: hidden; }
+    .frame { width: 390px; height: 1200px; display: flex; flex-direction: column; overflow: hidden; }
     header {
       padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
       display: flex; align-items: center; gap: 8px;
@@ -68,6 +68,11 @@
       font-size: 13px; color: var(--ink); text-decoration: none;
       border: 1px solid #d3d3cd; border-radius: 8px; padding: 8px 14px;
     }
+    .order { margin: 10px 0 14px; }
+    .order .lab { color: var(--muted); font-size: 13px; }
+    .order ol { margin: 4px 0 0; padding-left: 20px; font-size: 13px; }
+    .order li { margin: 2px 0; }
+    .order .link-note { color: var(--warn); font-size: 12px; margin: 6px 0 0; }
     .after { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th {
@@ -94,7 +99,18 @@
     <div class="card handover">
       <h3>あなたが投稿する番です — 朝のツール部屋</h3>
       <p class="muted">この投稿は、あなたのアカウントから手で出してください。文面をコピーして、アプリを開いて、貼って投稿します。</p>
-      <p class="muted">予定していた時刻：2026-09-19 06:30 ・ threads</p>
+      <p class="muted">予定していた時刻：2026-09-19 06:30（日本標準時） ・ threads</p>
+
+      <div class="order">
+        <div class="lab">貼る順番</div>
+        <ol>
+          <li>「本文 1/2」を、新しい投稿として出します。</li>
+          <li>残りの本文は、そのひとつ前の投稿への返信として、上から順に出します。連なった投稿になります。</li>
+          <li>コメントは、2つめ以降の本文ではなく、どれも最初の投稿（「本文 1/2」）への返信として、上から順に出します。</li>
+          <li>全部出し終えたら、下の「投稿しました」を押します。</li>
+        </ol>
+        <p class="link-note">アフィリエイトリンクは「リンクの案内」のコメントだけに入っています。これを出さないと、この投稿からの報酬は記録されません。</p>
+      </div>
 
       <div class="part">
         <span class="lab">本文 1/2</span>
@@ -111,10 +127,8 @@ https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f21</pre>
         <button class="copy">コピー</button>
       </div>
 
-      <p class="muted">アフィリエイトリンクはこのコメントに入っています。投稿したあと、最初の返信として貼ってください。</p>
-
       <div class="part">
-        <span class="lab">最初のコメント（affiliate）</span>
+        <span class="lab">コメント 1/1：リンクの案内</span>
         <pre class="post">挽き目の話はここに書きました。※PR・アフィリエイトリンクを含みます
 https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22</pre>
         <button class="copy">コピー</button>
@@ -132,14 +146,14 @@ https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22</pre>
 
     <table>
       <tr><th>時刻</th><th>投稿</th><th>状態</th></tr>
-      <tr><td>12:10</td><td>保温マグ、3年目の話</td><td>予約中</td></tr>
-      <tr><td>19:40</td><td>ケトルを買い替えなかった理由</td><td>予約中</td></tr>
+      <tr><td>2026-09-19 12:10（日本標準時）</td><td>保温マグ、3年目の話</td><td>予約中</td></tr>
+      <tr><td>2026-09-19 19:40（日本標準時）</td><td>ケトルを買い替えなかった理由</td><td>予約中</td></tr>
     </table>
   </div>
 </div>
 </x-dc>
 
-<script data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1200}}'>
 class Component extends DCLogic {
   renderVals() { return {}; }
 }

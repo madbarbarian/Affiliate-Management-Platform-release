@@ -24,10 +24,8 @@ const CLEAN_REWRITE = {
   threadParts: [],
 };
 
-async function inspectWith(review: Record<string, unknown>) {
-  const company = createTestCompany({
-    responses: { "inspect.review": (() => review) as never },
-  });
+async function runToInspection(options: Parameters<typeof createTestCompany>[0] = {}) {
+  const company = createTestCompany(options);
   const atProposal = unwrap(await company.orchestrator.runCycle("main"));
   const decision = (await company.store.decisions.get(atProposal.pendingDecisionId as string))!;
   const done = unwrap(
@@ -37,7 +35,12 @@ async function inspectWith(review: Record<string, unknown>) {
       nowIso: company.clock.nowIso(),
     }),
   );
-  return done.artifacts.inspect?.reports ?? [];
+  return { company, reports: done.artifacts.inspect?.reports ?? [] };
+}
+
+async function inspectWith(review: Record<string, unknown>) {
+  const { reports } = await runToInspection({ responses: { "inspect.review": (() => review) as never } });
+  return reports;
 }
 
 test("a synthetic first draft that the rewrite fixed passes on the rewrite's score", async () => {
@@ -61,6 +64,56 @@ test("a synthetic first draft that the rewrite fixed passes on the rewrite's sco
         .join(", ")}`,
     );
     assert.ok(report.aiSmellScore <= 60, `the recorded score is the rewrite's, got ${report.aiSmellScore}`);
+  }
+});
+
+/**
+ * The inspector is the role that made the direct-link defect ship.
+ *
+ * It was handed the affiliate network's own destination URL while the writer
+ * and the publisher were handed the platform's `/go/<code>` redirect, and it
+ * replaces the whole body with its rewrite - so its URL is the one readers
+ * got, and no click from a post body was ever counted. Which URL each role is
+ * shown is asserted across the whole cycle in `tracked-link.test.ts`; this
+ * covers the part that is specific to the rewrite.
+ */
+test("a rewrite that copies the offer link into the body still ships a counted link", async () => {
+  // What a real model does with the "link to use" line is put that URL in the
+  // post. The mock's stock rewrite never does, which is why this went
+  // unnoticed; this one does, and both halves of the fix have to hold for it
+  // to pass - the right URL in the prompt, and a guardrail behind it.
+  const { company, reports } = await runToInspection({
+    responses: {
+      "inspect.review": ((request: { user: string }) => {
+        const shown = /link to use: (\S+)/.exec(request.user)?.[1] ?? "";
+        return {
+          aiSmellScore: 60,
+          revisedAiSmellScore: 20,
+          findings: [],
+          revised: {
+            ...CLEAN_REWRITE,
+            body: shown.startsWith("http") ? `${CLEAN_REWRITE.body}\n${shown}` : CLEAN_REWRITE.body,
+          },
+          unfixable: "",
+        };
+      }) as never,
+    },
+  });
+
+  const links = await company.store.links.all();
+  const linked = reports.filter((report) => report.revised.body.includes("http"));
+  assert.ok(linked.length > 0, "at least one rewrite must have carried a URL");
+
+  for (const report of linked) {
+    const blocking = report.findings.filter((finding) => finding.severity === "blocking");
+    assert.ok(report.passed, `blocked by ${blocking.map((finding) => finding.code).join(", ")}`);
+    assert.ok(
+      report.revised.body.includes("/go/"),
+      `the published body has to carry the redirect, got: ${report.revised.body}`,
+    );
+    for (const link of links) {
+      assert.equal(report.revised.body.includes(link.destinationUrl), false);
+    }
   }
 });
 

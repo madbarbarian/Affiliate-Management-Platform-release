@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ConfigError, parseConfig } from "../src/config/schema.ts";
 import { describeCompliance, findMarket, resolveCompliance } from "../src/domain/market.ts";
-import { checkCompliance, passesPolicy } from "../src/kernel/policy.ts";
+import { checkCompliance, passesPolicy, type LinkContext } from "../src/kernel/policy.ts";
 import { formatMoney, totalCounts, totalsByCurrency } from "../src/affiliate/attribution.ts";
 import type { DraftContent, Offer } from "../src/core/types.ts";
 import { BASE_CONFIG, testConfig } from "./helpers.ts";
@@ -106,6 +106,23 @@ test("an unknown market reference is caught", () => {
 
 const config = testConfig();
 const jp = findMarket(config.markets, "jp");
+
+/**
+ * These tests are about market rules, not about links, but `checkCompliance`
+ * requires the link context so that no caller can silently opt out of the
+ * tracked-link check. A real issued link keeps these posts clean.
+ */
+const crossBorderLink: LinkContext = {
+  issued: {
+    id: "lnk_market0001",
+    ventureId: "main",
+    offerId: "offer_test",
+    code: "market0001",
+    destinationUrl: "https://merchant.invalid/lp?subid=market0001",
+    createdAt: "2026-04-01T00:00:00.000Z",
+  },
+  tracking: config.tracking,
+};
 const us = findMarket(config.markets, "us");
 
 test("compliance follows the audience, not the merchant", () => {
@@ -170,6 +187,7 @@ test("a cross-border post missing its caveat is blocked", () => {
     voice: config.ventures[0]!.voice,
     profile,
     offer: usOffer,
+    link: crossBorderLink,
     maxCharacters: 500,
   });
   const blocking = findings.filter((finding) => finding.severity === "blocking");
@@ -197,6 +215,7 @@ test("the same post passes once the caveat is present", () => {
     voice: config.ventures[0]!.voice,
     profile,
     offer: usOffer,
+    link: crossBorderLink,
     maxCharacters: 5000,
   });
   assert.equal(
@@ -214,6 +233,7 @@ test("a claim banned only in the audience's market is still blocked", () => {
     voice: config.ventures[0]!.voice,
     profile,
     offer: config.offers[0],
+    link: crossBorderLink,
     maxCharacters: 500,
   });
   const blocked = findings.find((finding) => finding.code === "compliance.prohibited_claim");

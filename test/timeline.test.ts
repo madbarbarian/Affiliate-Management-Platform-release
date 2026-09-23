@@ -10,6 +10,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildTimeline, type Timeline } from "../src/console/timeline.ts";
+
+/**
+ * The account's clock, as the console resolves it before calling in. Named
+ * rather than repeated so the day it matters - a test that asserts on an hour -
+ * there is one value to change.
+ */
+const TEST_ZONE = { timezone: "Asia/Tokyo", zoneLabel: "日本標準時" } as const;
 import { unwrap } from "../src/core/result.ts";
 import { createTestCompany, type TestCompany } from "./helpers.ts";
 import type { Cycle, Decision } from "../src/core/types.ts";
@@ -48,6 +55,7 @@ async function ranADay(company: TestCompany, options: { approveAll?: boolean } =
     inspections: await company.store.inspections.forCycle(drafts.map((draft) => draft.id)),
     posts: await company.store.posts.find((post) => post.cycleId === cycle.id),
     decisions: await company.store.decisions.find((decision) => decision.cycleId === cycle.id),
+    ...TEST_ZONE,
   });
 }
 
@@ -138,7 +146,7 @@ test("money is never summed across currencies, here either", async () => {
       },
     },
   };
-  const timeline = buildTimeline({ cycle, ideas: [], drafts: [], inspections: [], posts: [], decisions: [] });
+  const timeline = buildTimeline({ cycle, ideas: [], drafts: [], inspections: [], posts: [], decisions: [], ...TEST_ZONE });
   const analyze = timeline.entries.find((entry) => entry.step === "analyze");
   assert.ok(analyze);
 
@@ -166,6 +174,7 @@ test("a day nobody answered says so, rather than looking half-run", async () => 
     inspections: [],
     posts: [],
     decisions: await company.store.decisions.find((decision) => decision.cycleId === after.id),
+    ...TEST_ZONE,
   });
 
   const gate = timeline.entries.find((entry) => entry.step === "proposal_approval");
@@ -189,7 +198,7 @@ test("a gate the machine resolved is not reported as a person's decision", async
   const timeline = buildTimeline({
     cycle: { ...cycle, artifacts: { ...cycle.artifacts, proposal_approval: { decisionId: auto[0]!.id, approvedIdeaIds: [] } },
       completed: [...cycle.completed, { step: "proposal_approval", startedAt: cycle.createdAt, finishedAt: cycle.createdAt, durationMs: 0, note: "" }] },
-    ideas: [], drafts: [], inspections: [], posts: [], decisions: auto,
+    ideas: [], drafts: [], inspections: [], posts: [], decisions: auto, ...TEST_ZONE,
   });
 
   const gate = timeline.entries.find((entry) => entry.step === "proposal_approval");
@@ -239,6 +248,7 @@ test("the day read back says which of the two ways its gate ended", () => {
       inspections: [],
       posts: [],
       decisions: [decision],
+      ...TEST_ZONE,
     }).entries[0]?.said.join(" ") ?? "";
 
   assert.match(said(), /日付が変わり/, "a day nobody answered");

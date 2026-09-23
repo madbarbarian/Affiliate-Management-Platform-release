@@ -16,7 +16,7 @@ import { bestSlots, computePerformance } from "../domain/performance.ts";
 import { DEFAULT_SLOT_MINUTES, planSlots } from "../domain/scheduling.ts";
 import { shortUrl } from "../affiliate/links.ts";
 import { ventureBrief, type Role, type RoleContext } from "../kernel/role.ts";
-import { checkComments } from "../kernel/policy.ts";
+import { checkComments, type LinkContext } from "../kernel/policy.ts";
 import { findMarket, resolveCompliance } from "../domain/market.ts";
 import { array, enumOf, object, string } from "../llm/schema.ts";
 import type { CommentDraft, CommentPurpose, Draft, ScheduledPost } from "../core/types.ts";
@@ -96,16 +96,17 @@ export const publisher: Role<ScheduleInput, ScheduleOutput> = {
 
       const offer = draft.offerId ? config.offers.find((entry) => entry.id === draft.offerId) : undefined;
       const link = draft.linkId ? await store.links.get(draft.linkId) : undefined;
-      const linkUrl = link ? shortUrl(config.tracking, link) : undefined;
 
       const postId = context.ids.next("post");
+      // The link record travels, not a URL: deciding which URL a reader sees
+      // is `formatOffer`'s job and nowhere else's.
       const comments = await writeComments(context, {
         draft,
         postId,
         slotLabel: `${formatTimeOfDay(slot.minutesOfDay)} ${venture.timezone}`,
         slotReason: slot.reason,
         ...(offer ? { offerName: offer.name } : {}),
-        ...(linkUrl ? { linkUrl } : {}),
+        linkContext: { issued: link, tracking: config.tracking },
       });
       if (!comments.ok) return comments;
 
@@ -151,13 +152,18 @@ async function writeComments(
     slotLabel: string;
     slotReason: string;
     offerName?: string;
-    linkUrl?: string;
+    /** Always passed, whether or not a link was issued. `checkComments` judges it. */
+    linkContext: LinkContext;
   },
 ): Promise<Result<CommentDraft[], PlatformError>> {
   const { venture, config } = context;
   const offer = input.draft.offerId
     ? config.offers.find((entry) => entry.id === input.draft.offerId)
     : undefined;
+  const link = input.linkContext.issued;
+  // The one place in this file that turns a link into a URL. A per-offer
+  // `direct` mode would have to change this line and `formatOffer` together.
+  const linkUrl = link ? shortUrl(config.tracking, link) : undefined;
   // Resolved once, from the reader's market - never re-derived from
   // `policy.disclosureText`, which is the platform-wide fallback and is the
   // wrong language the moment a venture targets a market with its own wording.
@@ -173,7 +179,7 @@ async function writeComments(
     system: `${ventureBrief(venture, config)}\n\n${context.prompts.render("publisher.system")}`,
     user: context.prompts.render("publisher.user", {
       post: formatDraftContent(input.draft.content),
-      offer: formatOffer(offer, input.linkUrl),
+      offer: formatOffer(offer, link, config.tracking),
       slot: input.slotLabel,
       slotReason: input.slotReason,
       disclosure: profile.disclosureText,
@@ -185,7 +191,7 @@ async function writeComments(
   const drafts = response.value.comments
     .filter((comment) => comment.text.trim() !== "")
     // A link_drop with no offer is a comment with nothing in it.
-    .filter((comment) => comment.purpose !== "link_drop" || Boolean(input.linkUrl))
+    .filter((comment) => comment.purpose !== "link_drop" || Boolean(linkUrl))
     .map((comment) => ({
       id: context.ids.next("cmt"),
       purpose: toPurpose(comment.purpose),
@@ -193,17 +199,17 @@ async function writeComments(
     }));
 
   // The link must actually appear in the link drop, whatever the model wrote.
-  if (input.linkUrl) {
+  if (linkUrl) {
     const index = drafts.findIndex((comment) => comment.purpose === "link_drop");
     if (index === -1) {
       drafts.push({
         id: context.ids.next("cmt"),
         purpose: "link_drop",
-        text: `${input.linkUrl}\n\n${profile.disclosureText}`,
+        text: `${linkUrl}\n\n${profile.disclosureText}`,
       });
-    } else if (!drafts[index]?.text.includes(input.linkUrl)) {
+    } else if (!drafts[index]?.text.includes(linkUrl)) {
       const existing = drafts[index] as CommentDraft;
-      drafts[index] = { ...existing, text: `${existing.text}\n\n${input.linkUrl}` };
+      drafts[index] = { ...existing, text: `${existing.text}\n\n${linkUrl}` };
     }
   }
 
@@ -216,11 +222,15 @@ async function writeComments(
     profile,
     policy: config.policy,
     hasOffer: offer !== undefined,
+    link: input.linkContext,
   });
   for (const finding of checked.findings) {
     await context.note("comment.compliance", finding.message, { code: finding.code });
     if (finding.severity === "blocking") {
-      context.logger.warn("dropped a comment", { postId: input.postId, code: finding.code });
+      context.logger.warn("a comment guardrail refused a comment", {
+        postId: input.postId,
+        code: finding.code,
+      });
     }
   }
 
