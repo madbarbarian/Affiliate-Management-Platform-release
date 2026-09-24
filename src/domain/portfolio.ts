@@ -129,18 +129,27 @@ export async function buildPortfolio(input: PortfolioInput): Promise<Portfolio> 
   const pause: PauseState = input.state ? readPause(input.state) : { ventures: {} };
   const ventureState: VentureState = input.state ? readVentureState(input.state) : { inactive: {} };
 
-  const unreviewed: PortfolioRow[] = [];
-  for (const venture of config.ventures) {
-    const store = await stores.for(venture.id);
-    const [decisions, cycles, patterns] = await Promise.all([
-      store.decisions.find((decision) => decision.status === "pending"),
-      store.cycles.all(),
-      store.patterns.all(),
-    ]);
-    unreviewed.push(
-      await rowFor(venture, { config, store, nowMs, sinceMs, pause, ventureState, decisions, cycles, patterns }),
-    );
-  }
+  // One account's row never depends on another's - `reviewReason` below is the
+  // one thing that compares accounts, and it only runs once every row already
+  // exists. So the accounts wait on each other for no reason but the shape of
+  // this loop: three accounts on a host where each store round trip is real
+  // network latency (D1, on a Worker) paid three times in series what one
+  // company's slowest account would have cost alone, and a fifth account
+  // would make a licensee wait longer still. `Promise.all` keeps
+  // `config.ventures`' order in `unreviewed` regardless of which account's
+  // reads land first, which is what a stable row order and `reviewReason`'s
+  // caller both need.
+  const unreviewed: PortfolioRow[] = await Promise.all(
+    config.ventures.map(async (venture) => {
+      const store = await stores.for(venture.id);
+      const [decisions, cycles, patterns] = await Promise.all([
+        store.decisions.find((decision) => decision.status === "pending"),
+        store.cycles.all(),
+        store.patterns.all(),
+      ]);
+      return rowFor(venture, { config, store, nowMs, sinceMs, pause, ventureState, decisions, cycles, patterns });
+    }),
+  );
   const rows = unreviewed.map((row) => {
     const review = reviewReason(row, unreviewed, config.company.exploration.review);
     return review ? { ...row, review } : row;

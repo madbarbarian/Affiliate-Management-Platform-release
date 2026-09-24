@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startConsole, type ConsoleHandle } from "../src/console/server.ts";
+import { handleRequest, forgetPortfolio } from "../src/console/router.ts";
 import { createTestCompany, refusingProvider, testConfig, BASE_CONFIG, type TestCompany } from "./helpers.ts";
 import { createMockProvider, type MockProvider } from "../src/llm/mock.ts";
 import { createDemoHandlers } from "../src/llm/demo.ts";
@@ -1174,6 +1175,29 @@ test("the accounts table fits the space it is given, so its last column is never
     assert.ok(declared, "the table still declares a minimum width");
     assert.equal(Number(declared[1]), sum, "the table's minimum width and its columns are the same fact, written twice");
   });
+});
+
+test("the accounts section is never wider than the table actually needs", () => {
+  // The cap used to be a bare 1240 - a round number picked before this file
+  // derived tableWidth from the columns, and never revisited once it did. A
+  // fixed-layout table stretches to fill whatever container it sits in, so on
+  // an ordinary wide monitor the section (and the table stretched to match
+  // it) sat up to 134px wider than the columns actually declare - and wider
+  // still than the per-account status strip above it and every section below
+  // it, both at main's 860px. That mismatch is what the owner saw as the
+  // table sticking out: 「横幅が他のところと合っておらず、表がはみ出た感じに
+  // 見える」. Tied to the same tableWidth the table's own min-width already
+  // uses (the test above this one), so the two cannot drift apart again.
+  const columns = portfolioColumns(MESSAGES.ja);
+  const tableWidth = portfolioTableWidth(columns);
+  const source = renderPage({ companyName: "テスト" });
+  const section = source.match(/#portfolio-section \{ width: min\((\d+)px/);
+  assert.ok(section, "the accounts section still declares its own cap");
+  assert.equal(
+    Number(section[1]),
+    tableWidth,
+    "the section's own cap and the table's width are the same fact, and should never be written as two different numbers",
+  );
 });
 
 test("no column is dropped when the accounts table stops being a table", async () => {
@@ -2934,6 +2958,160 @@ test("a late answer for the account just left cannot repaint the account just op
   );
 });
 
+// Not the race above - a plain navigation, nothing racing anything. The
+// owner reported this a third time with the detail that gave it away: 「アウ
+// トドア（２）を選択しても、中の表示がアウトドア（３）。しばらくしたら、自動
+// でアウトドア（２）になった」. `$("view-venture").hidden` flips to false the
+// moment routedVentureId() changes - synchronously, before load()'s first
+// await - but nothing used to clear the markup already sitting in it, so the
+// view that had just been unhidden went on showing the account it belonged
+// to a moment ago until both /api/state and /api/ventures/<id> answered.
+// Proven by holding both open and reading the DOM the instant navigate()
+// returns: page-harness.ts's fetch stub pushes onto `requests` and returns
+// its promise synchronously (nothing inside it awaits), so by the time
+// navigate() is done, load()'s entire synchronous prefix - including the
+// clear - has already run and nothing has answered yet.
+test("navigating to a different account clears its screen before either request can answer", async () => {
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      // A real cycle, not an untouched account: an account that has never run
+      // shows the same "まだ一度も動いていません" card regardless of which one
+      // it is, which would make the history/cycle assertions below pass
+      // whether or not the screen was actually cleared.
+      const cycle = unwrap(await company.orchestrator.runCycle("outdoor2"));
+
+      let holdOutdoor3Requests = false;
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-head",
+        // Only once outdoor3 is routed - outdoor2's own first load must go
+        // through normally, or `until` above would never resolve.
+        intercept: (path) =>
+          holdOutdoor3Requests && (path === "/api/state" || path === "/api/ventures/outdoor3")
+            ? new Promise<Response>(() => {})
+            : undefined,
+      });
+      assert.match(
+        page.html("venture-head"),
+        /outdoor2/,
+        `outdoor2 never rendered, so navigating away next would prove nothing: ${page.html("venture-head")}`,
+      );
+
+      // outdoor2's own day, opened - so #venture-history carries something
+      // that identifies it beyond the generic empty state, the same way the
+      // test above this one does.
+      await page.press({ act: "timeline", date: cycle.date });
+      const untilOpen = Date.now() + 5000;
+      while (Date.now() < untilOpen && !page.html("timeline").includes("tl-step")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(
+        page.html("timeline"),
+        /tl-step/,
+        `outdoor2's own day never opened, so navigating away next would prove nothing: ${page.html("timeline")}`,
+      );
+
+      holdOutdoor3Requests = true;
+      page.navigate("#/ventures/outdoor3");
+
+      // Nothing is awaited between here and navigate() returning above: this
+      // is the instant load()'s synchronous prefix finished and neither held
+      // request has had any chance to answer. Both requests already being
+      // here, together, is also the proof that they were issued together -
+      // /api/ventures/outdoor3 was not held back until /api/state (requested
+      // second, in the code) had been dealt with first.
+      assert.ok(
+        page.requests.includes("/api/state") && page.requests.filter((r) => r === "/api/state").length >= 2,
+        `outdoor3's own load() never asked for /api/state, so it is not actually the one held open: ${page.requests.join(", ")}`,
+      );
+      assert.ok(
+        page.requests.includes("/api/ventures/outdoor3"),
+        `outdoor3's own venture fetch was never even requested: ${page.requests.join(", ")}`,
+      );
+
+      const regions = [
+        "venture-decisions",
+        "venture-head",
+        "venture-hand-over",
+        "venture-upcoming",
+        "venture-cycle",
+        "venture-history",
+        "venture-numbers",
+        "venture-playbook",
+        "venture-setup",
+        "venture-switch",
+      ];
+      for (const id of regions) {
+        const html = page.html(id);
+        assert.doesNotMatch(html, /outdoor2\b/, `#${id} still names outdoor2's id: ${html}`);
+        assert.doesNotMatch(html, /アウトドア２/, `#${id} still names outdoor2's name: ${html}`);
+        assert.doesNotMatch(html, /data-venture(?:-\w+)?="outdoor2"/, `#${id} still carries a button for outdoor2: ${html}`);
+      }
+      // The specific leak a plain navigation (no race) already had a
+      // regression test for above: outdoor2's opened day must not still be
+      // sitting in outdoor3's history card either.
+      assert.doesNotMatch(page.html("venture-history"), /tl-step/, "outdoor2's opened day is still painted here");
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+// Clearing the stale screen (above) makes it honest; it does not make it
+// fast, and the wait it now occupies was longer than it had to be - the owner
+// again, after the clearing fix alone: 「やっぱり、遅いよなぁ。アウトドア（３）
+// になるのも遅いし、追従していない気がする。」 load() used to await /api/state,
+// then only start /api/ventures/<id> once that had answered - two round trips
+// end to end for one navigation, though neither request's answer depends on
+// the other's. That the two are now issued together, not one after the
+// other, is exactly what the test above this one already proves (two
+// requests already sitting in `page.requests` the instant navigate() returns,
+// before either has had any chance to answer) - mutating either fetch back
+// to waiting on the other's promise turns that test red. The test below
+// covers what issuing them together makes newly possible: one failing must
+// not hide the other's answer.
+test("a failed /api/state does not hide a venture fetch that answered fine, or reach the screen as a raw message", async () => {
+  const [outdoor2] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-head",
+        intercept: (path) =>
+          path === "/api/state"
+            ? Promise.resolve(
+                new Response(JSON.stringify({ error: "unreadable state store: boom", code: "state.unreadable" }), {
+                  status: 500,
+                  headers: { "content-type": "application/json" },
+                }),
+              )
+            : undefined,
+      });
+      // The half that succeeded: Promise.all would have let /api/state's
+      // rejection take this down with it even though outdoor2's own answer
+      // was fine.
+      assert.match(page.html("venture-head"), /outdoor2/, "outdoor2's own successful fetch must still reach the screen");
+      // The half that failed: rendered by code, in venture-decisions (state's
+      // own box - see load-poll.ts), not left blank and not silently retried
+      // away, and never the raw message the server sent.
+      assert.match(
+        page.html("venture-decisions"),
+        /いま読み込めません/,
+        `state.unreadable's own Japanese summary must render somewhere: ${page.html("venture-decisions")}`,
+      );
+      assert.doesNotMatch(page.html("venture-decisions"), /boom/, "the raw server message must never reach the screen");
+      assert.doesNotMatch(page.html("venture-head"), /boom|state\.unreadable/, "nor may it land in the wrong half's box");
+    },
+    { config: { ventures: [outdoor2] } },
+  );
+});
+
 test("the run button refuses to start a cycle for an account that is not the one currently routed", async () => {
   // Independent of the render race above - the last line of defence between a
   // mispainted button and an actual cycle starting on the wrong account,
@@ -4112,4 +4290,80 @@ test("the headline numbers are windowed to the same days as the table under them
     );
     assert.equal(byLabel.size, 4, `expected exactly 4 headline numbers (no engagement total), found ${byLabel.size}`);
   });
+});
+
+test("the portfolio memo hits across two Runtime objects that share a store registry - the shape a Worker request builds", async () => {
+  // `worker/handler.ts` calls `createWorkerRuntime` inside `fetch`, so a
+  // Worker hands `handleRequest` a brand new `Runtime` object on every single
+  // request - never the same one twice. A memo keyed on that object (the old
+  // `portfolioMemo` was a `WeakMap<Runtime, ...>`) can therefore never hit in
+  // production: a fresh key every request is the same as no memo, which is
+  // exactly why a second `/api/state` measured on the deployed Worker was
+  // never any faster than the first. What *is* the same across those
+  // requests, once `worker/runtime.ts` keeps the D1 driver for the isolate's
+  // life, is `runtime.services.stores` - so that is what the memo is keyed on
+  // now.
+  //
+  // This models the Worker's own shape directly: two distinct `Runtime`
+  // objects (`runtimeA !== runtimeB`, the way `createWorkerRuntime` builds
+  // one per request) that share one `services` (the way the isolate-cached
+  // `StoreRegistry` would), and counts calls to `patterns.all()` - read
+  // nowhere in `buildState` except inside `buildPortfolio` - as the tell for
+  // whether a second `/api/state` request recomputed the portfolio at all.
+  const ventureA = { ...structuredClone(BASE_CONFIG.ventures[0]), id: "venture-a" };
+  const ventureB = { ...structuredClone(BASE_CONFIG.ventures[0]), id: "venture-b" };
+  const config = testConfig({ ventures: [ventureA, ventureB] });
+  const company = createTestCompany({ config });
+
+  let patternsAllCalls = 0;
+  for (const venture of config.ventures) {
+    const store = company.stores.open(venture.id);
+    const real = store.patterns.all;
+    store.patterns.all = async () => {
+      patternsAllCalls += 1;
+      return real();
+    };
+  }
+
+  const state: StateStore = { label: (key) => key, read: () => ({ kind: "absent" }), write: async () => {} };
+  const operators = [{ name: "tester", token: "test-token" }];
+  // A fresh object every call, on purpose - exactly what `createWorkerRuntime`
+  // returns on every `fetch`. All three share `company.services`, so
+  // `services.stores` is the one thing that stays the same across them.
+  const buildRuntime = (): Runtime =>
+    ({
+      loaded: { config, path: "test", dataDir: "test-data", promptsDir: "prompts" },
+      config,
+      state,
+      services: company.services,
+      orchestrator: guardWithStop(company.orchestrator, company.services, state),
+      bus: company.services.bus,
+      dryRun: false,
+      close: async () => {},
+    }) as unknown as Runtime;
+
+  const stateRequest = (): Request =>
+    new Request("http://console.test.invalid/api/state", { headers: { authorization: "Bearer test-token" } });
+
+  const first = await handleRequest(buildRuntime(), operators, stateRequest());
+  assert.equal(first.status, 200);
+  assert.equal(patternsAllCalls, 2, "one read per account, computing the portfolio for the first time");
+
+  // A *different* `Runtime` object, immediately after - the case the old
+  // `WeakMap<Runtime, ...>` memo could never serve from cache.
+  const second = await handleRequest(buildRuntime(), operators, stateRequest());
+  assert.equal(second.status, 200);
+  assert.equal(
+    patternsAllCalls,
+    2,
+    "a second request within the memo's window must reuse the first request's portfolio, not recompute it",
+  );
+  const secondBody = (await second.json()) as { portfolio: { rows: unknown[] } };
+  assert.equal(secondBody.portfolio.rows.length, 2, "and still answer with both accounts");
+
+  // The memo still forgets on demand - switching the WeakMap's key must not
+  // have broken the invalidation every mutating route relies on.
+  forgetPortfolio(buildRuntime());
+  await handleRequest(buildRuntime(), operators, stateRequest());
+  assert.equal(patternsAllCalls, 4, "forgetPortfolio must still force a real recomputation");
 });

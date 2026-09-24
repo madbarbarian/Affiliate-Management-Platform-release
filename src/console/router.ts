@@ -33,7 +33,7 @@ import type { Operator } from "./operators.ts";
 import type { Runtime } from "../runtime.ts";
 import { buildTimeline, type Timeline } from "./timeline.ts";
 import type { Services } from "../kernel/role.ts";
-import type { Store } from "../storage/store.ts";
+import type { Store, StoreRegistry } from "../storage/store.ts";
 import { COMPANY_SCOPE, type VentureId } from "../core/types.ts";
 import { renderPage } from "./ui.ts";
 import { commentPurposeKey, fill, messagesFor, type Messages } from "./messages.ts";
@@ -506,11 +506,32 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // the only one on this page - everything account-shaped goes through
   // `stores.for()` and reads one account.
   const scopes = await stores.each();
+  // Every account's read in parallel, not one account after another: this was
+  // a `for` loop awaiting one scope at a time, which on a Worker meant three
+  // accounts paid three sequential D1 round trips for what is, per call site
+  // below, one read. `Promise.all` keeps `scopes`' own order internally, but
+  // nothing downstream depends on that order - `upcoming`, `handOver` and
+  // `activity` all sort what this returns before showing it.
   const gather = async <T>(pick: (store: Store) => Promise<T[]>): Promise<T[]> => {
-    const out: T[] = [];
-    for (const scope of scopes) out.push(...(await pick(scope.store)));
-    return out;
+    const perScope = await Promise.all(scopes.map((scope) => pick(scope.store)));
+    return perScope.flat();
   };
+
+  // Kicked off together, not awaited one at a time: none of these six depend
+  // on each other, and the function used to reach each `await` only after the
+  // one before it had fully returned - six independent reads turned into six
+  // sequential round trips, which is most of what made this endpoint take
+  // seconds on a Worker instead of the milliseconds each read costs on its
+  // own. Every one of them is awaited below, at the point the comments there
+  // already explain why it is its own read.
+  const decisionsPromise = runtime.orchestrator.pendingDecisions();
+  const upcomingRawPromise = gather((store) =>
+    store.posts.find((post) => post.status === "approved" || post.status === "scheduled" || post.status === "queued"),
+  );
+  const handOverRawPromise = gather((store) => store.posts.find((post) => post.status === "handed_over"));
+  const activityRawPromise = gather((store) => store.audit.recent(12));
+  const portfolioPromise = memoisedPortfolio(runtime);
+  const proposalsStorePromise = stores.for(COMPANY_SCOPE);
 
   // Only the accounts that are running. Stopping one is how an operator says
   // "do nothing more here", and the tick hears it - no new cycle starts. The
@@ -524,7 +545,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       .filter((venture) => isVentureActive(venture, ventureState))
       .map((venture) => venture.id as string),
   );
-  const decisions = (await runtime.orchestrator.pendingDecisions()).filter((decision) =>
+  const decisions = (await decisionsPromise).filter((decision) =>
     runningVentures.has(decision.ventureId as string),
   );
 
@@ -552,15 +573,20 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // Staleness is decided here, in the account's own timezone, and never in the
   // page: the browser's midnight belongs to whoever is reading, and an operator
   // in another country would be told the wrong thing about somebody else's day.
+  // One decision's lookup never depends on another's, so these run together -
+  // each writes its own key of `dayOf`, and nothing reads the map until every
+  // write below has finished.
   const dayOf = new Map<string, { day: string; stale: boolean }>();
-  for (const decision of decisions) {
-    const store = await stores.for(decision.ventureId);
-    const cycle = await store.cycles.get(decision.cycleId);
-    if (!cycle) continue;
-    const zone = runtime.config.ventures.find((entry) => entry.id === decision.ventureId)?.timezone;
-    const today = localDate(runtime.services.clock.now(), zone ?? "UTC");
-    dayOf.set(decision.id, { day: cycle.date, stale: cycle.date < today });
-  }
+  await Promise.all(
+    decisions.map(async (decision) => {
+      const store = await stores.for(decision.ventureId);
+      const cycle = await store.cycles.get(decision.cycleId);
+      if (!cycle) return;
+      const zone = runtime.config.ventures.find((entry) => entry.id === decision.ventureId)?.timezone;
+      const today = localDate(runtime.services.clock.now(), zone ?? "UTC");
+      dayOf.set(decision.id, { day: cycle.date, stale: cycle.date < today });
+    }),
+  );
 
   const pending = decisions.map((decision) => ({
     id: decision.id,
@@ -605,13 +631,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   }));
 
   const upcomingByVenture = new Map<string, number>();
-  const upcoming = (
-    await gather((store) =>
-      store.posts.find(
-        (post) => post.status === "approved" || post.status === "scheduled" || post.status === "queued",
-      ),
-    )
-  )
+  const upcoming = (await upcomingRawPromise)
     .sort((a, b) => a.scheduledFor - b.scheduledFor)
     // Per account, not across the company (see HAND_OVER_SHOWN): this table now
     // renders on one account's own screen, filtered to its ventureId, and a
@@ -648,7 +668,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     runtime.config.channels.map((channel) => [channel.id, composerUrlOf(channel.options)]),
   );
   const handOverByVenture = new Map<string, number>();
-  const handOver = (await gather((store) => store.posts.find((post) => post.status === "handed_over")))
+  const handOver = (await handOverRawPromise)
     // Oldest slot first, and capped per account: each card carries a whole
     // post, and this payload is re-fetched every thirty seconds. An operator
     // who leaves a month of these unpressed works through them from the top
@@ -716,12 +736,12 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // engagement figure again, it wants a real design - a pooled median across
   // every venture's posts in the window, most likely - not a sum revived
   // because the row felt empty without a fourth number in it.
-  const portfolio = await memoisedPortfolio(runtime);
+  const portfolio = await portfolioPromise;
 
   // `type` travels with the entry so the page can say a failure in the
   // operator's words. The summary is the durable English record and stays the
   // fallback; it is not what a licensee should have to read.
-  const activity = (await gather((store) => store.audit.recent(12)))
+  const activity = (await activityRawPromise)
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 12)
     .map((event) => ({
@@ -767,7 +787,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // proposal that vanished on the next poll took the block with it. Dismissed
   // ones are history; `amp scout list --all` has them.
   const recentlyAcceptedSince = clock.now() - 7 * 86_400_000;
-  const proposals = (await listProposals(await stores.for(COMPANY_SCOPE)))
+  const proposals = (await listProposals(await proposalsStorePromise))
     .filter(
       (proposal) =>
         proposal.status === "proposed" ||
@@ -929,11 +949,34 @@ async function buildVentureDetail(runtime: Runtime, ventureId: string): Promise<
 }
 
 const PORTFOLIO_MEMO_MS = 30_000;
-const portfolioMemo = new WeakMap<Runtime, { at: number; value: Awaited<ReturnType<typeof buildPortfolio>> }>();
+/**
+ * Keyed on the store registry, not on `runtime` itself.
+ *
+ * On a machine or the daemon, `runtime` is built once and lives for the whole
+ * process, so either key would have hit. On a Worker, `handleRequest` gets a
+ * brand new `Runtime` on every single request (`worker/handler.ts` calls
+ * `createWorkerRuntime` inside `fetch`), so a memo keyed on it could never
+ * hit there at all - a fresh key every time is the same as no memo, which is
+ * why the second `/api/state` call was never any faster than the first.
+ *
+ * `runtime.services.stores` does not have that problem. It is the one part of
+ * a Worker's `Runtime` this platform deliberately keeps for the life of the
+ * isolate rather than rebuilding per request (`worker/runtime.ts`'s
+ * `sqlPartsFor`), because a `StoreRegistry` holds no per-request state of its
+ * own - only a D1 driver that answers the same database for as long as the
+ * isolate lives. Keying on it rather than on the driver directly, or on some
+ * value invented just for this cache, means this memo automatically tracks
+ * whatever the platform has *already* decided is safe to share across
+ * requests: if a future change ever does give the Worker a fresh
+ * `StoreRegistry` per request again, this memo goes back to never hitting
+ * there - degrading to today's behaviour, never to serving one isolate's
+ * numbers to a different database's.
+ */
+const portfolioMemo = new WeakMap<StoreRegistry, { at: number; value: Awaited<ReturnType<typeof buildPortfolio>> }>();
 
 async function memoisedPortfolio(runtime: Runtime): Promise<Awaited<ReturnType<typeof buildPortfolio>>> {
   const now = runtime.services.clock.now();
-  const cached = portfolioMemo.get(runtime);
+  const cached = portfolioMemo.get(runtime.services.stores);
   if (cached && now - cached.at < PORTFOLIO_MEMO_MS) return cached.value;
   const value = await buildPortfolio({
     config: runtime.config,
@@ -942,13 +985,13 @@ async function memoisedPortfolio(runtime: Runtime): Promise<Awaited<ReturnType<t
     days: 30,
     state: runtime.state,
   });
-  portfolioMemo.set(runtime, { at: now, value });
+  portfolioMemo.set(runtime.services.stores, { at: now, value });
   return value;
 }
 
 /** Forgets the memo, so a switch the operator just made shows on the next poll. */
 export function forgetPortfolio(runtime: Runtime): void {
-  portfolioMemo.delete(runtime);
+  portfolioMemo.delete(runtime.services.stores);
 }
 
 function buildChips(

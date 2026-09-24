@@ -14,6 +14,16 @@ export const LOAD_POLL_SCRIPT = `// --------------------------------------------
 /** The account currently open, so a refresh reloads the right thing. */
 let venture = null;
 /**
+ * Which account's own content #view-venture's regions currently hold - not
+ * which account is routed, and not the venture variable above (which is null
+ * until the first fetch answers). Set the moment those regions are cleared or
+ * repainted for an account, so a load() that finds the route unchanged from
+ * this can tell there is nothing stale to clear.
+ *
+ * See clearVentureView() and its call in load() for what this is for.
+ */
+let ventureViewAccount = null;
+/**
  * Accounts whose run this page started and is still waiting on.
  *
  * A Set rather than one id: two accounts can have a run in flight at once -
@@ -68,6 +78,45 @@ const posting = new Set();
  */
 let loadGeneration = 0;
 
+/**
+ * Blanks every region of #view-venture that holds one account's own content:
+ * the header, the gate, the hand-over cards, the upcoming table, the last
+ * cycle, the history and whatever day is open inside it, the numbers, the
+ * playbook, the read-only setup and the switch-off card.
+ *
+ * Called from load() only when the routed account has just changed to one
+ * this DOM does not already belong to (see ventureViewAccount) - never
+ * unconditionally, and never on the 30-second poll that finds the account
+ * unchanged. This is what stands between "the previous account's screen,
+ * including its buttons, sits there until two requests answer" and a poll
+ * that blinks blank every time it runs.
+ *
+ * Blanks rather than a spinner: a loading line in eleven places at once reads
+ * as more broken than empty ones, and the two requests load() is about to
+ * start (/api/state, then /api/ventures/<id>) usually answer inside a second.
+ */
+function clearVentureView() {
+  $("venture-decisions").innerHTML = "";
+  $("venture-head").innerHTML = "";
+  $("venture-hand-over").innerHTML = "";
+  $("venture-upcoming").innerHTML = "";
+  $("venture-cycle").innerHTML = "";
+  $("venture-history").innerHTML = "";
+  $("venture-numbers-head").textContent = "";
+  $("venture-numbers").innerHTML = "";
+  $("venture-playbook-head").textContent = "";
+  $("venture-playbook").innerHTML = "";
+  $("venture-setup").innerHTML = "";
+  $("venture-switch").innerHTML = "";
+  // The day this held, if any, was this account's. renderVenture() already
+  // refuses to splice it under a different account (openTimelineVentureId,
+  // timeline.ts) - this clears it outright, because the account that fetched
+  // it is not even routed any more, and the box it lived in is gone above.
+  openTimelineVentureId = "";
+  openTimelineDate = "";
+  openTimelineHtml = "";
+}
+
 async function load() {
   const generation = ++loadGeneration;
   const isCurrent = () => generation === loadGeneration;
@@ -80,6 +129,28 @@ async function load() {
   // flight.
   const ventureId = routedVentureId();
   const onSettings = window.location.hash === "#/settings";
+  // #view-venture is about to be unhidden (below) with whatever markup it
+  // already holds - the previous account's, if this is a navigation between
+  // two different accounts. That markup does not go stale and get repainted
+  // until the two requests below answer, which on a Worker behind D1 is long
+  // enough to read: the owner watched outdoor(3)'s screen, buttons and all,
+  // sit there under outdoor(2)'s route until "it fixed itself" a moment
+  // later. So it is cleared here, synchronously, before either await and
+  // before the view is revealed - never after.
+  //
+  // Only when the account actually changed, and compared against the account
+  // this DOM currently holds (ventureViewAccount), not against the previous
+  // call's route: routing away to #/ or #/settings and back to the same
+  // account must not blank content that is still that account's own, and the
+  // 30-second poll's ordinary case - the route not moving at all - must not
+  // blank anything, or the screen would blink on every refresh.
+  if (ventureId && ventureId !== ventureViewAccount) {
+    clearVentureView();
+  }
+  // Set whether or not this branch ran: this call's account is what the view
+  // is about to show (blank or not), so a second navigation before this one's
+  // requests answer compares against this account, not the one before it.
+  if (ventureId) ventureViewAccount = ventureId;
   $("view-today").hidden = Boolean(ventureId) || onSettings;
   $("view-venture").hidden = !ventureId;
   $("view-settings").hidden = !onSettings;
@@ -93,25 +164,67 @@ async function load() {
     // The day's state is still loaded below: the header's count and the stop
     // banner belong on every view.
   }
+  // The day's state is loaded either way: the header's count, the stop
+  // banner and the window length come from it, and they belong on both.
+  // Started here, together with the venture fetch right after it, rather
+  // than the venture fetch starting only once this one has answered: the two
+  // do not depend on each other over the wire, and awaiting them one after
+  // another cost a whole extra round trip on every navigation - on a Worker
+  // behind D1, long enough that clearing the stale screen above just leaves
+  // the operator looking at a blank one for twice as long as it has to. Both
+  // requests are in flight by the time either await below can suspend.
+  const statePromise = api("/api/state");
+  const venturePromise = ventureId ? api("/api/ventures/" + encodeURIComponent(ventureId)) : undefined;
+
+  // Not Promise.all: one rejecting would take the other's already-settled
+  // answer down with it, and the two failures belong in different places
+  // anyway (the whole page's banner and gate vs. one account's own header).
+  // Not Promise.allSettled either - its array would only be pulled back apart
+  // into these same two cases. Each is simply awaited and handled on its own,
+  // which is what a real Promise.allSettled caller ends up doing anyway.
+  //
+  // State is awaited first and paints first on purpose, ahead of whichever
+  // answers first over the wire: renderVenture() reads the module-level
+  // state variable too (waitingHere(), in venture.ts), so it must never run
+  // before state has actually been set for this call, or it would show a
+  // stale or wrong "waiting" count read off a previous account's answer - the very
+  // defect this file exists to stop. Painting state's own regions (the status
+  // strip, the stop banner, this account's gate/hand-over/upcoming) does not
+  // wait on the venture fetch, though: it paints the moment its own answer
+  // lands, which is what makes this feel faster rather than merely "not
+  // stale" - a wait shortened to whichever request answers first shows
+  // something sooner than a wait that is not shortened at all.
   try {
-    // The day's state is loaded either way: the header's count, the stop
-    // banner and the window length come from it, and they belong on both.
-    const fetchedState = await api("/api/state");
-    if (!isCurrent()) return;
-    state = fetchedState;
-    render();
-    if (ventureId) {
-      const fetchedVenture = await api("/api/ventures/" + encodeURIComponent(ventureId));
-      if (!isCurrent()) return;
-      venture = fetchedVenture;
-      renderVenture(venture);
-    } else {
-      venture = null;
+    const fetchedState = await statePromise;
+    if (isCurrent()) {
+      state = fetchedState;
+      render();
     }
   } catch (error) {
-    if (!isCurrent()) return;
-    const box = ventureId ? $("venture-head") : $("status-strip");
-    box.innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
+    if (isCurrent()) {
+      // venture-decisions, not venture-head: this is state's own failure, and
+      // venture-decisions is the state-derived box this screen leans on most -
+      // the same reason a state failure on the day's own page (below) lands in
+      // status-strip rather than in some other box that happened to fail.
+      // venture-head is reserved for a failure in the venture fetch itself, so
+      // the two can never overwrite each other.
+      const box = ventureId ? $("venture-decisions") : $("status-strip");
+      box.innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
+    }
+  }
+
+  if (ventureId) {
+    try {
+      const fetchedVenture = await venturePromise;
+      if (isCurrent()) {
+        venture = fetchedVenture;
+        renderVenture(venture);
+      }
+    } catch (error) {
+      if (isCurrent()) $("venture-head").innerHTML = '<p class="err">' + esc(failureText(error)) + "</p>";
+    }
+  } else {
+    venture = null;
   }
 }
 

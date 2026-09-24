@@ -8,6 +8,7 @@
 <x-dc>
 <helmet>
   <style>
+    /* 承認画面 (src/console/page/style.ts) と同じトークン。値は写しであって、近似ではない。 */
     :root {
       --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
       --line: #e4e4e0; --accent: #2f6f4f; --accent-ink: #ffffff;
@@ -19,94 +20,174 @@
       margin: 0; background: var(--bg); color: var(--ink);
       font: 15px/1.65 ui-sans-serif, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
     }
-    .frame { width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden; }
-    header {
-      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none;
-      display: flex; align-items: baseline; gap: 8px;
-    }
+    .frame { width: 390px; height: 1900px; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+    .head-row { display: flex; align-items: center; gap: 8px; }
     h1 { font-size: 17px; margin: 0; font-weight: 650; }
-    .stamp { margin-left: auto; }
-    .muted { color: var(--muted); font-size: 13px; }
+    nav { display: flex; gap: 14px; margin-left: auto; }
+    nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+    .who {
+      color: var(--ink); font-size: 13px; background: var(--chip);
+      border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+    }
+    .theme {
+      font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+    }
     .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
     h2 {
       font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
-      color: var(--muted); margin: 24px 0 10px; font-weight: 500;
+      color: var(--muted); margin: 0 0 12px; font-weight: 500;
     }
-    .rest {
-      background: var(--panel); border: 1px solid var(--line);
-      border-radius: var(--radius); padding: 22px 16px; text-align: center;
+    section { margin-bottom: 30px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .lede { color: var(--muted); font-size: 13px; line-height: 1.6; margin: -6px 0 12px; }
+    /* status-strip: the whole of what the top page decides to show now
+       (src/console/page/style.ts's .status-row / .status-badge, copied). */
+    .status-row {
+      display: block; padding: 12px 16px; margin-bottom: 8px;
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--panel);
     }
-    .rest .big { font-size: 16px; font-weight: 600; }
-    .rest .next { margin-top: 6px; color: var(--muted); font-size: 13px; }
+    .status-row-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .status-name { font-weight: 600; }
+    .status-facts { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status-badge { font-size: 12px; border-radius: 999px; padding: 3px 10px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+    .status-badge--handover { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+    .status-badge--failed { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
+    .fail-short { color: var(--danger); font-size: 13px; margin-top: 6px; }
+    .fail-hint { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 1px; }
     .card {
       background: var(--panel); border: 1px solid var(--line);
       border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
     }
-    .slot { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
-    .time { font-size: 15px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
-    .hook { font-weight: 600; line-height: 1.45; margin-top: 3px; }
-    .stat-row { display: flex; gap: 22px; flex-wrap: wrap; }
-    .stat { color: var(--muted); font-size: 13px; }
-    .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
-    .log { font-size: 14px; line-height: 1.6; }
-    .line { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-    .line.last { border-bottom: none; }
-    .when {
-      color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
-      flex: none; width: 42px; padding-top: 3px;
+    .name { font-weight: 600; font-size: 15px; }
+    .id { color: var(--muted); font-size: 12px; margin-left: 6px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      background: var(--chip); border-radius: 999px; padding: 2px 9px;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
     }
-    .up { color: var(--accent); }
-    .down { color: var(--danger); }
-    b.ink { font-weight: 600; }
+    .chip.on { color: var(--accent); }
+    .row { display: flex; gap: 8px; align-items: center; }
+    button {
+      font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink); font-size: 13px;
+    }
+    .stat-row { display: flex; gap: 20px; flex-wrap: wrap; }
+    .stat { color: var(--muted); font-size: 13px; }
+    .stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .log { font-size: 14px; line-height: 1.6; }
+    .log hr { border: none; border-top: 1px solid var(--line); margin: 8px 0; }
   </style>
 </helmet>
 
 <div class="frame">
   <header>
-    <h1>朝のツール部屋</h1>
-    <span class="muted stamp">8月31日 06:40</span>
+    <div class="head-row">
+      <h1>みどりの会社</h1>
+      <nav><a class="here">今日</a><a>設定</a></nav>
+      <span class="who">みどり</span>
+      <button class="theme">配色：自動</button>
+    </div>
   </header>
 
   <div class="scroll">
-    <div class="rest">
-      <div class="big">いま決めることはありません</div>
-      <div class="next">次の判断は 今日 07:00 ・ 企画10案</div>
-    </div>
+    <!--
+      decisions.md 2026-09-23: 判断待ち・予約中の投稿・手渡しの投稿カードは、
+      すべて各アカウントの画面（#/ventures/<id>）へ移った。トップに残るのは
+      「どのアカウントが、どんな状態か」だけ。週の大半どころか、毎日この形になる —
+      判断の有無で表情を変える「休みカード」はもう無い（旧 Idle.dc.html はそれを描いていた）。
+    -->
+    <section>
+      <h2>アカウントの状態</h2>
 
-    <h2>予約中</h2>
-    <div class="card">
-      <div class="slot"><span class="time">12:15</span><span>今日</span></div>
-      <div class="hook">朝30分をやめて、3週間なにも起きなかった。</div>
-    </div>
-    <div class="card">
-      <div class="slot"><span class="time">21:00</span><span>今日</span></div>
-      <div class="hook">見積もりを2倍にした。3件断られた。</div>
-    </div>
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">朝のツール部屋</span>
+          <span class="status-facts"><span class="status-badge">承認が要る（2）</span></span>
+        </div>
+      </a>
 
-    <h2>昨日</h2>
-    <div class="card">
-      <div class="stat-row">
-        <span class="stat">投稿<b>3本</b></span>
-        <span class="stat">保存<b>612</b></span>
-        <span class="stat">クリック<b>41</b></span>
-        <span class="stat">確定報酬<b>¥4,200</b></span>
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">保温マグの記録</span>
+          <span class="status-facts"><span class="status-badge status-badge--handover">いま投稿する番です</span></span>
+        </div>
+      </a>
+
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">台所の実験ノート</span>
+          <span class="status-facts"><span class="status-badge status-badge--failed">失敗しています</span></span>
+        </div>
+        <div class="fail-short">実行できませんでした</div>
+        <div class="fail-hint">下書きの生成でモデルの呼び出しが断られました。理由の全文は開いた先に。</div>
+      </a>
+
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">夜のリサーチ部屋</span>
+          <span class="status-facts"></span>
+        </div>
+      </a>
+    </section>
+
+    <section>
+      <h2>全アカウント — 直近30日</h2>
+      <p class="lede">アカウントを<b>比べる</b>ための表です。どれが成果を出し、どこが止まり、どこが計測できていないか。止める・動かすは、開いた先にあります。</p>
+      <div class="card">
+        <span class="name">朝のツール部屋</span><span class="id">morning-tools</span>
+        <div class="chips">
+          <span class="chip on">稼働中</span>
+          <span class="chip">計測 つながっている</span>
+        </div>
+        <div class="stat-row" style="margin-top:10px">
+          <span class="stat">投稿<b>41</b></span>
+          <span class="stat">中央値<b>212</b></span>
+          <span class="stat">クリック<b>318</b></span>
+          <span class="stat">成果<b>9</b></span>
+          <span class="stat">確定報酬<b>¥38,400</b></span>
+        </div>
+        <div class="row" style="margin-top:10px"><button>開く</button></div>
       </div>
-      <div class="muted" style="margin-top: 10px">米ドル建ての未確定分 $18.00 は別に数えています。円とは合算しません。</div>
-    </div>
+    </section>
 
-    <h2>会社が昨日やったこと</h2>
-    <div class="card log">
-      <div class="line"><span class="when">05:10</span><span>分析担当が <b class="ink">pat_003</b>「やめた」から始める一人称 の信頼度を <span class="up">0.66 → 0.71</span> に上げました</span></div>
-      <div class="line"><span class="when">05:12</span><span>分析担当が <b class="ink">pat_009</b>「数字を3つ並べる型」を <span class="down">引退</span> させました（14日たっても改善がなかったため）</span></div>
-      <div class="line"><span class="when">05:40</span><span>リサーチ担当が新しい型の候補を <b class="ink">2件</b> 提出しました（証拠不足のため保留）</span></div>
-      <div class="line"><span class="when">06:20</span><span>企画担当が <b class="ink">10案</b> を用意しました。うち2案は探索枠（まだ試していない型を試す枠）です</span></div>
-      <div class="line last"><span class="when">21:02</span><span>投稿担当が 21:00 の枠に投稿し、コメント2件を付けました</span></div>
-    </div>
+    <section>
+      <h2>探索の提案</h2>
+      <p class="muted">いまは提案がありません。新しいアカウントの候補は、探索担当が見つけしだいここに並びます。設定ファイルで <code>company.exploration.enabled</code> を true にするまで探索担当は動かないので、それまでここは空のままです。</p>
+    </section>
+
+    <section>
+      <h2>全アカウント合計 — 直近30日</h2>
+      <div class="card">
+        <div class="stat-row">
+          <span class="stat">公開済み投稿<b>96</b></span>
+          <span class="stat">クリック<b>612</b></span>
+          <span class="stat">成果<b>21</b></span>
+          <span class="stat">確定報酬<b>¥71,200</b></span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>最近の動き</h2>
+      <div class="card log">
+        <div class="muted">06:20 ・ 企画担当</div>
+        <div>今日の10案を用意しました。</div>
+        <hr>
+        <div class="muted">06:40 ・ 執筆担当</div>
+        <div><b>執筆で止まりました — 実行できませんでした</b></div>
+        <hr>
+        <div class="muted">21:02 ・ 投稿担当</div>
+        <div>あなたが投稿する番です — 保温マグ、3年目の話</div>
+      </div>
+    </section>
   </div>
 </div>
 </x-dc>
 
-<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1900}}'>
 class Component extends DCLogic {
   renderVals() { return {}; }
 }

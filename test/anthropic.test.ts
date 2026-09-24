@@ -78,6 +78,32 @@ async function withApi(run: (baseUrl: string, sent: Body[]) => Promise<void>): P
   }
 }
 
+/**
+ * A server that always answers with one HTTP error, JSON body and all - what
+ * the SDK reads to classify the exception it throws (`Anthropic.APIError.
+ * generate`, `core/error.js`: the status number picks the subclass).
+ */
+async function withErrorApi(
+  status: number,
+  body: unknown,
+  run: (baseUrl: string) => Promise<void>,
+): Promise<void> {
+  const server: Server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify(body));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await run(`http://127.0.0.1:${port}`);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 function llmConfig(baseUrl: string, overrides: Partial<LlmConfig> = {}): LlmConfig {
   return {
     provider: "anthropic",
@@ -193,4 +219,78 @@ test("structured output still asks for a schema on a model that refuses effort",
     assert.equal(output["effort"], undefined);
     assert.equal((output["format"] as Body)["type"], "json_schema");
   });
+});
+
+// ---------------------------------------------------------------------------
+// translateError() - what a licensee's screen ends up showing for each of the
+// SDK's own exceptions. The owner saw a 403 reach the console as raw English
+// JSON: `403 {"error":{"type":"forbidden","message":"Request not allowed"}}`,
+// because translateError() had no case for it and fell through to the branch
+// that quotes the SDK's own message verbatim.
+// ---------------------------------------------------------------------------
+
+test("a 403 gets its own code and wording, never the SDK's raw JSON, and is not worded like a bad key", async () => {
+  await withErrorApi(
+    403,
+    { type: "error", error: { type: "forbidden", message: "Request not allowed" } },
+    async (baseUrl) => {
+      const provider = createAnthropicProvider({
+        config: llmConfig(baseUrl),
+        apiKey: "sk-test",
+        logger: silentLogger,
+      });
+      const result = await provider.completeText({ ...ask, purpose: "write.draft" });
+      assert.equal(result.ok, false);
+      if (result.ok) return;
+      assert.equal(result.error.code, "llm.permission_denied", "a 403 must not fall through to the generic llm.api_error");
+      assert.doesNotMatch(
+        result.error.message,
+        /forbidden|Request not allowed/,
+        `the SDK's own error type or message reached the platform's error: ${result.error.message}`,
+      );
+      assert.doesNotMatch(
+        result.error.message,
+        /key was rejected|key is wrong|invalid key/i,
+        "a 403 means the key was accepted; it must not be worded like llm.auth's 401",
+      );
+    },
+  );
+});
+
+test("a 404 for the configured model names llm.model, not the SDK's own wording", async () => {
+  await withErrorApi(
+    404,
+    { type: "error", error: { type: "not_found_error", message: "model: claude-typo-9000" } },
+    async (baseUrl) => {
+      const provider = createAnthropicProvider({
+        config: llmConfig(baseUrl, { model: "claude-typo-9000" }),
+        apiKey: "sk-test",
+        logger: silentLogger,
+      });
+      const result = await provider.completeText(ask);
+      assert.equal(result.ok, false);
+      if (result.ok) return;
+      assert.equal(result.error.code, "llm.model_not_found", "a 404 must not fall through to the generic llm.api_error");
+      assert.match(result.error.message, /llm\.model/, "the message has to name the setting to check");
+      assert.doesNotMatch(result.error.message, /not_found_error/, "the SDK's own error type must not reach the message");
+    },
+  );
+});
+
+test("a 401 is still worded as a bad key - the 403 case must not have swallowed it", async () => {
+  await withErrorApi(
+    401,
+    { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } },
+    async (baseUrl) => {
+      const provider = createAnthropicProvider({
+        config: llmConfig(baseUrl),
+        apiKey: "sk-bad",
+        logger: silentLogger,
+      });
+      const result = await provider.completeText(ask);
+      assert.equal(result.ok, false);
+      if (result.ok) return;
+      assert.equal(result.error.code, "llm.auth");
+    },
+  );
 });

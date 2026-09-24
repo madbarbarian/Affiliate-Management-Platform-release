@@ -398,6 +398,41 @@ test("a link in a published post keeps redirecting when the rest cannot start", 
   await db.close();
 });
 
+test("the D1 driver is kept for the isolate's life, not rebuilt on every request", async () => {
+  // `ensureSchema` (sql-store.ts) already keeps its own memo of which drivers
+  // have been migrated - a `WeakMap` keyed on the driver, "once per driver for
+  // as long as it lives, which on a Worker is once per isolate". But
+  // `createWorkerRuntime` used to call `createD1Driver(env.DB)` fresh on every
+  // single call, so that memo's key was fresh every time too and could never
+  // hit - the schema's `PRAGMA table_info` check, and the six `CREATE ... IF
+  // NOT EXISTS` statements behind it, ran again on every request, not once per
+  // isolate as that comment already assumed. Counting `PRAGMA table_info`
+  // calls - `migrate()`'s first statement - proves it now runs once for as
+  // long as the same `env.DB` object is handed in, the way `env.DB` is for
+  // the life of a real Worker's isolate.
+  const raw = fakeD1();
+  let pragmaCalls = 0;
+  const db: typeof raw = {
+    ...raw,
+    prepare(sql: string) {
+      if (sql.includes("PRAGMA table_info")) pragmaCalls += 1;
+      return raw.prepare(sql);
+    },
+  };
+
+  const first = await createWorkerRuntime({ env: { DB: db }, configText: await exampleConfig(), prompts: {} });
+  assert.ok(first.ok, first.ok ? "" : first.error.message);
+  await first.value.close();
+  assert.equal(pragmaCalls, 1, "the first request in an isolate does check the schema");
+
+  const second = await createWorkerRuntime({ env: { DB: db }, configText: await exampleConfig(), prompts: {} });
+  assert.ok(second.ok, second.ok ? "" : second.error.message);
+  await second.value.close();
+  assert.equal(pragmaCalls, 1, "a second request against the same env.DB must reuse the driver, not re-check the schema");
+
+  await raw.close();
+});
+
 test("an unknown code is still a 404, not a redirect to anywhere", async () => {
   const db = fakeD1();
   const worker = await configuredWorker();

@@ -266,3 +266,55 @@ test("a report's totals cover the window it says it covers", async () => {
     "a window that includes it still counts it",
   );
 });
+
+test("computePerformance reads posts, metrics, links, clicks and conversions all at once, not in two waves", async () => {
+  // None of these five reads depends on another. `latestByPost` only needs
+  // `posts`' ids, and it applies them to `metrics` in memory *after* both have
+  // already arrived - so awaiting `posts` and only then asking the store for
+  // `metrics`, the way this function used to, cost a whole extra round trip's
+  // latency on every venture, every call: real time on a store backed by D1,
+  // paid for no reason. Counting, not timing: every read is gated so none can
+  // finish until this test has confirmed all five have already started - a
+  // version that reads `posts` first and `metrics` only afterward never
+  // reaches `metrics`'s gate before this check runs.
+  const company = createTestCompany();
+  const { store } = company;
+  const offer = company.config.offers[0]!;
+
+  const entered = new Set<string>();
+  const release = new Map<string, () => void>();
+  const gate =
+    (name: string) =>
+    async (): Promise<never[]> => {
+      entered.add(name);
+      await new Promise<void>((resolve) => release.set(name, resolve));
+      return [];
+    };
+  store.posts.find = gate("posts") as never;
+  store.metrics.all = gate("metrics") as never;
+  store.links.find = gate("links") as never;
+  store.clicks.all = gate("clicks") as never;
+  store.conversions.all = gate("conversions") as never;
+
+  const donePromise = computePerformance(store, {
+    ventureId: "main" as never,
+    nowMs: company.clock.now(),
+    sinceMs: 0,
+    offers: [offer],
+    defaultCurrency: "JPY",
+  });
+
+  // Drains the microtask queue without resolving anything ourselves - not a
+  // sleep. `setImmediate` fires only once nothing left in the microtask queue
+  // can still run, so this is deterministic regardless of how many `await`
+  // hops each implementation takes to reach the gate.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    [...entered].sort(),
+    ["clicks", "conversions", "links", "metrics", "posts"],
+    "every read must have started before any one of them can finish",
+  );
+
+  for (const resolve of release.values()) resolve();
+  await donePromise;
+});

@@ -38,21 +38,27 @@ export type PerformanceOptions = {
 };
 
 export async function computePerformance(store: Store, options: PerformanceOptions): Promise<PerformanceWindow> {
-  const posts = await store.posts.find(
-    (post) =>
-      post.ventureId === options.ventureId &&
-      post.status === "published" &&
-      post.publishedAt !== undefined &&
-      Date.parse(post.publishedAt) >= options.sinceMs,
-  );
-
-  const latest = await latestMetricByPost(store, posts.map((post) => post.id));
-
-  const [links, clicks, conversions] = await Promise.all([
+  // Five independent reads, not two waves. `metrics` does not actually depend
+  // on `posts` - `latestByPost` below only needs the *ids*, to decide which
+  // metric rows to keep, and that filtering happens in memory after both have
+  // already arrived. Awaiting `posts` and then `latestMetricByPost` in series
+  // (as this used to) cost a whole extra round trip's latency on every venture,
+  // every call - real time on a store backed by D1, paid for no reason.
+  const [posts, metrics, links, clicks, conversions] = await Promise.all([
+    store.posts.find(
+      (post) =>
+        post.ventureId === options.ventureId &&
+        post.status === "published" &&
+        post.publishedAt !== undefined &&
+        Date.parse(post.publishedAt) >= options.sinceMs,
+    ),
+    store.metrics.all(),
     store.links.find((link) => link.ventureId === options.ventureId),
     store.clicks.all(),
     store.conversions.all(),
   ]);
+
+  const latest = latestByPost(metrics, posts.map((post) => post.id));
   const revenue = revenueByPost({
     links,
     clicks,
@@ -111,8 +117,20 @@ export async function latestMetricByPost(
 ): Promise<Map<PostId, StoredMetric>> {
   const wanted = new Set(postIds);
   const metrics = await store.metrics.find((metric) => wanted.has(metric.postId));
+  return latestByPost(metrics, postIds);
+}
+
+/**
+ * The pure half of `latestMetricByPost`, split out so `computePerformance`
+ * can run the read (`store.metrics.all()`) alongside its other four reads
+ * instead of waiting on `posts` first only to turn around and ask the store
+ * for something that never depended on it.
+ */
+function latestByPost(metrics: readonly StoredMetric[], postIds: readonly PostId[]): Map<PostId, StoredMetric> {
+  const wanted = new Set(postIds);
   const latest = new Map<PostId, StoredMetric>();
   for (const metric of metrics) {
+    if (!wanted.has(metric.postId)) continue;
     const current = latest.get(metric.postId);
     if (!current || metric.capturedAt > current.capturedAt) latest.set(metric.postId, metric);
   }

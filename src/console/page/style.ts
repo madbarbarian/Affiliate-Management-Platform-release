@@ -122,8 +122,21 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
    * sideways on a screen with room to spare, so it steps outside it - still
    * centred, still bounded by the window. (No backticks anywhere in this file:
    * the page is one template literal.)
+   *
+   * The cap used to be a bare 1240 - a round number picked before this file
+   * derived tableWidth from the columns, and never revisited once it did. The
+   * table itself only ever needs ${tableWidth}px; the extra width above that
+   * had nowhere to go but the columns, which a fixed-layout table stretches to
+   * fill its container - so on an ordinary wide monitor this section sat up to
+   * 134px wider than the table drawn inside it, and wider still than the
+   * per-account status strip and every section above and below it, which is
+   * the "はみ出た感じ" the owner saw once the top page had something at 860px on
+   * both sides of this to compare it against. Capping at the same tableWidth
+   * the table's own min-width already uses (below) means this section is
+   * never wider than the table needs, in exactly the spirit of the fix above
+   * it: one fact, not a second number that can drift from it.
    */
-  #portfolio-section { width: min(1240px, calc(100vw - ${PAGE_GUTTER}px)); margin-left: 50%; transform: translateX(-50%); }
+  #portfolio-section { width: min(${tableWidth}px, calc(100vw - ${PAGE_GUTTER}px)); margin-left: 50%; transform: translateX(-50%); }
   /*
    * A surface of its own, like every .card. On a dark screen a table drawn
    * straight onto the page background has nothing holding it together: the row

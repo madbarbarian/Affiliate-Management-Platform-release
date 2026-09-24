@@ -226,13 +226,95 @@ function capabilitiesOf(model: string): { effort: LlmEffort | null; adaptiveThin
   return { effort: current ? "max" : null, adaptiveThinking: current };
 }
 
-/** Maps SDK exceptions onto the platform's error vocabulary. */
+/**
+ * Maps SDK exceptions onto the platform's error vocabulary.
+ *
+ * Every `PlatformError.message` built here reaches a licensee's screen
+ * verbatim - the account screen's "whole failure" card renders it unescaped
+ * text, on purpose, so the reason never has to be read out of the database
+ * (`src/console/page/client/venture.ts`). So this function's job is not just
+ * to classify the exception; the string it writes is what the operator reads.
+ * Whatever it does not write itself - `cause.message` glued onto the end - is
+ * the SDK's own words, in English, sometimes the raw JSON body. Only worth
+ * doing when there is nothing more specific to say (see the generic
+ * `Anthropic.APIError` branch at the bottom).
+ *
+ * What each of the SDK's exported error classes gets, and why (checked
+ * against `@anthropic-ai/sdk`'s `core/error.d.ts`):
+ *
+ *  - `AuthenticationError` (401) - own code, `llm.auth`. The key itself is
+ *    the problem.
+ *  - `PermissionDeniedError` (403) - own code, `llm.permission_denied`. This
+ *    reached a licensee's screen as raw English JSON before this file had a
+ *    case for it: `403 during write.draft: 403 {"error":{"type":"forbidden",
+ *    "message":"Request not allowed"}}`. A 403 is not a 401 - the key was
+ *    accepted - so it gets its own wording rather than falling into the
+ *    generic branch below, which would say only "the API refused it" and
+ *    quote the SDK's JSON.
+ *  - `NotFoundError` (404) - own code, `llm.model_not_found`. `llm.model` is
+ *    the one field in `platform.config.yaml` a licensee is most likely to
+ *    mistype, since nothing validates it against Anthropic's own model list,
+ *    and a licensee with no terminal (requirements.md §3.1) cannot list valid
+ *    model ids to compare against. The generic branch's wording ("the API
+ *    refused it") does not point at the one place worth checking.
+ *  - `RateLimitError` (429) - own code, `llm.rate_limited`. Already handled;
+ *    unchanged here.
+ *  - `BadRequestError` (400) - own code, `llm.bad_request`. Already handled.
+ *    Its message still quotes `cause.message`: a 400 here means this
+ *    platform's own request shape was rejected, which is a bug report, not
+ *    something a licensee can act on, so the raw detail is for whoever reads
+ *    the bug report rather than something with a Japanese fix to name.
+ *  - `APIConnectionError` (no status - the request never reached the API) and
+ *    its subclass `APIConnectionTimeoutError` - own code, `llm.connection`.
+ *    `instanceof` reaches the subclass through the parent check, so a timeout
+ *    already gets the clean, specific message rather than the generic one.
+ *  - `ConflictError` (409), `UnprocessableEntityError` (422) - left to the
+ *    generic `Anthropic.APIError` branch. Neither is a documented response
+ *    for the Messages API this file calls (a single POST with a body this
+ *    platform's own schema builder already validates), so there is no
+ *    concrete real-world case to write a Japanese summary against yet; if the
+ *    API ever returns one, the licensee sees the generic "the API refused
+ *    it," which is honest, rather than a specific wrong guess.
+ *  - `InternalServerError` (500 and above) - left to the generic branch,
+ *    which already marks it retryable (`status >= 500`) and the licensee's
+ *    own config is not the problem. There is nothing more specific to tell
+ *    them to check; a dedicated code would not change what they do next.
+ *  - `APIUserAbortError` - only thrown when a caller passes an `AbortSignal`
+ *    that fires; `send()` above never passes one, so this file cannot throw
+ *    it. Left unhandled on purpose; if it ever appears here, that is a sign
+ *    someone added a signal without reading this comment.
+ *  - `RetryableError` - not an `APIError` at all (it extends `AnthropicError`
+ *    directly), and it exists for a caller's own request middleware to throw
+ *    to opt into the SDK's retry policy. This file registers no middleware,
+ *    so nothing here can throw it either. Falls through to `llm.unknown` if
+ *    it somehow ever did, which is the same safe, generic landing every other
+ *    exception this function has never seen gets.
+ */
 function translateError(cause: unknown, purpose: string): Result<never, PlatformError> {
   if (cause instanceof Anthropic.AuthenticationError) {
     return fail("config", "llm.auth", "The Anthropic API key was rejected. Check the key named by llm.apiKeyEnv.", {
       retryable: false,
       cause,
     });
+  }
+  if (cause instanceof Anthropic.PermissionDeniedError) {
+    return fail(
+      "config",
+      "llm.permission_denied",
+      `Anthropic API refused the ${purpose} request with 403 (permission denied). The key was accepted, so ` +
+        `this is not the same problem as llm.auth: check for a reached spend limit or exhausted credits, ` +
+        `whether this key is allowed to use the model set by llm.model, and whether the key has been disabled.`,
+      { retryable: false, cause },
+    );
+  }
+  if (cause instanceof Anthropic.NotFoundError) {
+    return fail(
+      "config",
+      "llm.model_not_found",
+      `Anthropic API returned 404 (not found) for the ${purpose} request. The model set by llm.model is most ` +
+        `likely misspelled or has been retired.`,
+      { retryable: false, cause },
+    );
   }
   if (cause instanceof Anthropic.RateLimitError) {
     return fail("llm", "llm.rate_limited", `Rate limited while running ${purpose}.`, { retryable: true, cause });
