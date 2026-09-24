@@ -209,6 +209,10 @@ another unit test.
 **A regression test that does not fail on the bug is decoration.** Before
 committing one, put the bug back, watch the test go red, then restore. It takes
 a minute and it is the only thing that distinguishes a guard from a comment.
+`node scripts/mutate.ts <file> --from <text> --to <text> -- <test args>` does
+those four steps as one command with an inverted exit code — see
+`docs/6-testing/mutate.md` — but the rule is still to actually run it, not to
+own the tool.
 
 **Run `/code-review` on the diff before pushing, not after.** The four worst
 defects in this repo — a disclosure check that accepted any non-empty string, a

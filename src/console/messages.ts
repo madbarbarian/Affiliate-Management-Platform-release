@@ -36,7 +36,6 @@ const ja = {
   "page.titleSuffix": "承認画面",
   "page.loading": "読み込み中…",
   "page.refresh": "更新",
-  "page.waitingCount": "{n} 件の判断待ち",
   // 誰として見ているかは、状態ではなく枠。承認のたびに変わる件数と同じ場所に
   // 置くと、両方とも読み飛ばされる。監査ログにこの名前が永久に残る以上、
   // 押す前に見えている必要がある。
@@ -62,7 +61,7 @@ const ja = {
   // 「いま何が起きているか」を決めるのに、これまで画面のどこにも出ていなかった。
   "settings.heading": "この会社の設定",
   "settings.lede": "いま何が効いているかを読む画面です。変更は設定ファイルで行います。",
-  "settings.version": "いま動いている版",
+  "settings.version": "いま動いているバージョン",
   // RELEASE.json が無い控え - このリポジトリを直接動かしている開発中のチェック
   // アウトなど。リリースを経由していないので、比べる相手も存在しない。
   "settings.versionUnknown": "正式なリリースではありません（開発用チェックアウト）",
@@ -78,10 +77,21 @@ const ja = {
   "settings.operatorMany": "{names}（{n}人）",
   "settings.disclosure": "開示文",
   "settings.disclosureOff": "<b>開示のチェックを外しています。</b>市場の規制に触れる可能性があります",
+  // 市場ごとに解決される値（src/domain/market.ts）。日本向けと米国向けで
+  // 開示文は違う言葉になり、件数も違う。1行に畳めないので、市場の名前を
+  // 添えて市場ごとに並べる。
+  "settings.disclosureRow": "{market}：{text}",
   "settings.limits": "1日の上限",
   "settings.limitsValue": "{posts}件まで ・ 最低{minutes}分あける ・ AIっぽさ{smell}点で止める",
   "settings.words": "止める言葉",
-  "settings.wordsValue": "AIっぽい言い回し {banned} 件 ・ 使わない表現 {prohibited} 件",
+  "settings.wordsValue": "AIっぽい言い回し {banned} 件",
+  // 使わない表現（prohibitedClaims）は会社全体の設定と市場ごとの設定を
+  // 合わせた数で、市場によって違う。「止める言葉」の1行に押し込んでいた
+  // ころは常に undefined 件になっていた — この行を読む先が
+  // policy.prohibitedClaims のままで、その値は市場ごとの compliance[] に
+  // 移した後も残っていなかったため。
+  "settings.prohibitedClaims": "使わない表現（読者の市場ごと）",
+  "settings.prohibitedClaimsRow": "{market}：{n} 件",
   "settings.tracking": "リンクの行き先",
   "settings.trackingBad": "<b>読者がたどれないアドレスです。</b>クリックは記録されません",
   "settings.scale": "規模",
@@ -96,8 +106,30 @@ const ja = {
   "update.what": "何が変わったか",
   "update.how": "取り込み方は、リポジトリの README に書いてあります。設定ファイルは上書きされません。",
 
-  // The day's own page
-  "today.decisions": "あなたの判断待ち",
+  // The top page: which account is in what state, nothing account-specific
+  // and actionable. decisions.md, 2026-09-23: with three accounts running,
+  // the judgement itself no longer fits on this page - it moved to each
+  // account's own screen (#/ventures/<id>), which already filtered to one
+  // account's decisions before this row existed. What is left here has to
+  // say, at a glance, which account needs a look and why.
+  "status.heading": "アカウントの状態",
+  "status.empty": "アカウントがありません。",
+  // 通常の強さ：承認待ちは、押さなければ「機械が待つ」だけで、遅れても
+  // 何かが消えるわけではない。
+  "status.approvalsNeeded": "承認が要る（{n}）",
+  // 強い表示：唯一「機械が特定の分に人を待っている」もの。枠を過ぎれば
+  // その枠は消える。判断待ちより軽い扱いにしてはいけない
+  // （decisions.md 2026-09-23「バッジは2種類にする」）。
+  "status.handOverBadge": "いま投稿する番です",
+  // 例外：console-architecture.md が既に「失敗だけは例外にする」と決めている。
+  // 具体的な理由は failureCell() が failureCode から作る（このラベルは
+  // 「何かが起きている」という事実だけを言う）。
+  "status.failed": "失敗しています",
+
+  // The account's own page (#/ventures/<id>). Filtered here rather than sent
+  // pre-filtered: `state.pending` / `state.handOver` / `state.upcoming` are
+  // one company-wide fetch, and the account screen and this page's own status
+  // strip both read the same arrays so the two can never disagree.
   "today.decisionsEmpty": "今のところ何もありません。次のサイクルが回るとここに出ます。",
   "today.upcoming": "予約中の投稿",
   "today.upcomingEmpty": "予約中の投稿はありません。",
@@ -378,7 +410,6 @@ const en: Messages = {
   "page.titleSuffix": "Approvals",
   "page.loading": "Loading…",
   "page.refresh": "Refresh",
-  "page.waitingCount": "{n} waiting on you",
   "page.operatorTitle": "Who you are approving as. This name goes in the record.",
   "page.themeTitle": "Switch the colour scheme (auto, light, dark)",
   "theme.auto": "Theme: auto",
@@ -405,10 +436,13 @@ const en: Messages = {
   "settings.operatorMany": "{names} ({n})",
   "settings.disclosure": "Disclosure",
   "settings.disclosureOff": "<b>The disclosure check is off.</b> This may breach your market's rules",
+  "settings.disclosureRow": "{market}: {text}",
   "settings.limits": "Daily limits",
   "settings.limitsValue": "up to {posts} · at least {minutes} min apart · blocked above AI-smell {smell}",
   "settings.words": "Words that stop a post",
-  "settings.wordsValue": "{banned} machine-sounding phrases · {prohibited} claims never made",
+  "settings.wordsValue": "{banned} machine-sounding phrases",
+  "settings.prohibitedClaims": "Claims never made (per reader market)",
+  "settings.prohibitedClaimsRow": "{market}: {n}",
   "settings.tracking": "Where links go",
   "settings.trackingBad": "<b>Readers cannot follow this.</b> Clicks are not recorded",
   "settings.scale": "Scale",
@@ -419,7 +453,12 @@ const en: Messages = {
   "update.what": "What changed",
   "update.how": "Your repository's README says how to take it. Your config file is never overwritten.",
 
-  "today.decisions": "Waiting on you",
+  "status.heading": "Account status",
+  "status.empty": "There are no accounts.",
+  "status.approvalsNeeded": "Needs approval ({n})",
+  "status.handOverBadge": "Time to post now",
+  "status.failed": "Failing",
+
   "today.decisionsEmpty": "Nothing right now. The next cycle will put something here.",
   "today.upcoming": "Scheduled posts",
   "today.upcomingEmpty": "Nothing is scheduled.",

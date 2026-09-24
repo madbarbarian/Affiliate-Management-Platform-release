@@ -71,12 +71,23 @@ export function sessionCookie(token: string): string {
 const RUN_LOCK_TTL_MS = 5 * 60_000;
 
 /**
- * How many posts waiting on a person are carried to the page at once. Each one
- * is a whole post's text, on a payload the browser re-fetches every thirty
- * seconds, so this is a size bound and not a policy: the oldest come first, and
- * pressing one brings the next into view.
+ * How many posts waiting on a person are carried to the page at once, **per
+ * account**. Each one is a whole post's text, on a payload the browser
+ * re-fetches every thirty seconds, so this is a size bound and not a policy:
+ * the oldest come first, and pressing one brings the next into view.
+ *
+ * Per account rather than one cap across the company: the account screen and
+ * the status strip's badge both read this array, filtered to one venture. A
+ * company-wide slice let a busy account's backlog push a quiet account's own
+ * hand-over out of the answer entirely - with nothing on that account's own
+ * screen, or its badge, to say one was waiting. That is exactly the failure
+ * the status strip's badge exists to make impossible (decisions.md,
+ * 2026-09-23): a count that can silently under-report.
  */
 const HAND_OVER_SHOWN = 20;
+
+/** Same reasoning as `HAND_OVER_SHOWN`, for the upcoming-schedule table. */
+const UPCOMING_SHOWN = 12;
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -191,13 +202,17 @@ export async function handleRequest(
       // and three more prohibited claims than the company list holds. One row
       // per market, from the one function that is allowed to answer.
       compliance: config.ventures.map((venture) => {
-        const resolved = resolveCompliance({
-          policy: config.policy,
-          market: findMarket(config.markets, venture.market),
-        });
+        const market = findMarket(config.markets, venture.market);
+        const resolved = resolveCompliance({ policy: config.policy, market });
         return {
           venture: venture.id,
           market: venture.market,
+          // The reader's name for the market, not only its config id - the
+          // settings screen names markets in its own words everywhere else
+          // (accounts table, the account screen's setup card), and `jp` /
+          // `us` on their own mean nothing to an operator who has never
+          // opened the YAML.
+          marketName: market?.name ?? venture.market,
           disclosureText: resolved.disclosureText,
           prohibitedClaims: resolved.prohibitedClaims.length,
           regulator: resolved.regulator,
@@ -589,6 +604,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     })),
   }));
 
+  const upcomingByVenture = new Map<string, number>();
   const upcoming = (
     await gather((store) =>
       store.posts.find(
@@ -597,8 +613,19 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     )
   )
     .sort((a, b) => a.scheduledFor - b.scheduledFor)
-    .slice(0, 12)
+    // Per account, not across the company (see HAND_OVER_SHOWN): this table now
+    // renders on one account's own screen, filtered to its ventureId, and a
+    // company-wide slice could fill the top {UPCOMING_SHOWN} with a busier
+    // account's posts and leave a quieter account's screen wrongly saying
+    // nothing is scheduled.
+    .filter((post) => {
+      const seen = upcomingByVenture.get(post.ventureId) ?? 0;
+      if (seen >= UPCOMING_SHOWN) return false;
+      upcomingByVenture.set(post.ventureId, seen + 1);
+      return true;
+    })
     .map((post) => ({
+      ventureId: post.ventureId,
       at: when.at(post.scheduledFor, zoneOf(post.ventureId)),
       // The word, not the identifier. `scheduled` reached the screen as
       // `scheduled`, in the cell under a card that had just been fixed for the
@@ -620,16 +647,24 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   const composerUrlByChannel = new Map(
     runtime.config.channels.map((channel) => [channel.id, composerUrlOf(channel.options)]),
   );
+  const handOverByVenture = new Map<string, number>();
   const handOver = (await gather((store) => store.posts.find((post) => post.status === "handed_over")))
-    // Oldest slot first, and capped: each card carries a whole post, and this
-    // payload is re-fetched every thirty seconds. An operator who leaves a
-    // month of these unpressed works through them from the top rather than
-    // downloading all of them on every poll - nothing is dropped, because
-    // pressing one brings the next into view.
+    // Oldest slot first, and capped per account: each card carries a whole
+    // post, and this payload is re-fetched every thirty seconds. An operator
+    // who leaves a month of these unpressed works through them from the top
+    // rather than downloading all of them on every poll - nothing is dropped,
+    // because pressing one brings the next into view. See HAND_OVER_SHOWN for
+    // why the cap is per account rather than company-wide.
     .sort((a, b) => a.scheduledFor - b.scheduledFor)
-    .slice(0, HAND_OVER_SHOWN)
+    .filter((post) => {
+      const seen = handOverByVenture.get(post.ventureId) ?? 0;
+      if (seen >= HAND_OVER_SHOWN) return false;
+      handOverByVenture.set(post.ventureId, seen + 1);
+      return true;
+    })
     .map((post) => ({
       postId: post.id,
+      ventureId: post.ventureId,
       ventureName: ventureName.get(post.ventureId) ?? post.ventureId,
       channel: post.channel,
       at: when.at(post.scheduledFor, zoneOf(post.ventureId)),

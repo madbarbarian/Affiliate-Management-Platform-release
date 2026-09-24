@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.11.0",
-  "commit": "bedfd0e",
-  "builtAt": "2026-09-23T18:55:03.872Z",
+  "version": "0.12.0",
+  "commit": "6259f55",
+  "builtAt": "2026-09-24T03:33:12.186Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -32,13 +32,13 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 63339,
-      "sha256": "b3ab80b700b35ca018a053b962fb58d46bb1763cf9c2362876cdc32f1099bd88"
+      "bytes": 66298,
+      "sha256": "da782031121dae928905243af58a5f884e7d8e3d22f99a518e9308268fcb81b9"
     },
     {
       "path": "CLAUDE.md",
-      "bytes": 12742,
-      "sha256": "dd635e818af2b4cc8ebda3402702f4c742136c7d3c71823883b010c751717882"
+      "bytes": 12981,
+      "sha256": "423b0aad59030d8a4997d03027ed1336a059380315953161c3d73399c4a49746"
     },
     {
       "path": "contracts/README.md",
@@ -321,6 +321,11 @@
       "sha256": "d9669b21371098850640cb0f5ac8c86d1e6913a7a4a11913e1ae381ff2d1931e"
     },
     {
+      "path": "docs/6-testing/mutate.md",
+      "bytes": 3373,
+      "sha256": "157540d1065627f2b85e3cb067434d78b4f1821799740bc599ed21c88efcf188"
+    },
+    {
       "path": "docs/7-references/configuration.md",
       "bytes": 15961,
       "sha256": "9dbbd3305d587819e8cfe207fd1587bf787a2e2782dd99029da3dfac61fce83a"
@@ -353,7 +358,7 @@
     {
       "path": "package.json",
       "bytes": 1955,
-      "sha256": "2f790049c3ae06be2c36eef919833c141beaf483c83d41ef5e8a0bcb078540d7"
+      "sha256": "614b0b72828aefaaeb31c41cebe321fa4ac38dd0fb60c8151dd3840372c1f28c"
     },
     {
       "path": "platform.config.example.yaml",
@@ -433,7 +438,7 @@
     {
       "path": "README.md",
       "bytes": 12821,
-      "sha256": "7d02c27b8a899b4769595b0f94462e03798581ea7bb2ee199c09a770bcf93a82"
+      "sha256": "7bf8b84aafb34d7daece821c356b9197b226d6741b1a187531819fcd2d784781"
     },
     {
       "path": "scripts/build-canvas.ts",
@@ -449,6 +454,11 @@
       "path": "scripts/deploy-worker.ts",
       "bytes": 2930,
       "sha256": "f020c208300bec345ee7fc3990d1ff554cf56859b10d642956e29b7211bd4cb8"
+    },
+    {
+      "path": "scripts/mutate.ts",
+      "bytes": 13026,
+      "sha256": "1628e59859445ca44a4ba1778412fdac747da75dbe36828c2213a2d22a15e581"
     },
     {
       "path": "scripts/take-updates.ts",
@@ -537,13 +547,83 @@
     },
     {
       "path": "src/console/messages.ts",
-      "bytes": 41112,
-      "sha256": "44193bf2a24cfe7d295440b84d65c071fd31ea3157611cc763ed93ffddfccb9a"
+      "bytes": 43764,
+      "sha256": "0eb4c65a831e6577b2e112767bf4f9b246ce6631d43c0665479ca94b47a876fa"
     },
     {
       "path": "src/console/operators.ts",
       "bytes": 2220,
       "sha256": "b17f33fd68220f699e42ec926454cd008e7bc46a67baa4937ead3a23a3e901a0"
+    },
+    {
+      "path": "src/console/page/client/decisions-actions.ts",
+      "bytes": 6005,
+      "sha256": "6c0763fee8e4a3fcd40bee44d03a05bfa7824b5ce9241be5f92bbb9bbd4dab55"
+    },
+    {
+      "path": "src/console/page/client/decisions-reorder.ts",
+      "bytes": 1109,
+      "sha256": "28a222bb922b8bab325b2c521a569fcfff7ce00e9a66e5a9238b82429a563d0e"
+    },
+    {
+      "path": "src/console/page/client/decisions.ts",
+      "bytes": 11390,
+      "sha256": "bf3347fde0b83bebb2162ecfb171b5bad61da7d2eab6b314ecc1aba50dc94ed0"
+    },
+    {
+      "path": "src/console/page/client/hand-over-actions.ts",
+      "bytes": 1925,
+      "sha256": "2f993d1cad442a886ce066fcea2395e47a4d8624c6b35ceab9c75f6bba4473eb"
+    },
+    {
+      "path": "src/console/page/client/hand-over.ts",
+      "bytes": 3979,
+      "sha256": "9999bde8ceb7cc8210ea26f81c58c0bba1d10020937b23db27c6b773c6750c6d"
+    },
+    {
+      "path": "src/console/page/client/helpers.ts",
+      "bytes": 14520,
+      "sha256": "3ff8eca33179303ae291d2dd60a42fede9adfa437566f252538fdb9e60064cb1"
+    },
+    {
+      "path": "src/console/page/client/load-poll.ts",
+      "bytes": 7425,
+      "sha256": "20fec11720ee316fc2db956a8602dd58c7b6b542f23981974949d000d4533038"
+    },
+    {
+      "path": "src/console/page/client/settings.ts",
+      "bytes": 4394,
+      "sha256": "a840ab5a0290e4bbf3cc9619974bfa93d1636a0cb330c47fa8f792367e02e706"
+    },
+    {
+      "path": "src/console/page/client/timeline.ts",
+      "bytes": 2887,
+      "sha256": "c2c4d983c131ad10dadf7228733825ab1c0ad165fb58379b7d1f27eec4774c9a"
+    },
+    {
+      "path": "src/console/page/client/today.ts",
+      "bytes": 16213,
+      "sha256": "65edb9f452faecb507d7baeefec8caf2384eae4df4da5901a8c26f82319341e4"
+    },
+    {
+      "path": "src/console/page/client/venture-actions.ts",
+      "bytes": 9633,
+      "sha256": "a4bff0c8faa48c84d149afcbf89ba8d626adfac4b3a4924a44ae3f257271abaa"
+    },
+    {
+      "path": "src/console/page/client/venture.ts",
+      "bytes": 12617,
+      "sha256": "5c328696cb6e51b0b9df8061f8d6fb4994ca18511c8645100370fd217794ea6e"
+    },
+    {
+      "path": "src/console/page/shell.ts",
+      "bytes": 7244,
+      "sha256": "32cda5615cf46115888454f89d72c1600dddadea5cb5c2f9226a369bdde85082"
+    },
+    {
+      "path": "src/console/page/style.ts",
+      "bytes": 22088,
+      "sha256": "08f003c5195d47332b8ce7cd0329018990ccd1190aee83aeace2b64c708a8db6"
     },
     {
       "path": "src/console/portfolio-columns.ts",
@@ -552,8 +632,8 @@
     },
     {
       "path": "src/console/router.ts",
-      "bytes": 58483,
-      "sha256": "ff112473c0ef1b67473c58c068165d23527b73900c2dfaf9477f471473adb2dc"
+      "bytes": 60492,
+      "sha256": "f673aa19209457b7bfdb434d32cc93b1ea9b635cf3bc558cdd2280ec57b5538c"
     },
     {
       "path": "src/console/server.ts",
@@ -567,8 +647,8 @@
     },
     {
       "path": "src/console/ui.ts",
-      "bytes": 108525,
-      "sha256": "7915b85f455ff5796038c18679395f11815ecbecdf3705a7c98d5af7e27a3242"
+      "bytes": 3937,
+      "sha256": "2b65692b444850edcd83961be2e3b8ed22063f0d5b51cff727e98d805e8929c2"
     },
     {
       "path": "src/console/unlock.ts",
@@ -952,8 +1032,8 @@
     },
     {
       "path": "test/console.test.ts",
-      "bytes": 174740,
-      "sha256": "17f700b7c3dbb1a603ab31b28c88904a0876b4c2468c8b7ed1135e517f24425b"
+      "bytes": 206875,
+      "sha256": "43a4702065f9956803c98208a729db9cb547c1d6cade79970f416a6123bb9710"
     },
     {
       "path": "test/coverage.test.ts",
@@ -1004,6 +1084,11 @@
       "path": "test/measurement.test.ts",
       "bytes": 3503,
       "sha256": "658fb4f0e80cd463e3e3828a9bbcfb62ae2e43e22d5d0acca906012235d0ba57"
+    },
+    {
+      "path": "test/mutate.test.ts",
+      "bytes": 9012,
+      "sha256": "8a022a228693e581069ad731df6c3887ed029f7837fce62faac2420e36ff785b"
     },
     {
       "path": "test/orchestrator.test.ts",

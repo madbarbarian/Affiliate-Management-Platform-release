@@ -27,7 +27,7 @@ import { localDate, localDateTime, timezoneName } from "../src/core/clock.ts";
 import { CYCLE_FAILURE_CODES, CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES, POST_STATUS_KEYS } from "../src/console/labels.ts";
 import { renderPage } from "../src/console/ui.ts";
 import { fill, LOCALES, MESSAGES, type Locale } from "../src/console/messages.ts";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { repoRoot } from "../src/config/load.ts";
 import { CYCLE_STEPS, type VentureId } from "../src/core/types.ts";
 import { unwrap } from "../src/core/result.ts";
@@ -378,6 +378,67 @@ function pageScript(locale: "ja" | "en"): string {
   return scripts[0]!;
 }
 
+/**
+ * Every file under `src/console/page/` - the pieces `ui.ts` composes
+ * `renderPage`'s output from, each holding its share of the page in exactly
+ * one template literal.
+ *
+ * `ui.ts` itself is deliberately not in this list any more. It used to be all
+ * of the page, in one literal, which is what the two escaping scanners below
+ * exist to guard; since the split it is ordinary TypeScript that calls these
+ * pieces and reads normally, backtick-quoted comments and all - the same kind
+ * of file `labels.ts`, `waiting.ts` and `portfolio-columns.ts` already were,
+ * none of which this suite ever scanned for stray backticks either. `ui.ts`
+ * stays in the *other* scan below (`nor does any page's own source splice one
+ * in`), because the CSS text it still holds directly (`dark`) is still page
+ * content, just not template-literal content.
+ *
+ * Walked rather than hand-written, so a file added under `./page/` next month
+ * is covered without anyone remembering to add it to a list - generalising
+ * the pattern the splice-check below already used for a hand-written
+ * three-path list. A directory walk that silently found nothing would leave
+ * every scanner that trusts it passing on an empty set, which is a scanner
+ * that has stopped scanning while still going green - see the completeness
+ * test right after this function for the guard on that.
+ */
+function pageSourceFiles(): string[] {
+  const relative: string[] = [];
+  const walk = (dirRelative: string) => {
+    const names = readdirSync(join(repoRoot(), ...dirRelative.split("/")), { withFileTypes: true });
+    for (const entry of names.sort((a, b) => a.name.localeCompare(b.name))) {
+      const childRelative = `${dirRelative}/${entry.name}`;
+      if (entry.isDirectory()) walk(childRelative);
+      else if (entry.name.endsWith(".ts")) relative.push(childRelative);
+    }
+  };
+  walk("src/console/page");
+  return relative;
+}
+
+test("the page's own file list is not empty, and holds every split module", () => {
+  const files = pageSourceFiles();
+  const expected = [
+    "src/console/page/style.ts",
+    "src/console/page/shell.ts",
+    "src/console/page/client/decisions-actions.ts",
+    "src/console/page/client/decisions-reorder.ts",
+    "src/console/page/client/decisions.ts",
+    "src/console/page/client/hand-over-actions.ts",
+    "src/console/page/client/hand-over.ts",
+    "src/console/page/client/helpers.ts",
+    "src/console/page/client/load-poll.ts",
+    "src/console/page/client/settings.ts",
+    "src/console/page/client/timeline.ts",
+    "src/console/page/client/today.ts",
+    "src/console/page/client/venture-actions.ts",
+    "src/console/page/client/venture.ts",
+  ];
+  for (const path of expected) {
+    assert.ok(files.includes(path), `pageSourceFiles() missed ${path}`);
+  }
+  assert.equal(files.length, expected.length, `pageSourceFiles() found an unexpected extra or missing file: ${files.join(", ")}`);
+});
+
 test("an account that has never run can still be started", async () => {
   // The Run button and the box that reports an error hung off `lastCycle`, so
   // a fresh deploy - or a scout proposal accepted an hour ago - showed
@@ -431,29 +492,35 @@ test("the page the browser gets is a program it can parse", () => {
   }
 });
 
-test("exactly two backticks in ui.ts are not escaped: the ones holding the page", () => {
+test("exactly two backticks in every page file are not escaped: the ones holding it", () => {
   // Three times now, a backtick written inside a *comment* has closed the
-  // literal the whole page lives in. Twice the typechecker caught it; the
-  // third time it would not have, because backticks come in pairs — a pair
-  // inside a comment closes the literal and opens a new one, which can still
-  // typecheck while splicing source code into the HTML a browser receives.
+  // literal a page lives in. Twice the typechecker caught it; the third time
+  // it would not have, because backticks come in pairs — a pair inside a
+  // comment closes the literal and opens a new one, which can still typecheck
+  // while splicing source code into the HTML a browser receives.
   //
-  // So: the file is one template literal, and only its own two ends may be
-  // bare. Everything else — including prose about template literals — is
-  // escaped or rewritten.
-  const source = readFileSync(join(repoRoot(), "src/console/ui.ts"), "utf8");
-  const bare: number[] = [];
-  for (let i = 0; i < source.length; i += 1) {
-    if (source[i] !== "`") continue;
-    let slashes = 0;
-    for (let j = i - 1; j >= 0 && source[j] === "\\"; j -= 1) slashes += 1;
-    if (slashes % 2 === 0) bare.push(source.slice(0, i).split("\n").length);
+  // `ui.ts` used to be the whole page, in one template literal, so this used
+  // to be one file with a global total of two. The split (`./page/`) gave
+  // each piece its own single literal instead of sharing `ui.ts`'s, so the
+  // same invariant now holds file by file: every file in `pageSourceFiles()`
+  // holds exactly one page-carrying literal, bare only at its own two ends.
+  // Everything else in any of them — including prose about template literals —
+  // is escaped or rewritten.
+  for (const relative of pageSourceFiles()) {
+    const source = readFileSync(join(repoRoot(), ...relative.split("/")), "utf8");
+    const bare: number[] = [];
+    for (let i = 0; i < source.length; i += 1) {
+      if (source[i] !== "`") continue;
+      let slashes = 0;
+      for (let j = i - 1; j >= 0 && source[j] === "\\"; j -= 1) slashes += 1;
+      if (slashes % 2 === 0) bare.push(source.slice(0, i).split("\n").length);
+    }
+    assert.deepEqual(
+      bare.length,
+      2,
+      `${relative}: expected the opening and closing backtick only, found ${bare.length} on lines ${bare.join(", ")}`,
+    );
   }
-  assert.deepEqual(
-    bare.length,
-    2,
-    `expected the opening and closing backtick only, found ${bare.length} on lines ${bare.join(", ")}`,
-  );
 });
 
 test("every CSS variable the page uses is one the page defines", () => {
@@ -476,41 +543,49 @@ test("every CSS variable the page uses is one the page defines", () => {
   );
 });
 
-test("who you are approving as is not drawn as part of the day's status", () => {
+test("who you are approving as is furniture, not a count that changes on every poll", () => {
   // These were one grey span joined by "・": a name that never changes all
   // session sitting at the same weight as a count that changes on every poll.
-  // The name read as a role, and both got skipped. They are separate elements
-  // now, and the count lives against the heading of the thing it counts.
+  // The name read as a role, and both got skipped.
+  //
+  // The count itself (id="decision-count", against the day's own "あなたの
+  // 判断待ち" heading) went with that heading when decisions.md (2026-09-23)
+  // moved judgement off this page entirely - there is no longer a
+  // company-wide list here for a count to sit against. What survives, and
+  // what this test still guards, is that "who" stayed out of the header's
+  // furniture, and that a background tab can still say something is waiting.
   const page = renderPage({ companyName: "テスト" });
 
   const header = page.slice(page.indexOf("<header>"), page.indexOf("</header>"));
   assert.match(header, /id="who"/, "the operator's name belongs in the header furniture");
-  assert.doesNotMatch(header, /id="decision-count"/, "the count does not belong in the header");
-
-  const decisions = page.slice(page.indexOf('<section id="decisions">'), page.indexOf('<div id="decision-list"'));
-  assert.match(decisions, /id="decision-count"/, "the count belongs against the heading it counts");
+  assert.doesNotMatch(header, /id="decision-count"/, "no count belongs in the header either");
+  assert.doesNotMatch(page, /id="decision-count"/, "the count itself moved with the heading it counted");
 
   // The one place a count is worth having is a tab nobody is looking at.
   assert.match(page, /document\.title = .*baseTitle/, "a background tab should say how many are waiting");
 });
 
-test("no escape on the page was eaten by the template literal it lives in", () => {
-  // ui.ts is one template literal, so `\w` reaches the browser as `w`. Both of
-  // these still *parse*, which is why the test above cannot see them:
+test("no escape on any page file was eaten by the template literal it lives in", () => {
+  // Each file under pageSourceFiles() holds its payload in one template
+  // literal (see the backtick test above), so `\w` inside any of them reaches
+  // the browser as `w`. Both of these still *parse*, which is why the parse
+  // test elsewhere cannot see them:
   //   fmt's /\{(\w+)\}/  became  /{(w+)}/   - no placeholder was ever filled
   //   the router's /^#\/ventures\//  became  /^#/ventures/  - a syntax error
-  // A backslash in this file is right only when it is doubled, or when it is
-  // escaping a backtick or a ${ for a nested template.
-  const source = readFileSync(join(repoRoot(), "src/console/ui.ts"), "utf8");
-  for (const match of source.matchAll(/\\+/g)) {
-    if (match[0].length % 2 === 0) continue;
-    const next = source.slice(match.index + match[0].length, match.index + match[0].length + 1);
-    if (next === "`" || next === "$") continue;
-    const line = source.slice(0, match.index).split("\n").length;
-    assert.fail(
-      `src/console/ui.ts:${line} has a lone backslash before "${next}". ` +
-        `The browser will not see it - double it.`,
-    );
+  // A backslash in any of these files is right only when it is doubled, or
+  // when it is escaping a backtick or a ${ for a nested template.
+  for (const relative of pageSourceFiles()) {
+    const source = readFileSync(join(repoRoot(), ...relative.split("/")), "utf8");
+    for (const match of source.matchAll(/\\+/g)) {
+      if (match[0].length % 2 === 0) continue;
+      const next = source.slice(match.index + match[0].length, match.index + match[0].length + 1);
+      if (next === "`" || next === "$") continue;
+      const line = source.slice(0, match.index).split("\n").length;
+      assert.fail(
+        `${relative}:${line} has a lone backslash before "${next}". ` +
+          `The browser will not see it - double it.`,
+      );
+    }
   }
 
   // And the two that were actually wrong, in the form the browser must get.
@@ -803,16 +878,16 @@ test("the console speaks the language console.locale asks for", () => {
   // thing this project says a licensee should never have to do.
   const ja = renderPage({ companyName: "テスト", locale: "ja" });
   assert.match(ja, /<html lang="ja">/);
-  assert.match(ja, /あなたの判断待ち/);
-  assert.doesNotMatch(ja, /Waiting on you/);
+  assert.match(ja, /アカウントの状態/);
+  assert.doesNotMatch(ja, /Account status/);
 
   const en = renderPage({ companyName: "Test Co", locale: "en" });
   assert.match(en, /<html lang="en">/);
-  assert.match(en, /Waiting on you/);
-  assert.doesNotMatch(en, /あなたの判断待ち/);
+  assert.match(en, /Account status/);
+  assert.doesNotMatch(en, /アカウントの状態/);
 
   // An unknown locale is the default, not a blank page.
-  assert.match(renderPage({ companyName: "x", locale: "de" as never }), /あなたの判断待ち/);
+  assert.match(renderPage({ companyName: "x", locale: "de" as never }), /アカウントの状態/);
 
   // Both languages say everything. `en` is typed against `ja`, so a missing key
   // is a compile error - this is the runtime half: no key left holding the
@@ -914,20 +989,28 @@ test("no message on the screen can only be carried out from a terminal", () => {
 });
 
 test("nor does any page's own source splice one in", () => {
-  // The message table is not the only place copy is written. These three
-  // files each build a whole page as one big string and carry comments about
-  // it, so a scan of the table alone walks past all three - which is exactly
-  // how the `amp resume` in `ui.ts` survived once already (see the history
-  // below). `unlock.ts` and `setup.ts` hold their Japanese inline rather than
-  // in `messages.ts` at all (a defect named but not fixed in
+  // The message table is not the only place copy is written. `unlock.ts`,
+  // `setup.ts` and every file the console page is built from each hold a
+  // whole page (or a share of one) as one big string and carry comments about
+  // it, so a scan of the table alone walks past all of them - which is
+  // exactly how the `amp resume` in `ui.ts` survived once already (see the
+  // history below). `unlock.ts` and `setup.ts` hold their Japanese inline
+  // rather than in `messages.ts` at all (a defect named but not fixed in
   // `test/tester-guide.test.ts`'s file comment) - one more reason a
   // MESSAGES-only scan cannot see a command spliced into either of them.
+  //
+  // The console page used to be the single file `ui.ts` - this used to be a
+  // hand-written list of three paths for exactly that reason. It is now a
+  // directory, so `pageSourceFiles()` walks it instead of naming it, and the
+  // other two files that are not part of the page join that walk's result
+  // rather than being listed beside a name that no longer covers everything
+  // it once did.
   //
   // Deliberately not widened to `src/**`: `src/worker/bundled.generated.ts`
   // holds a whole config file as one string, commands and all. That is the
   // only exclusion, it is named here, and it does not skip a line - it skips
   // a whole generated file that is not hand-written copy.
-  const files = ["src/console/ui.ts", "src/console/unlock.ts", "src/worker/setup.ts"];
+  const files = ["src/console/ui.ts", ...pageSourceFiles(), "src/console/unlock.ts", "src/worker/setup.ts"];
 
   // No per-line exception, for any file, ever. There used to be one here
   // (`NO_RESUME_IN_THE_CONSOLE`), carved out for the stop card's "amp resume"
@@ -1395,7 +1478,7 @@ test("a copy that is current, or cannot reach github, shows nothing at all", asy
       await withConsole(
         { AMP_TEST_TOKEN: "a-real-token-value" },
         async (base, handle) => {
-          const page = await openPage({ base, token: handle.token, until: "decision-list" });
+          const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
           assert.equal(page.html("update"), "", "nothing to say means nothing on the screen");
         },
         { release: MINE },
@@ -1438,8 +1521,8 @@ test("two gates left open on different days are told apart, and the older one sa
     assert.equal(older?.stale, true, "a day that has passed must be marked as passed");
     assert.equal(state.pending.find((entry) => entry !== older)?.stale, false, "and today's must not be");
 
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
-    const html = page.html("decision-list");
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
+    const html = page.html("venture-decisions");
     for (const day of days) assert.ok(html.includes(day as string), `${day} has to be on the screen`);
     assert.match(html, /もう過ぎています/, "and the operator has to be told which one is stale");
   });
@@ -1457,8 +1540,8 @@ test("a gate for a day that has passed cannot be touched, only read", async () =
     company.clock.advance(24 * 60 * 60 * 1000);
     unwrap(await company.orchestrator.runCycle("main"));
 
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
-    const html = page.html("decision-list");
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
+    const html = page.html("venture-decisions");
     // Split on the open tag, not "<section>": a locked one carries a class now.
     const sections = html.split("<section").slice(1);
     assert.equal(sections.length, 2, "both gates are drawn");
@@ -1492,8 +1575,8 @@ test("the cap on a gate is a thing you cannot exceed, not a thing you are told a
     const gate = (await company.store.decisions.get(cycle.pendingDecisionId as string))!;
     assert.ok(gate.items.length > gate.selectionHint.max, "this test needs more ideas than the cap");
 
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
-    const html = page.html("decision-list");
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
+    const html = page.html("venture-decisions");
 
     // `assisted` preselects the recommendations, and the fixture recommends up
     // to the cap — so the page opens already full, which is exactly the state
@@ -1549,21 +1632,21 @@ test("the reasons an operator opened survive the page redrawing itself", async (
   // the whole list through innerHTML, so the <details> went with it.
   await withConsole({ AMP_TEST_TOKEN: "tok-details" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await openGate(base, handle.token);
     const panel = { decision: gate.id, item: gate.items[0]!.id };
 
-    assert.equal(page.detailsOpen("decision-list", panel), false, "it starts closed");
-    await page.toggleDetails("decision-list", panel, true);
+    assert.equal(page.detailsOpen("venture-decisions", panel), false, "it starts closed");
+    await page.toggleDetails("venture-decisions", panel, true);
     // Any redraw will do - this is the one the 30-second poll ends in too.
     await page.press({ act: "none", decision: gate.id });
-    assert.equal(page.detailsOpen("decision-list", panel), true, "and is still open afterwards");
+    assert.equal(page.detailsOpen("venture-decisions", panel), true, "and is still open afterwards");
 
     // The other half of it: putting the panel back must not mean always
     // opening it, or nothing could ever be closed again.
-    await page.toggleDetails("decision-list", panel, false);
+    await page.toggleDetails("venture-decisions", panel, false);
     await page.press({ act: "none", decision: gate.id });
-    assert.equal(page.detailsOpen("decision-list", panel), false, "closed stays closed");
+    assert.equal(page.detailsOpen("venture-decisions", panel), false, "closed stays closed");
   });
 });
 
@@ -1573,13 +1656,13 @@ test("ticking a box does not shut the reasons the operator is ticking it from", 
   // under the operator's hand, immediately.
   await withConsole({ AMP_TEST_TOKEN: "tok-details-tick" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await openGate(base, handle.token);
     const panel = { decision: gate.id, item: gate.items[0]!.id };
 
-    await page.toggleDetails("decision-list", panel, true);
+    await page.toggleDetails("venture-decisions", panel, true);
     await page.press({ act: "toggle", decision: gate.id, item: gate.items[0]!.id });
-    assert.equal(page.detailsOpen("decision-list", panel), true);
+    assert.equal(page.detailsOpen("venture-decisions", panel), true);
   });
 });
 
@@ -1588,17 +1671,17 @@ test("two rationales can be read side by side", async () => {
   // opened, which is the comparison the operator is here to make.
   await withConsole({ AMP_TEST_TOKEN: "tok-details-two" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await openGate(base, handle.token);
     const first = { decision: gate.id, item: gate.items[0]!.id };
     const second = { decision: gate.id, item: gate.items[1]!.id };
 
-    await page.toggleDetails("decision-list", first, true);
-    await page.toggleDetails("decision-list", second, true);
+    await page.toggleDetails("venture-decisions", first, true);
+    await page.toggleDetails("venture-decisions", second, true);
     await page.press({ act: "none", decision: gate.id });
 
-    assert.equal(page.detailsOpen("decision-list", first), true);
-    assert.equal(page.detailsOpen("decision-list", second), true);
+    assert.equal(page.detailsOpen("venture-decisions", first), true);
+    assert.equal(page.detailsOpen("venture-decisions", second), true);
   });
 });
 
@@ -1608,12 +1691,12 @@ test("reordering the ideas carries the open rationale with the idea, not the slo
   // and they would be reading the wrong idea's reasons without being told.
   await withConsole({ AMP_TEST_TOKEN: "tok-details-order" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await openGate(base, handle.token);
     // As drawn, so "the one above it" is the one the operator sees above it.
     const drawnOrder = (): string[] => {
       const seen: string[] = [];
-      for (const match of page.html("decision-list").matchAll(/data-item="([^"]*)"/g)) {
+      for (const match of page.html("venture-decisions").matchAll(/data-item="([^"]*)"/g)) {
         if (!seen.includes(match[1]!)) seen.push(match[1]!);
       }
       return seen;
@@ -1623,17 +1706,17 @@ test("reordering the ideas carries the open rationale with the idea, not the slo
     const above = before[before.indexOf(lift) - 1];
     assert.ok(above, "the idea being lifted has to have one above it to swap with");
 
-    await page.toggleDetails("decision-list", { decision: gate.id, item: lift }, true);
+    await page.toggleDetails("venture-decisions", { decision: gate.id, item: lift }, true);
     await page.press({ act: "up", decision: gate.id, item: lift });
 
     const after = drawnOrder();
     assert.ok(after.indexOf(lift) < after.indexOf(above), "the idea actually moved, or this proves nothing");
     assert.equal(
-      page.detailsOpen("decision-list", { decision: gate.id, item: lift }), true,
+      page.detailsOpen("venture-decisions", { decision: gate.id, item: lift }), true,
       "the idea kept its panel",
     );
     assert.equal(
-      page.detailsOpen("decision-list", { decision: gate.id, item: above }), false,
+      page.detailsOpen("venture-decisions", { decision: gate.id, item: above }), false,
       "and the slot it left did not gain one",
     );
   });
@@ -1685,19 +1768,19 @@ test("the approval gate splits into 推奨 and そのほか when the recommendat
   // docs/3-development/console-ux-proposal.md §4.4 records; this is the fix.
   await withConsole({ AMP_TEST_TOKEN: "tok-gate-split" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await fullGate(base, handle.token);
     const rest = gate.items.filter((item) => !item.recommended);
     assert.ok(rest.length > 0 && rest.length < gate.items.length, "this test needs a real mix to prove anything");
 
-    const html = page.html("decision-list");
+    const html = page.html("venture-decisions");
     assert.ok(html.includes('class="group-heading">' + MESSAGES.ja["gate.recommended"]), "推奨の見出しが要る");
     assert.ok(
       html.includes(fill(MESSAGES.ja, "gate.others", { n: rest.length })),
       `the toggle has to say how many are folded away: ${html}`,
     );
     assert.equal(
-      page.detailsOpen("decision-list", { decision: gate.id, item: "__rest__" }),
+      page.detailsOpen("venture-decisions", { decision: gate.id, item: "__rest__" }),
       false,
       "そのほかは既定で畳んである",
     );
@@ -1717,18 +1800,19 @@ test("the gate does not split when nothing is recommended, but starts splitting 
     const page = await openPage({
       base,
       token: handle.token,
-      until: "decision-list",
+      hash: "#/ventures/main",
+      until: "venture-decisions",
       intercept: forceRecommended(false),
     });
     const gate = await fullGate(base, handle.token);
     assert.ok(gate.items.length > 1, "this test needs a second idea left over once one is promoted");
 
-    const before = page.html("decision-list");
+    const before = page.html("venture-decisions");
     assert.ok(!before.includes('class="group-heading"'), "推奨が0件なら見出しを出す理由がない");
     assert.ok(!before.includes('class="gate-rest"'), "畳む対象がないので<details>ごと出ない");
 
     await page.press({ act: "toggle", decision: gate.id, item: gate.items[0]!.id });
-    const after = page.html("decision-list");
+    const after = page.html("venture-decisions");
     assert.ok(after.includes('class="group-heading"'), "選んだ1件を境に、推奨0件のままでも分割が動き出す");
     assert.ok(
       after.includes(fill(MESSAGES.ja, "gate.others", { n: gate.items.length - 1 })),
@@ -1756,13 +1840,13 @@ test("an idea ticked out of そのほか renders in the open half, not hidden be
   // having that choice vanish behind a collapsed panel would be an accident.
   await withConsole({ AMP_TEST_TOKEN: "tok-gate-tick-rest" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await fullGate(base, handle.token);
     const restItem = gate.items.find((item) => !item.recommended);
     assert.ok(restItem, "this test needs a non-recommended idea to promote");
 
     await page.press({ act: "toggle", decision: gate.id, item: restItem!.id });
-    const html = page.html("decision-list");
+    const html = page.html("venture-decisions");
 
     const restIndex = html.indexOf('class="gate-rest"');
     const itemIndex = html.indexOf('data-item="' + restItem!.id + '"');
@@ -1785,15 +1869,15 @@ test("the そのほか toggle survives the page redrawing itself, the same way �
   // same Set under a synthetic item id rather than a second mechanism.
   await withConsole({ AMP_TEST_TOKEN: "tok-gate-rest-persist" }, async (base, handle, company) => {
     unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     const gate = await fullGate(base, handle.token);
     const panel = { decision: gate.id, item: "__rest__" };
 
-    assert.equal(page.detailsOpen("decision-list", panel), false, "既定は畳んである");
-    await page.toggleDetails("decision-list", panel, true);
+    assert.equal(page.detailsOpen("venture-decisions", panel), false, "既定は畳んである");
+    await page.toggleDetails("venture-decisions", panel, true);
     // Any redraw will do - this is the one the 30-second poll ends in too.
     await page.press({ act: "none", decision: gate.id });
-    assert.equal(page.detailsOpen("decision-list", panel), true, "再描画のあとも開いたまま");
+    assert.equal(page.detailsOpen("venture-decisions", panel), true, "再描画のあとも開いたまま");
   });
 });
 
@@ -1982,6 +2066,40 @@ test("running on the simulated model says so on the settings screen", async () =
     assert.match(body, /リンクの行き先/);
     assert.doesNotMatch(body, /\{(model|fastModel|effort|posts|minutes|smell)\}/, "no placeholder reached the screen");
   });
+});
+
+test("the settings screen names the markets it counts prohibited claims for, never undefined", async () => {
+  // router.ts moved the disclosure text and the prohibited-claims count into
+  // compliance[], resolved per market (src/domain/market.ts) - a good change,
+  // its own comment explains why (compliance follows the reader's market, not
+  // the company). ui.ts's settings row kept reading s.policy.disclosureText
+  // and s.policy.prohibitedClaims, neither of which the payload carries any
+  // more: 開示文 rendered blank and 使わない表現 read "undefined 件" on every
+  // deploy, live, until this fix.
+  const jp = structuredClone(BASE_CONFIG.ventures[0]);
+  const us = {
+    ...structuredClone(BASE_CONFIG.ventures[0]),
+    id: "us-site",
+    name: "US Site",
+    market: "us",
+    timezone: "America/New_York",
+    language: "en",
+    offers: [],
+  };
+  await withConsole(
+    { AMP_TEST_TOKEN: "tok-claims" },
+    async (base, handle) => {
+      const page = await openPage({ base, token: handle.token, hash: "#/settings", until: "settings-body" });
+      const body = page.html("settings-body");
+      assert.doesNotMatch(body, /undefined/, "a field read from a payload that no longer carries it");
+      assert.match(body, /日本/, "the per-market rows have to name the market, not just show a bare count");
+      assert.match(body, /United States/);
+      // Both markets' own disclosure text, not one company-wide string.
+      assert.match(body, /#PR/);
+      assert.match(body, /#ad/);
+    },
+    { config: { ventures: [jp, us] } },
+  );
 });
 
 test("the running version is visible on the settings screen, not only inside the update panel", async () => {
@@ -2275,7 +2393,7 @@ test("the page carries the deadline, the watch and the words for both", () => {
   // same day approved twice.
   assert.match(page, /const sending = resolving\.has\(decision\.id\);/);
   assert.match(page, /if \(resolving\.has\(decisionId\)\) return;/);
-  assert.match(page, /if \(runningVentureId === ventureId\) return;/);
+  assert.match(page, /if \(runningVentureIds\.has\(ventureId\)\) return;/);
 });
 
 test("pressing the button before the page has loaded still ends the wait", () => {
@@ -2317,7 +2435,7 @@ test("pressing approve twice sends one answer, not two", async () => {
     ).json()) as { pending: { id: string }[] };
     const decisionId = state.pending[0]!.id;
 
-    const page = await openPage({ base, token: handle.token, until: "decision-list" });
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
     // Both presses before the first has settled, which is the only moment the
     // guard exists for.
     await Promise.all([
@@ -2643,7 +2761,8 @@ test("on the page Cloudflare serves, an approval whose answer is lost still says
     const page = await openPage({
       base,
       token: handle.token,
-      until: "decision-list",
+      hash: "#/ventures/main",
+      until: "venture-decisions",
       page: html,
       timeScale: PAGE_TIME,
       intercept: lost.intercept,
@@ -2656,7 +2775,7 @@ test("on the page Cloudflare serves, an approval whose answer is lost still says
     await lost.done;
 
     assert.equal(noticeOn(page), MESSAGES.ja["wait.changed"], "the watch has to reach its answer, not die on the way");
-    assert.ok(!page.html("decision-list").includes(MESSAGES.ja["gate.sending"]), "and nothing is left reading 送信中…");
+    assert.ok(!page.html("venture-decisions").includes(MESSAGES.ja["gate.sending"]), "and nothing is left reading 送信中…");
   });
 });
 
@@ -2678,6 +2797,71 @@ function twoVentures(): [Record<string, unknown>, Record<string, unknown>] {
     { ...structuredClone(BASE_CONFIG.ventures[0]), id: "outdoor3", name: "アウトドア３" },
   ];
 }
+
+test("opening one account's timeline and navigating away must not paint it under a different account's history", async () => {
+  // Found in the same audit as runningVentureId: openTimelineDate and
+  // openTimelineHtml are module-level, and renderVenture() spliced them into
+  // whatever account it was drawing with no check that they belonged to it.
+  // A plain navigation - not a race, nothing held open - reached this: open a
+  // day on outdoor2, navigate to outdoor3, and outdoor2's cycle read-back was
+  // still there, now sitting under outdoor3's own history card.
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      const cycle = unwrap(await company.orchestrator.runCycle("outdoor2"));
+      // outdoor3 needs its own history row too: the empty-history branch of
+      // renderVenture does not emit a #timeline wrapper at all (a real
+      // browser destroys the old one along with the rest of #venture-history
+      // when that innerHTML is replaced), so without a recentCycle of its
+      // own this test would pass even with the leak still in the code.
+      unwrap(await company.orchestrator.runCycle("outdoor3"));
+
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-history",
+      });
+
+      await page.press({ act: "timeline", date: cycle.date });
+      const untilOpen = Date.now() + 5000;
+      while (Date.now() < untilOpen && !page.html("timeline").includes("tl-step")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(
+        page.html("timeline"),
+        /tl-step/,
+        `outdoor2's own day never opened, so navigating away next would prove nothing: ${page.html("timeline")}`,
+      );
+
+      page.navigate("#/ventures/outdoor3");
+      const untilOutdoor3 = Date.now() + 5000;
+      while (Date.now() < untilOutdoor3 && !page.html("venture-head").includes("outdoor3")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(page.html("venture-head"), /outdoor3/, `outdoor3 never rendered: ${page.html("venture-head")}`);
+
+      // Not page.html("timeline"): that box is a standalone element the click
+      // handler above wrote into directly, and this harness does not model a
+      // real browser destroying and recreating a nested element when its
+      // parent's innerHTML is reassigned. #venture-history is the element
+      // renderVenture() itself writes to, so its own string is what actually
+      // carries (or does not carry) the leak this test is about.
+      assert.doesNotMatch(
+        page.html("venture-history"),
+        /tl-step/,
+        `outdoor2's opened day is still painted under outdoor3's own history card: ${page.html("venture-history")}`,
+      );
+      assert.match(
+        page.html("venture-history"),
+        /<div id="timeline" data-date=""><\/div>/,
+        `outdoor3's own screen must show its timeline closed, not carrying outdoor2's open date: ${page.html("venture-history")}`,
+      );
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
 
 test("a late answer for the account just left cannot repaint the account just opened", async () => {
   const [outdoor2, outdoor3] = twoVentures();
@@ -2804,6 +2988,359 @@ test("the account switch refuses to touch an account that is not the one current
 });
 
 // ---------------------------------------------------------------------------
+// The run watcher's own load() loop is a third, untested caller.
+//
+// PR #76 covered two callers racing: the 30-second poll and a hashchange
+// navigation. It never exercised `watchUntilItMoves` - the loop the run
+// handler spawns once a cycle does not answer within
+// SLOW_ACTION_DEADLINE_MS - which calls the same `load()` on its own timer,
+// independently of the poll and of any navigation. This reproduces the
+// owner's report on `amp-test`: outdoor2's run does not answer in time, its
+// watcher starts looping, and the operator navigates to outdoor3 while it is
+// still going.
+// ---------------------------------------------------------------------------
+
+test("a late answer from the run watcher's own load() loop cannot repaint the account just opened", async () => {
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      let outdoor2Fetches = 0;
+      let releaseOutdoor2: (() => void) | undefined;
+      let outdoor2Answered: Promise<Response> | undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseOutdoor2 = resolve;
+      });
+
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-cycle",
+        timeScale: PAGE_TIME,
+        intercept(path, forward) {
+          // The run itself never answers, so withDeadline times out and the
+          // run handler falls into watchUntilItMoves.
+          if (path === "/api/ventures/outdoor2/run") return new Promise<Response>(() => {});
+          if (path !== "/api/ventures/outdoor2") return undefined;
+          outdoor2Fetches += 1;
+          // Let the page's own initial load (the one openPage waits on)
+          // through untouched. Every fetch after that one is the watcher's
+          // own loop, still polling an account the operator has not left
+          // yet - held open so it can be released once outdoor3 is showing.
+          if (outdoor2Fetches === 1) return undefined;
+          outdoor2Answered = gate.then(forward);
+          return outdoor2Answered;
+        },
+      });
+
+      const pressed = page.press({ ventureRun: "1", venture: "outdoor2" });
+
+      const untilWatching = Date.now() + 5000;
+      while (Date.now() < untilWatching && noticeOn(page) !== MESSAGES.ja["wait.stillRunning"]) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.equal(noticeOn(page), MESSAGES.ja["wait.stillRunning"], "the watcher never started");
+
+      // Proof this is the third caller and not the poll or a navigation: a
+      // second /api/ventures/outdoor2 fetch, issued with the operator still
+      // on outdoor2's own page and nobody having navigated anywhere yet.
+      const untilGated = Date.now() + 5000;
+      while (Date.now() < untilGated && outdoor2Fetches < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.ok(
+        outdoor2Fetches >= 2,
+        "the watcher's own load() loop never issued a second /api/ventures/outdoor2 fetch",
+      );
+
+      // The operator navigates to outdoor3 while that fetch is still held open.
+      page.navigate("#/ventures/outdoor3");
+      const untilOutdoor3 = Date.now() + 5000;
+      while (Date.now() < untilOutdoor3 && !page.html("venture-head").includes("outdoor3")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(
+        page.html("venture-head"),
+        /outdoor3/,
+        `outdoor3 never rendered, so releasing outdoor2's answer next would prove nothing: ${page.html("venture-head")}`,
+      );
+      const paintedForOutdoor3 = page.html("venture-head");
+
+      // Now the watcher's own held-open outdoor2 answer - issued before the
+      // operator left, answered after outdoor3 was already showing - arrives.
+      releaseOutdoor2!();
+      await outdoor2Answered;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      assert.equal(
+        page.html("venture-head"),
+        paintedForOutdoor3,
+        "the watcher's late outdoor2 answer repainted the screen after outdoor3 was already showing",
+      );
+      assert.doesNotMatch(
+        page.html("venture-head"),
+        /アウトドア２/,
+        "outdoor2's name must never appear while outdoor3 is routed",
+      );
+
+      // Let the watcher run out its bound (sped up by PAGE_TIME) so nothing
+      // is still in flight when withConsole tears the server down.
+      await pressed;
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// `runningVentureId` is one variable, not one per account.
+//
+// Found while widening the search for the owner's "wrong account" report
+// (STATUS.md / the watchUntilItMoves investigation): not the race that report
+// described, but a second, real defect in the same code. `runningVentureId`
+// exists to stop a second press from starting a second cycle while the first
+// is still in flight (the comment above the run handler: "the second caller
+// the orchestrator now has to join"). It is a single scalar, not one entry
+// per account, so starting a run on a second account while the first's
+// watcher is still looping overwrites it - the first account's own "a run is
+// in flight" fact is lost, its button comes back pressable, and a second
+// press actually starts a second cycle for it. FAILING as committed: nobody
+// has fixed this yet.
+// ---------------------------------------------------------------------------
+
+test("starting a run on a second account must not erase the first account's own in-flight flag", async () => {
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-cycle",
+        timeScale: PAGE_TIME,
+        // Neither account's run ever answers, so both watchers keep looping
+        // for the whole test - the state this defect needs to show itself in.
+        intercept: (path) => (path.endsWith("/run") ? new Promise<Response>(() => {}) : undefined),
+      });
+
+      const pressedOutdoor2 = page.press({ ventureRun: "1", venture: "outdoor2" });
+      // Not the notice - that flips the instant watchUntilItMoves starts, before
+      // its own first load() has had a chance to repaint the button. The button
+      // text only comes from a real renderVenture() call, which needs the
+      // watcher's own first poll to have actually run.
+      const untilRunningOutdoor2 = Date.now() + 5000;
+      while (
+        Date.now() < untilRunningOutdoor2 &&
+        !page.html("venture-cycle").includes(MESSAGES.ja["venture.running"])
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.ok(
+        page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+        `outdoor2's own button never showed 動かしています…: ${page.html("venture-cycle")}`,
+      );
+
+      // The operator moves to outdoor3 - a plain navigation, not a race - and
+      // presses run there too. Nothing about pressing a *different* account's
+      // button is refused: the guard at the top of this handler only ever
+      // compares against the one account already running.
+      page.navigate("#/ventures/outdoor3");
+      const untilOutdoor3 = Date.now() + 5000;
+      while (Date.now() < untilOutdoor3 && !page.html("venture-head").includes("outdoor3")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(page.html("venture-head"), /outdoor3/, `outdoor3 never rendered: ${page.html("venture-head")}`);
+
+      const pressedOutdoor3 = page.press({ ventureRun: "1", venture: "outdoor3" });
+      const untilRunningOutdoor3 = Date.now() + 5000;
+      while (
+        Date.now() < untilRunningOutdoor3 &&
+        !page.html("venture-cycle").includes(MESSAGES.ja["venture.running"])
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.ok(
+        page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+        `outdoor3's own button never showed 動かしています…: ${page.html("venture-cycle")}`,
+      );
+
+      // Back to outdoor2. Its own run has still not answered - the watcher
+      // spawned for it is, in reality, still looping in the background - so
+      // this account's own button has to still know its own run is in
+      // flight, whatever account was pressed after it.
+      page.navigate("#/ventures/outdoor2");
+      const untilOutdoor2Again = Date.now() + 5000;
+      while (Date.now() < untilOutdoor2Again && !page.html("venture-head").includes("outdoor2")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(page.html("venture-head"), /outdoor2/, `outdoor2 never re-rendered: ${page.html("venture-head")}`);
+
+      assert.ok(
+        page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+        `outdoor2's own run is still outstanding, so its button must still read 動かしています… after outdoor3's press, not come back pressable: ${page.html("venture-cycle")}`,
+      );
+
+      // The proof that this is not cosmetic: a second press must be refused,
+      // the same way the run handler already refuses one for the account
+      // that is not routed (see the sibling test above) - not start a second
+      // POST for an account whose first one never answered.
+      await page.press({ ventureRun: "1", venture: "outdoor2" });
+      const outdoor2RunRequests = page.requests.filter((path) => path === "/api/ventures/outdoor2/run");
+      assert.equal(
+        outdoor2RunRequests.length,
+        1,
+        `a second /run for outdoor2 must not be possible while its first is still in flight: ${page.requests.join(", ")}`,
+      );
+
+      // Neither watcher will ever see "moved" or "answered" here, so both run
+      // out WATCH_LIMIT_MS (sped up by PAGE_TIME) rather than hang forever.
+      await Promise.all([pressedOutdoor2, pressedOutdoor3]);
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+test("an account's own running label survives more than one re-render, not only the one right after the press", async () => {
+  // The sibling test above proves the flag survives a single navigation away
+  // and back. A Set fixes that the same way a scalar could look like it does,
+  // if the guard were re-derived per render instead of read from state that
+  // persists - so this repeats the round trip several times, the same shape
+  // the 30-second poll's repeated load() calls take, and checks the button
+  // and the request count have not drifted by the last one.
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-cycle",
+        timeScale: PAGE_TIME,
+        intercept: (path) => (path.endsWith("/run") ? new Promise<Response>(() => {}) : undefined),
+      });
+
+      const pressedOutdoor2 = page.press({ ventureRun: "1", venture: "outdoor2" });
+      const untilRunning = Date.now() + 5000;
+      while (Date.now() < untilRunning && !page.html("venture-cycle").includes(MESSAGES.ja["venture.running"])) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.ok(
+        page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+        `outdoor2's own button never showed 動かしています…: ${page.html("venture-cycle")}`,
+      );
+
+      for (let round = 0; round < 3; round += 1) {
+        page.navigate("#/ventures/outdoor3");
+        const untilOutdoor3 = Date.now() + 5000;
+        while (Date.now() < untilOutdoor3 && !page.html("venture-head").includes("outdoor3")) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.match(page.html("venture-head"), /outdoor3/, `round ${round}: outdoor3 never rendered`);
+
+        page.navigate("#/ventures/outdoor2");
+        const untilOutdoor2 = Date.now() + 5000;
+        while (Date.now() < untilOutdoor2 && !page.html("venture-head").includes("outdoor2")) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.match(page.html("venture-head"), /outdoor2/, `round ${round}: outdoor2 never re-rendered`);
+        assert.ok(
+          page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+          `round ${round}: outdoor2's button stopped reading 動かしています… after a re-render: ${page.html("venture-cycle")}`,
+        );
+      }
+
+      const outdoor2RunRequests = page.requests.filter((path) => path === "/api/ventures/outdoor2/run");
+      assert.equal(
+        outdoor2RunRequests.length,
+        1,
+        `repeated re-renders must not have started a second /run for outdoor2: ${page.requests.join(", ")}`,
+      );
+
+      await pressedOutdoor2;
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+test("a run finishing on one account must not release a different account's still-outstanding flag", async () => {
+  // The brief's own warning: with a scalar, clearing the flag on the success
+  // path was `runningVentureId = null` - unconditional. The equivalent bug
+  // with a Set is `runningVentureIds.clear()` where `.delete(ventureId)` was
+  // meant - it reads just as innocently and passes every test that only ever
+  // has one run in flight at a time. This keeps outdoor2's run hung and lets
+  // outdoor3's run answer for real, so outdoor3 takes the success path (not
+  // the timeout path the sibling tests exercise) and proves it only deletes
+  // its own entry.
+  const [outdoor2, outdoor3] = twoVentures();
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const page = await openPage({
+        base,
+        token: handle.token,
+        hash: "#/ventures/outdoor2",
+        until: "venture-cycle",
+        timeScale: PAGE_TIME,
+        // Only outdoor2's run hangs. outdoor3's is never intercepted, so it
+        // answers normally, fast - the success path, not watchUntilItMoves.
+        intercept: (path) => (path === "/api/ventures/outdoor2/run" ? new Promise<Response>(() => {}) : undefined),
+      });
+
+      const pressedOutdoor2 = page.press({ ventureRun: "1", venture: "outdoor2" });
+      const untilRunning = Date.now() + 5000;
+      while (Date.now() < untilRunning && !page.html("venture-cycle").includes(MESSAGES.ja["venture.running"])) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.ok(
+        page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+        `outdoor2's own button never showed 動かしています…: ${page.html("venture-cycle")}`,
+      );
+
+      page.navigate("#/ventures/outdoor3");
+      const untilOutdoor3 = Date.now() + 5000;
+      while (Date.now() < untilOutdoor3 && !page.html("venture-head").includes("outdoor3")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(page.html("venture-head"), /outdoor3/, `outdoor3 never rendered: ${page.html("venture-head")}`);
+
+      // Awaited directly: outdoor3's own run is not intercepted, so this
+      // finishes for real - the success path in the run handler runs to
+      // completion, including its own runningVentureIds.delete("outdoor3"),
+      // before this line returns.
+      await page.press({ ventureRun: "1", venture: "outdoor3" });
+      assert.doesNotMatch(
+        page.html("venture-cycle"),
+        new RegExp(MESSAGES.ja["venture.running"]),
+        "outdoor3's own run finished, so its button must not still read 動かしています…",
+      );
+
+      page.navigate("#/ventures/outdoor2");
+      const untilOutdoor2Again = Date.now() + 5000;
+      while (Date.now() < untilOutdoor2Again && !page.html("venture-head").includes("outdoor2")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.match(page.html("venture-head"), /outdoor2/, `outdoor2 never re-rendered: ${page.html("venture-head")}`);
+      assert.ok(
+        page.html("venture-cycle").includes(MESSAGES.ja["venture.running"]),
+        `outdoor3 finishing must not have released outdoor2's own in-flight flag: ${page.html("venture-cycle")}`,
+      );
+
+      const outdoor2RunRequests = page.requests.filter((path) => path === "/api/ventures/outdoor2/run");
+      assert.equal(
+        outdoor2RunRequests.length,
+        1,
+        `outdoor2's run must still be treated as in flight: ${page.requests.join(", ")}`,
+      );
+
+      await pressedOutdoor2;
+    },
+    { config: { ventures: [outdoor2, outdoor3] } },
+  );
+});
+
+// ---------------------------------------------------------------------------
 // A watch that dies must not take the buttons with it.
 //
 // The v0.7.0 defect was two failures stacked. The judgement threw - and the
@@ -2859,7 +3396,8 @@ test("a watch that dies with an error gives the approve button back and says to 
     const page = await openPage({
       base,
       token: handle.token,
-      until: "decision-list",
+      hash: "#/ventures/main",
+      until: "venture-decisions",
       page: await pageWhoseWatchDies(base, handle.token),
       timeScale: PAGE_TIME,
       intercept: neverAnswered("/resolve"),
@@ -2874,7 +3412,7 @@ test("a watch that dies with an error gives the approve button back and says to 
     assert.equal(noticeOn(page), MESSAGES.ja["wait.tooLong"], "not 'still writing' about a watch that has stopped");
     // The gate is still open - this answer never arrived - so its card is still
     // drawn, and it must be drawn pressable rather than 送信中….
-    const list = page.html("decision-list");
+    const list = page.html("venture-decisions");
     assert.ok(list.includes(`data-act="submit" data-decision="${decisionId}" >`), `the button is still disabled: ${list}`);
     assert.ok(!list.includes(MESSAGES.ja["gate.sending"]));
   });
@@ -3070,8 +3608,11 @@ test("the hand-over card names each comment, and says what to paste where", asyn
     { AMP_TEST_TOKEN: "a-real-token-value" },
     async (base, handle, company) => {
       const { card, stored } = await handedOver(base, handle.token, company);
-      const page = await openPage({ base, token: handle.token, until: "hand-over" });
-      const html = page.html("hand-over");
+      // The card moved to the account's own screen (decisions.md, 2026-09-23) -
+      // it was never a company-wide report, only ever drawn on a page that
+      // showed every account's at once.
+      const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-hand-over" });
+      const html = page.html("venture-hand-over");
 
       // Taken from the post itself rather than written out here, so a purpose
       // added to `CommentPurpose` is covered the day it first reaches a card.
@@ -3244,23 +3785,6 @@ test("the account's own screen shows the gate that is waiting on it", async () =
   });
 });
 
-test("and the day's list is empty there, so no gate is drawn twice", async () => {
-  // Both would render `id="err-<decisionId>"` twice. `#decision-list` comes
-  // first in the document, so `getElementById` would hand a refused approval
-  // the copy inside the hidden view - the error would be written somewhere
-  // nobody can see, on the one press where an error matters.
-  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
-    unwrap(await company.orchestrator.runCycle("main"));
-    const page = await openPage({
-      base,
-      token: handle.token,
-      hash: "#/ventures/main",
-      until: "venture-cycle",
-    });
-    assert.equal(page.html("decision-list"), "", "the day's list still drew the same gate");
-  });
-});
-
 test("approving from the account's screen actually approves", async () => {
   // Two names, because they measure two different things and only the second
   // one is proof. `page.press` ignores `disabled`, and the harness's
@@ -3324,6 +3848,113 @@ test("the badge and the block agree, even on an account that is switched off", a
     assert.doesNotMatch(page.html("venture-head"), /判断待ち/, "a badge over an empty screen");
     assert.doesNotMatch(page.html("venture-decisions"), /data-act="submit"/);
   });
+});
+
+test("the status strip's numbers are the numbers actually waiting, across two accounts", async () => {
+  // decisions.md, 2026-09-23, condition 2: removing the day's list from this
+  // page is only safe if the strip's badge can never say less than what is
+  // actually waiting. "The strip renders" proves nothing about that - this
+  // builds a state with a known number of pending decisions on two accounts
+  // and a hand-over post on one of them, and checks the rendered page's own
+  // numbers against ground truth read straight off the orchestrator and the
+  // store, never off the same /api/state payload the page itself reads.
+  const CHANNEL = {
+    id: "by-hand",
+    adapter: "manual",
+    enabled: true,
+    credentialEnv: {},
+    research: { queries: [], minLikes: 0, maxItems: 1, lookbackHours: 24 },
+    options: { maxCharacters: 500, format: "thread", composerUrl: "https://www.threads.net/" },
+  };
+  const outdoor2 = { ...structuredClone(BASE_CONFIG.ventures[0]), id: "outdoor2", name: "アウトドア２", channels: ["by-hand"] };
+  const outdoor3 = { ...structuredClone(BASE_CONFIG.ventures[0]), id: "outdoor3", name: "アウトドア３", channels: ["by-hand"] };
+
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      // outdoor2: two days' gates, left standing - nobody approved either one.
+      // Two pending decisions, no hand-over post.
+      unwrap(await company.orchestrator.runCycle("outdoor2"));
+      company.clock.advance(24 * 60 * 60 * 1000);
+      unwrap(await company.orchestrator.runCycle("outdoor2"));
+
+      // outdoor3: day one carried all the way through - both gates answered,
+      // the post's slot reached, dispatched onto the manual channel - so it is
+      // a real hand-over post, not a fixture. Day two's gate is then left
+      // standing, the same as outdoor2's, so this account carries both facts
+      // the strip has to tell apart.
+      const outdoor3Store = company.stores.open("outdoor3" as never);
+      const atProposal = unwrap(await company.orchestrator.runCycle("outdoor3"));
+      const proposal = await outdoor3Store.decisions.get(atProposal.pendingDecisionId as string);
+      const recommended = proposal!.items.filter((item) => item.recommended).map((item) => item.id);
+      const atPublish = unwrap(
+        await company.orchestrator.resolveGate(atProposal.pendingDecisionId as string, {
+          decidedBy: "tester",
+          selectedIds: recommended,
+          nowIso: company.clock.nowIso(),
+        }),
+      );
+      const publishDecision = await outdoor3Store.decisions.get(atPublish.pendingDecisionId as string);
+      unwrap(
+        await company.orchestrator.resolveGate(atPublish.pendingDecisionId as string, {
+          decidedBy: "tester",
+          selectedIds: publishDecision!.items.map((item) => item.id),
+          nowIso: company.clock.nowIso(),
+        }),
+      );
+      const approved = await outdoor3Store.posts.find((post) => post.status === "approved");
+      assert.ok(approved.length > 0, "this test needs a real post to hand over");
+      company.clock.set(new Date(Math.max(...approved.map((post) => post.scheduledFor)) + 60_000).toISOString());
+      unwrap(await company.orchestrator.dispatchDue(company.clock.now()));
+
+      company.clock.advance(24 * 60 * 60 * 1000);
+      unwrap(await company.orchestrator.runCycle("outdoor3"));
+
+      // Ground truth, read independently of the page and of /api/state: the
+      // orchestrator's own pending list, and the store's own posts.
+      const wantPendingOutdoor2 = (await company.orchestrator.pendingDecisions("outdoor2" as never)).length;
+      const wantPendingOutdoor3 = (await company.orchestrator.pendingDecisions("outdoor3" as never)).length;
+      const wantHandOverOutdoor2 = (await company.stores.open("outdoor2" as never).posts.find((post) => post.status === "handed_over")).length;
+      const wantHandOverOutdoor3 = (await outdoor3Store.posts.find((post) => post.status === "handed_over")).length;
+      assert.equal(wantPendingOutdoor2, 2, "this test needs two gates actually standing open on outdoor2");
+      assert.equal(wantPendingOutdoor3, 1, "and exactly one on outdoor3");
+      assert.equal(wantHandOverOutdoor2, 0, "outdoor2 must carry no hand-over post");
+      assert.ok(wantHandOverOutdoor3 > 0, "outdoor3 must carry at least one real hand-over post");
+
+      const page = await openPage({ base, token: handle.token, until: "status-strip" });
+      const strip = page.html("status-strip");
+
+      // One row per account, read out by name so a count is checked against
+      // the row it actually belongs to, not against the strip as a whole.
+      const rowFor = (name: string) => {
+        const rows = strip.split('<a class="status-row"').slice(1);
+        const row = rows.find((candidate) => candidate.includes(name));
+        assert.ok(row, `no row for ${name} on the strip: ${strip}`);
+        return row as string;
+      };
+
+      const outdoor2Row = rowFor("アウトドア２");
+      assert.ok(
+        outdoor2Row.includes(fill(MESSAGES.ja, "status.approvalsNeeded", { n: wantPendingOutdoor2 })),
+        `outdoor2's row does not say ${wantPendingOutdoor2} waiting: ${outdoor2Row}`,
+      );
+      assert.ok(
+        !outdoor2Row.includes(MESSAGES.ja["status.handOverBadge"]),
+        `outdoor2 has no hand-over post but the strip says it does: ${outdoor2Row}`,
+      );
+
+      const outdoor3Row = rowFor("アウトドア３");
+      assert.ok(
+        outdoor3Row.includes(fill(MESSAGES.ja, "status.approvalsNeeded", { n: wantPendingOutdoor3 })),
+        `outdoor3's row does not say ${wantPendingOutdoor3} waiting: ${outdoor3Row}`,
+      );
+      assert.ok(
+        outdoor3Row.includes(MESSAGES.ja["status.handOverBadge"]),
+        `outdoor3 has a real hand-over post but the strip does not say so: ${outdoor3Row}`,
+      );
+    },
+    { config: { channels: [CHANNEL], ventures: [outdoor2, outdoor3] } },
+  );
 });
 
 test("switching an account off closes its gate, with a reason and without cancelling the day", async () => {
