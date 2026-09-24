@@ -375,6 +375,10 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
      behind a click. Bordered rather than filled, so it reads as distinct from
      both the normal chip and the strong one rather than as a third filled pill. */
   .status-badge--failed { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
+  /* An account not going to run at all until someone resumes it - the same
+     visual weight as --failed on purpose, so a quiet-looking row is never the
+     one that is actually halted, but its own class: this is not a failure. */
+  .status-badge--stopped { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
   /* The account screen. */
   a.back, a.open { color: var(--accent); text-decoration: none; font-size: 13px; }
   a.open { display: inline-block; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; }

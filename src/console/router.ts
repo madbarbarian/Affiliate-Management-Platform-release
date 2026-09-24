@@ -15,7 +15,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { join } from "node:path";
 
-import { localDate } from "../core/clock.ts";
+import { localDate, nextLocalTime, parseTimeOfDay } from "../core/clock.ts";
 import { composeThreadParts } from "../channels/format.ts";
 import { composerUrlOf } from "../channels/manual.ts";
 import { readPause } from "../kernel/pause.ts";
@@ -500,6 +500,12 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   const ventureZone = new Map(runtime.config.ventures.map((venture) => [venture.id as string, venture.timezone]));
   const companyZone = companyTimezone(runtime.config.ventures);
   const zoneOf = (ventureId: string): string => ventureZone.get(ventureId) ?? companyZone;
+  // Minutes-since-midnight form of each venture's `cadence.cycleStartsAt`,
+  // resolved once here rather than per row: the schema already validated the
+  // "HH:MM" string at load time, so this never throws.
+  const cadenceMinutes = new Map(
+    runtime.config.ventures.map((venture) => [venture.id as string, parseTimeOfDay(venture.cadence.cycleStartsAt)]),
+  );
 
   // The day's page is the whole company's: what is waiting, what goes out
   // next, the numbers, what just happened. So this is a named crossing, and
@@ -836,6 +842,21 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
         // three values are the platform's own English vocabulary; the words
         // the operator reads are chosen there, next to every other label.
         ...(row.lastCycle ? { lastCycle: row.lastCycle } : {}),
+        // Whether *today's* cycle, in this account's own timezone, is the one
+        // on record - never the browser's or the server's day. This is what
+        // lets an idle row tell "ran and found nothing" apart from "has not
+        // run at all", the exact confusion console-architecture.md records: a
+        // venture was dead for two days while an empty row looked the same as
+        // a quiet one.
+        ranToday: row.lastCycle?.date === localDate(clock.now(), zoneOf(row.ventureId)),
+        // The next cycle's scheduled start, from cadence - resolved to a real
+        // instant so an idle row can say when, not just that it ran. Sent for
+        // every row, not only idle ones, so the client has no branch where it
+        // has to guess at a missing value.
+        nextCycleAt: when.at(
+          nextLocalTime(clock.now(), cadenceMinutes.get(row.ventureId) ?? 0, zoneOf(row.ventureId)),
+          zoneOf(row.ventureId),
+        ),
         posts: row.posts,
         medianScore: row.medianScore,
         clicks: row.clicks,

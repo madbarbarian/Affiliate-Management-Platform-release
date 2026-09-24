@@ -1,6 +1,6 @@
 # Affiliate Management Platform
 
-**v0.12.1** — what changed, and whether it breaks your morning: [CHANGELOG.md](CHANGELOG.md)
+**v0.12.2** — what changed, and whether it breaks your morning: [CHANGELOG.md](CHANGELOG.md)
 
 An autonomous AI company that runs an affiliate operation, built so the human
 in charge has exactly two jobs:

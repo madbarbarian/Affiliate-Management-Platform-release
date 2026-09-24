@@ -27,8 +27,51 @@ function handOverHere(ventureId) {
 }
 
 /**
- * One account, one row: which of the three facts apply, at the strength
- * decisions.md (2026-09-23) gives each one.
+ * What an idle row says when nothing is waiting on it - the empty state
+ * console-architecture.md and console-ux-proposal.md §5.2 both name as a
+ * defect, not a feature: "何も待っていない" and "確かめられなかった" render as
+ * the same blank row, and a venture was once dead for two days before anyone
+ * noticed because of exactly that.
+ *
+ * Switched off or stopped wins over everything else here, including a stale
+ * failed cycle: those are states the account is *not going to leave on its
+ * own*, and a leftover "失敗しています" badge from the cycle that was still
+ * open when it was switched off would say the wrong thing about why nothing
+ * is happening. row.ranToday is this account's own calendar day, decided on
+ * the server in its own timezone - never the browser's - the same rule
+ * console/when.ts exists to enforce for every timestamp on this page.
+ */
+function idleFacts(row) {
+  if (row.state === "stopped") {
+    return '<span class="status-badge status-badge--stopped">' + esc(T["status.rowStopped"]) + "</span>";
+  }
+  if (row.state === "deactivated") {
+    return '<span class="muted">' + esc(T["status.rowDeactivated"]) + "</span>";
+  }
+  if (row.state === "inactive") {
+    return '<span class="muted">' + esc(T["status.rowConfigInactive"]) + "</span>";
+  }
+  if (!row.ranToday) {
+    // The fact the recorded failure was about: distinct from "ran and found
+    // nothing", and deliberately silent on when the next one is - promising a
+    // time here would be false reassurance on the one account that actually
+    // needs a look.
+    return '<span class="muted">' + esc(T["status.notRunYet"]) + "</span>";
+  }
+  if (row.lastCycle?.status === "running") {
+    // Ran today but is not finished - "ran and found nothing" would be wrong
+    // to say about a cycle still in progress.
+    return '<span class="muted">' + esc(T["status.cycleRunning"]) + "</span>";
+  }
+  return '<span class="muted">' + esc(T["status.ranToday"]) + "</span>" +
+    '<span class="muted">' + esc(fmt("status.nextCycle", { next: row.nextCycleAt })) + "</span>";
+}
+
+/**
+ * One account, one row: which of the three waiting facts apply, at the
+ * strength decisions.md (2026-09-23) gives each one, or - when none of them
+ * do - what idleFacts() says instead. A row never says nothing: the empty
+ * span this replaced is the defect this function exists to end.
  *
  * Normal (承認が要る): a decision waits for the operator: late by an hour
  * costs nothing. Strong (いま投稿する番です): the one thing on this page a
@@ -41,17 +84,23 @@ function handOverHere(ventureId) {
 function renderStatusRow(row) {
   const approvalsNeeded = row.pendingDecisions ?? 0;
   const postingNow = handOverHere(row.ventureId);
-  const failed = row.lastCycle?.status === "failed";
-  const facts =
-    (approvalsNeeded > 0
-      ? '<span class="status-badge">' + esc(fmt("status.approvalsNeeded", { n: approvalsNeeded })) + "</span>"
-      : "") +
-    (postingNow > 0
-      ? '<span class="status-badge status-badge--handover">' + esc(T["status.handOverBadge"]) + "</span>"
-      : "") +
-    (failed
-      ? '<span class="status-badge status-badge--failed">' + esc(T["status.failed"]) + "</span>"
-      : "");
+  // Only for an account actually running: a switched-off or stopped account
+  // can carry a cycle that failed on its way out (closeOpenGates marks it
+  // "venture.deactivated"), and that is idleFacts()'s fact to state, in its
+  // own words, not this badge's.
+  const failed = row.state === "active" && row.lastCycle?.status === "failed";
+  const waiting = approvalsNeeded > 0 || postingNow > 0 || failed;
+  const facts = waiting
+    ? (approvalsNeeded > 0
+        ? '<span class="status-badge">' + esc(fmt("status.approvalsNeeded", { n: approvalsNeeded })) + "</span>"
+        : "") +
+      (postingNow > 0
+        ? '<span class="status-badge status-badge--handover">' + esc(T["status.handOverBadge"]) + "</span>"
+        : "") +
+      (failed
+        ? '<span class="status-badge status-badge--failed">' + esc(T["status.failed"]) + "</span>"
+        : "")
+    : idleFacts(row);
   return '<a class="status-row" href="#/ventures/' + encodeURIComponent(row.ventureId) + '">' +
     '<div class="status-row-top">' +
       '<span class="status-name">' + esc(row.name) + "</span>" +

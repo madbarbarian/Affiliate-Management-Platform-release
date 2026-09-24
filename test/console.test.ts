@@ -4135,6 +4135,119 @@ test("the status strip's numbers are the numbers actually waiting, across two ac
   );
 });
 
+// ---------------------------------------------------------------------------
+// The status strip's empty case: "nothing waiting" must never look like
+// "nothing recorded". console-architecture.md, 2026-09-23: a venture was dead
+// for two days while the row said nothing at all, because an empty row and a
+// quiet one rendered identically. The tests above already guard the badge's
+// count; these guard the row when there is no badge to count at all.
+// ---------------------------------------------------------------------------
+
+test("an idle row says the machine ran today, and when the next one is - not silence", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const atProposal = unwrap(await company.orchestrator.runCycle("main"));
+    const proposal = (await company.store.decisions.get(atProposal.pendingDecisionId as string))!;
+    const atPublish = unwrap(
+      await company.orchestrator.resolveGate(atProposal.pendingDecisionId as string, {
+        decidedBy: "tester",
+        selectedIds: proposal.items.filter((item) => item.recommended).map((item) => item.id),
+        nowIso: company.clock.nowIso(),
+      }),
+    );
+    const publishDecision = (await company.store.decisions.get(atPublish.pendingDecisionId as string))!;
+    unwrap(
+      await company.orchestrator.resolveGate(atPublish.pendingDecisionId as string, {
+        decidedBy: "tester",
+        selectedIds: publishDecision.items.map((item) => item.id),
+        nowIso: company.clock.nowIso(),
+      }),
+    );
+
+    // Ground truth, read independently of the page: the cycle actually
+    // finished today, with nothing left pending.
+    const cycle = (await company.store.cycles.all())[0];
+    assert.equal(cycle?.status, "completed", "this test needs a cycle that actually finished today");
+    assert.equal((await company.orchestrator.pendingDecisions("main" as never)).length, 0);
+
+    const page = await openPage({ base, token: handle.token, until: "status-strip" });
+    const strip = page.html("status-strip");
+    assert.doesNotMatch(strip, /status-badge/, `nothing is waiting; no waiting badge should show: ${strip}`);
+    assert.ok(strip.includes(MESSAGES.ja["status.ranToday"]), `the row does not say the cycle ran: ${strip}`);
+    assert.ok(
+      !strip.includes(MESSAGES.ja["status.notRunYet"]),
+      `a cycle that finished today must not read as one that has not run: ${strip}`,
+    );
+    // The next cycle's time, named with the clock it is on - cadence.cycleStartsAt
+    // is "06:30" in BASE_CONFIG, and having run and finished today, the next one
+    // is tomorrow at that same wall-clock time.
+    assert.ok(strip.includes("06:30"), `the row does not name when the next cycle is due: ${strip}`);
+    assert.ok(strip.includes("日本標準時"), `a time on this row must carry the name of its clock: ${strip}`);
+  });
+});
+
+test("an idle row says the machine has not run today - a different fact from finished", async () => {
+  // This is the exact case the recorded failure was about: nothing waiting
+  // and no cycle today can mean "ran and found nothing" or "dead since
+  // yesterday", and the row must not let those look the same.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "status-strip" });
+    const strip = page.html("status-strip");
+    assert.ok(strip.includes(MESSAGES.ja["status.notRunYet"]), `an account that never ran should say so: ${strip}`);
+    assert.ok(
+      !strip.includes(MESSAGES.ja["status.ranToday"]),
+      `an account that never ran must not read as one that finished today: ${strip}`,
+    );
+    assert.doesNotMatch(strip, /status-badge/, `nothing is waiting; no waiting badge should show: ${strip}`);
+  });
+});
+
+test("a deactivated account's row says so, not the stale failure closing its gate left behind", async () => {
+  // closeOpenGates (fired by the deactivate route on an account with an open
+  // gate) marks the cycle "failed" with code venture.deactivated, and that
+  // failure never clears itself while the account stays off - there is no
+  // later cycle to overwrite it. A row that read lastCycle.status alone would
+  // say 失敗しています about an account the operator switched off on purpose.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    unwrap(await company.orchestrator.runCycle("main"));
+    assert.equal((await switchOff(base, handle.token, "main")).status, 200);
+
+    // Ground truth: the account is deactivated and its last cycle really is
+    // the stale "failed" record closeOpenGates leaves behind.
+    const cycle = (await company.store.cycles.all())[0];
+    assert.equal(cycle?.status, "failed", "this test needs the stale-failed cycle closeOpenGates leaves behind");
+    assert.equal(cycle?.failure?.code, "venture.deactivated");
+
+    const page = await openPage({ base, token: handle.token, until: "status-strip" });
+    const strip = page.html("status-strip");
+    assert.ok(
+      strip.includes(MESSAGES.ja["status.rowDeactivated"]),
+      `a deactivated account's row does not say so: ${strip}`,
+    );
+    assert.ok(!strip.includes(MESSAGES.ja["status.failed"]), `a deactivated account must not read as failing: ${strip}`);
+  });
+});
+
+test("a stopped account's row says so", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company, runtime) => {
+    const stopped = await applyPause({
+      state: runtime.state,
+      ventureId: "main" as VentureId,
+      reason: "見直し中",
+      by: "owner",
+      at: company.clock.nowIso(),
+    });
+    assert.ok(stopped.ok);
+
+    const page = await openPage({ base, token: handle.token, until: "status-strip" });
+    const strip = page.html("status-strip");
+    assert.ok(strip.includes(MESSAGES.ja["status.rowStopped"]), `a stopped account's row does not say so: ${strip}`);
+    assert.ok(
+      !strip.includes(MESSAGES.ja["status.notRunYet"]),
+      `a stopped account must not read as one waiting for its first run: ${strip}`,
+    );
+  });
+});
+
 test("switching an account off closes its gate, with a reason and without cancelling the day", async () => {
   // `expireStaleGates` cancels the cycle as well, and `advance` returns from a
   // cancelled cycle before it does anything - so closing this one the same way

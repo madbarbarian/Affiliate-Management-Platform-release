@@ -135,17 +135,27 @@ export async function migrate(driver: SqlDriver, options: MigrateOptions = {}): 
     return;
   }
 
-  for (const statement of SCHEMA) await driver.run(statement);
+  // One batch, not six statements - the same reason as the pre-split branch
+  // above: a request and the minute cron can both reach an empty database's
+  // first-ever schema check in different isolates at nearly the same moment,
+  // and it is one round trip instead of six either way. `ensureSchema`'s own
+  // memo (below) means a warm isolate never pays this again, but the very
+  // first request into a brand new isolate still does, and six sequential
+  // round trips was six times the network latency this needed to cost.
+  await driver.batch(SCHEMA.map((sql) => ({ sql })));
 }
 
 /**
  * Which drivers have had the schema applied.
  *
- * `IF NOT EXISTS` makes re-running harmless but not free: it is six round
- * trips to the database, and on a host that builds a store per request that
- * lands on the redirect - the one path a reader waits on. A `WeakMap` keyed on
- * the driver means "once per driver for as long as it lives", which on a
- * Worker is once per isolate.
+ * `IF NOT EXISTS` makes re-running harmless but not free: it is a `PRAGMA
+ * table_info` plus a batch of the schema statements, and on a host that
+ * builds a store per request that lands on the redirect - the one path a
+ * reader waits on. A `WeakMap` keyed on the driver means "once per driver for
+ * as long as it lives", which on a Worker is once per isolate - as long as
+ * something upstream actually keeps the driver for the isolate's life rather
+ * than rebuilding it per request (`worker/runtime.ts`'s `sqlPartsFor`), since
+ * a fresh driver is a fresh key here too.
  */
 const migrated = new WeakMap<SqlDriver, Promise<void>>();
 

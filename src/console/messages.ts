@@ -126,6 +126,25 @@ const ja = {
   // 「何かが起きている」という事実だけを言う）。
   "status.failed": "失敗しています",
 
+  // 何も待っていないときの1行。console-architecture.md が名指しした欠陥への
+  // 直接の答え：「記録が無いことと、何も起きていないことは、画面の上で
+  // 見分けがつかない」。空欄では両方とも同じに見えるので、常にどちらかを言う。
+  // 動いた日：完了した事実と、次がいつかを別のチップで言う（時刻は必ず
+  // when.at() 経由 — アカウントの時計の名前を添えるため）。
+  "status.ranToday": "今日は完了しました",
+  "status.nextCycle": "次回 {next}",
+  // 完了ではなく実行中。動いた日の一種だが「完了しました」は嘘になる。
+  "status.cycleRunning": "実行中です",
+  // 動いていない日：死んでいた2日間、この一言が無かったのが元の欠陥。
+  // 「次はいつ」を約束しない — 本当に止まっているときに嘘の安心を言わないため。
+  "status.notRunYet": "今日はまだ動いていません",
+  // 非アクティブ・停止は、その日の実行結果より優先する事実。labels.ts の
+  // venture.deactivated の要約と同じ言葉を使う — 同じ状態を画面の2箇所で
+  // 違う言葉にしない。
+  "status.rowDeactivated": "非アクティブです",
+  "status.rowStopped": "停止しています",
+  "status.rowConfigInactive": "設定で無効です",
+
   // The account's own page (#/ventures/<id>). Filtered here rather than sent
   // pre-filtered: `state.pending` / `state.handOver` / `state.upcoming` are
   // one company-wide fetch, and the account screen and this page's own status
@@ -458,6 +477,14 @@ const en: Messages = {
   "status.approvalsNeeded": "Needs approval ({n})",
   "status.handOverBadge": "Time to post now",
   "status.failed": "Failing",
+
+  "status.ranToday": "Finished today",
+  "status.nextCycle": "Next {next}",
+  "status.cycleRunning": "Running now",
+  "status.notRunYet": "Has not run today",
+  "status.rowDeactivated": "Switched off",
+  "status.rowStopped": "Stopped",
+  "status.rowConfigInactive": "Inactive in config",
 
   "today.decisionsEmpty": "Nothing right now. The next cycle will put something here.",
   "today.upcoming": "Scheduled posts",

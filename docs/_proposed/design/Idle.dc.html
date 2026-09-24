@@ -55,6 +55,7 @@
     .status-badge { font-size: 12px; border-radius: 999px; padding: 3px 10px; background: var(--chip); color: var(--muted); white-space: nowrap; }
     .status-badge--handover { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
     .status-badge--failed { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
+    .status-badge--stopped { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
     .fail-short { color: var(--danger); font-size: 13px; margin-top: 6px; }
     .fail-hint { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 1px; }
     .card {
@@ -125,10 +126,41 @@
         <div class="fail-hint">下書きの生成でモデルの呼び出しが断られました。理由の全文は開いた先に。</div>
       </a>
 
+      <!--
+        fix/status-row-says-something: an empty <span class="status-facts">
+        used to be what a quiet account looked like - indistinguishable from
+        one nothing had recorded for. Every row below now says one of the
+        facts src/console/page/client/venture.ts's idleFacts() computes,
+        never nothing.
+      -->
       <a class="status-row">
         <div class="status-row-top">
           <span class="status-name">夜のリサーチ部屋</span>
-          <span class="status-facts"></span>
+          <span class="status-facts">
+            <span class="muted">今日は完了しました</span>
+            <span class="muted">次回 2026-09-25 06:30（日本標準時）</span>
+          </span>
+        </div>
+      </a>
+
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">帰省日記</span>
+          <span class="status-facts"><span class="muted">今日はまだ動いていません</span></span>
+        </div>
+      </a>
+
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">野外調理ノート</span>
+          <span class="status-facts"><span class="status-badge status-badge--stopped">停止しています</span></span>
+        </div>
+      </a>
+
+      <a class="status-row">
+        <div class="status-row-top">
+          <span class="status-name">古い雑貨レビュー</span>
+          <span class="status-facts"><span class="muted">非アクティブです</span></span>
         </div>
       </a>
     </section>

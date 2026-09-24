@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.12.1",
-  "commit": "1f6d128",
-  "builtAt": "2026-09-24T07:27:54.933Z",
+  "version": "0.12.2",
+  "commit": "c1aaffc",
+  "builtAt": "2026-09-24T15:02:37.454Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -32,8 +32,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 68980,
-      "sha256": "c48c6e0673ffb7ebf3614a8559c9d995a2331a666e23e768f6ebe648f0017e80"
+      "bytes": 71251,
+      "sha256": "a5890991cdc1130d43ef62579b687206032912e147f0a426ec44403b37160b0c"
     },
     {
       "path": "CLAUDE.md",
@@ -57,13 +57,13 @@
     },
     {
       "path": "docs/_proposed/design/canvas.html",
-      "bytes": 140855,
-      "sha256": "8b5f342b5a2e52a331e4f3fc4d1637b6dc97c9f8c9e97ea4cbe84393088c7a1f"
+      "bytes": 143555,
+      "sha256": "7f2a740ace884a8a9073e45039b3e1affc49c60cd21252f89f2a988adf5b8c39"
     },
     {
       "path": "docs/_proposed/design/canvas.json",
-      "bytes": 22620,
-      "sha256": "6eb16ae6c6a503993034165884983edd586382d437fd14b4fb45c0b99c65ff1b"
+      "bytes": 23462,
+      "sha256": "26f6a2059594a2dcc839a928dd05e64646b75bf6502449d3b381b8e6d8dcb85e"
     },
     {
       "path": "docs/_proposed/design/Dark.dc.html",
@@ -77,8 +77,8 @@
     },
     {
       "path": "docs/_proposed/design/Idle.dc.html",
-      "bytes": 8768,
-      "sha256": "d783f29f0a9fb6882d31b94c30580d546459f0a4c97f8a96bc942b2a2afbe5f0"
+      "bytes": 10190,
+      "sha256": "e26382e420f5b2111f883032d9d1d58308eef1a3f465f9c74300ef8116203731"
     },
     {
       "path": "docs/_proposed/design/Main.dc.html",
@@ -177,8 +177,8 @@
     },
     {
       "path": "docs/_proposed/design/README.md",
-      "bytes": 10247,
-      "sha256": "e839cbef305c4f0eb998a19820dbb6e4c7b1ff5d553c9be476fd8ada3dc5f368"
+      "bytes": 10879,
+      "sha256": "f9a706d6d9df324e328d1abdeeaa526d4252cbff301d9f12b5056f1017dcb2bf"
     },
     {
       "path": "docs/_proposed/design/Settings.dc.html",
@@ -257,8 +257,8 @@
     },
     {
       "path": "docs/3-development/console-ux-proposal.md",
-      "bytes": 45128,
-      "sha256": "c236de440e3aba8c54658747244426c6c05192335e4d8e7a76721db1e219aa3d"
+      "bytes": 45729,
+      "sha256": "39232d6ac4e89956165692db6837f3de5ea2a5d5b6786b6fad4634f3892f7ba5"
     },
     {
       "path": "docs/3-development/exploration-design.md",
@@ -307,8 +307,8 @@
     },
     {
       "path": "docs/5-project-management/decisions.md",
-      "bytes": 58926,
-      "sha256": "08677b93e2ac4ee6c2a390c76929a89c9b13ca57f53188dedc5afb62b126359c"
+      "bytes": 65497,
+      "sha256": "6d3919a4604b58e6e5acb943930028d67a7f257feede436d2673a53c524c36a6"
     },
     {
       "path": "docs/6-testing/.gitkeep",
@@ -358,7 +358,7 @@
     {
       "path": "package.json",
       "bytes": 1955,
-      "sha256": "2d4b3a4f15b36150c8934dd07b649bb7f86f402c9e0ac8af637d2c77a11e85fd"
+      "sha256": "054078a927fc3d443962ad39a2bff2620b77a7c79a05c21a0a53b785970f6487"
     },
     {
       "path": "platform.config.example.yaml",
@@ -438,7 +438,7 @@
     {
       "path": "README.md",
       "bytes": 12821,
-      "sha256": "5ddc2f5c0990756813cf82c90e77c8e795e4aefbc25c1274a8ac855f03f49cff"
+      "sha256": "e7dfdf98f459705af33e0ed053b915c885cea0206df614e1469507001b7c6edf"
     },
     {
       "path": "scripts/build-canvas.ts",
@@ -547,8 +547,8 @@
     },
     {
       "path": "src/console/messages.ts",
-      "bytes": 43764,
-      "sha256": "0eb4c65a831e6577b2e112767bf4f9b246ce6631d43c0665479ca94b47a876fa"
+      "bytes": 45481,
+      "sha256": "42a0fee339f77937361c039f2fc01b3174576adeff413443f5ac5234890d1ef8"
     },
     {
       "path": "src/console/operators.ts",
@@ -612,8 +612,8 @@
     },
     {
       "path": "src/console/page/client/venture.ts",
-      "bytes": 12617,
-      "sha256": "5c328696cb6e51b0b9df8061f8d6fb4994ca18511c8645100370fd217794ea6e"
+      "bytes": 15293,
+      "sha256": "cac3840fb9cab8786b86c8204f8a118711cf436cbb8786fb95d74d40e672e17f"
     },
     {
       "path": "src/console/page/shell.ts",
@@ -622,8 +622,8 @@
     },
     {
       "path": "src/console/page/style.ts",
-      "bytes": 23028,
-      "sha256": "a9143b2d9161f9b719bc81eddafcdffd8fffd56dfb473507f8100270e4e347d3"
+      "bytes": 23382,
+      "sha256": "dcb408afea10c3e8a0a383186a065b4caff15e833ff80560a484988253cba6ea"
     },
     {
       "path": "src/console/portfolio-columns.ts",
@@ -632,8 +632,8 @@
     },
     {
       "path": "src/console/router.ts",
-      "bytes": 63399,
-      "sha256": "221eb81dc9b433d73bf4682f62c75432f6e157cc94ce6a11ee060d2c6903ad4f"
+      "bytes": 64756,
+      "sha256": "9fa0577d4bb79ce8e0368b608a2f41b7f2b499265ee6816b8aeb8e9567959010"
     },
     {
       "path": "src/console/server.ts",
@@ -957,8 +957,8 @@
     },
     {
       "path": "src/storage/sql-store.ts",
-      "bytes": 14239,
-      "sha256": "7739fd5a73d745bc56cc4aec0e0f22f89e302619d11b0133edaee4003fe0129f"
+      "bytes": 15002,
+      "sha256": "7b81a0d3e5ce6bbb412491be4c30cb0d1d9b39a2c2b4395ce9b10a13113804ee"
     },
     {
       "path": "src/storage/sqlite-driver.ts",
@@ -987,8 +987,8 @@
     },
     {
       "path": "src/worker/runtime.ts",
-      "bytes": 7420,
-      "sha256": "cfc060772060f56793fd5299aae75eea021a951b5f93d71613b015180338595c"
+      "bytes": 10031,
+      "sha256": "ac93dfa1a5d9e06ea3db3a897198821c6ed6ebd8df4eeacbef4744b31e2a243d"
     },
     {
       "path": "src/worker/setup.ts",
@@ -1032,8 +1032,8 @@
     },
     {
       "path": "test/console.test.ts",
-      "bytes": 220134,
-      "sha256": "29d64f263c0bae1939b38db4889b7d3fd8b4567213e03e8d5cdae1f5adf03b6a"
+      "bytes": 226293,
+      "sha256": "6feacfbc315983eee1e400301b795a4ece81f378c2fe2dbff7bf20df9ae06a87"
     },
     {
       "path": "test/coverage.test.ts",
@@ -1197,8 +1197,8 @@
     },
     {
       "path": "test/worker.test.ts",
-      "bytes": 35468,
-      "sha256": "d7383704d21ff279b21607064d6b0a6d566c67cc0df377829a0306058c6a40cc"
+      "bytes": 37467,
+      "sha256": "ebb3571791d603abf0cadb3b20c12962abef078b37a563ecdf6d3da0eb316d9c"
     },
     {
       "path": "test/wrangler-build.ts",

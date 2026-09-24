@@ -122,6 +122,7 @@
     .status-badge { font-size: 12px; border-radius: 999px; padding: 3px 10px; background: var(--chip); color: var(--muted); white-space: nowrap; }
     .status-badge--handover { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
     .status-badge--failed { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
+    .status-badge--stopped { background: none; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
     .fail-short { color: var(--danger); font-size: 13px; margin-top: 6px; }
     .fail-hint { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 1px; }
     .card {
@@ -193,10 +194,41 @@
         &lt;div class=&quot;fail-hint&quot;&gt;下書きの生成でモデルの呼び出しが断られました。理由の全文は開いた先に。&lt;/div&gt;
       &lt;/a&gt;
 
+      &lt;!--
+        fix/status-row-says-something: an empty &lt;span class=&quot;status-facts&quot;&gt;
+        used to be what a quiet account looked like - indistinguishable from
+        one nothing had recorded for. Every row below now says one of the
+        facts src/console/page/client/venture.ts&#39;s idleFacts() computes,
+        never nothing.
+      --&gt;
       &lt;a class=&quot;status-row&quot;&gt;
         &lt;div class=&quot;status-row-top&quot;&gt;
           &lt;span class=&quot;status-name&quot;&gt;夜のリサーチ部屋&lt;/span&gt;
-          &lt;span class=&quot;status-facts&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;status-facts&quot;&gt;
+            &lt;span class=&quot;muted&quot;&gt;今日は完了しました&lt;/span&gt;
+            &lt;span class=&quot;muted&quot;&gt;次回 2026-09-25 06:30（日本標準時）&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/a&gt;
+
+      &lt;a class=&quot;status-row&quot;&gt;
+        &lt;div class=&quot;status-row-top&quot;&gt;
+          &lt;span class=&quot;status-name&quot;&gt;帰省日記&lt;/span&gt;
+          &lt;span class=&quot;status-facts&quot;&gt;&lt;span class=&quot;muted&quot;&gt;今日はまだ動いていません&lt;/span&gt;&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/a&gt;
+
+      &lt;a class=&quot;status-row&quot;&gt;
+        &lt;div class=&quot;status-row-top&quot;&gt;
+          &lt;span class=&quot;status-name&quot;&gt;野外調理ノート&lt;/span&gt;
+          &lt;span class=&quot;status-facts&quot;&gt;&lt;span class=&quot;status-badge status-badge--stopped&quot;&gt;停止しています&lt;/span&gt;&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/a&gt;
+
+      &lt;a class=&quot;status-row&quot;&gt;
+        &lt;div class=&quot;status-row-top&quot;&gt;
+          &lt;span class=&quot;status-name&quot;&gt;古い雑貨レビュー&lt;/span&gt;
+          &lt;span class=&quot;status-facts&quot;&gt;&lt;span class=&quot;muted&quot;&gt;非アクティブです&lt;/span&gt;&lt;/span&gt;
         &lt;/div&gt;
       &lt;/a&gt;
     &lt;/section&gt;
@@ -2046,7 +2078,7 @@ https://amp-morning-toolroom.midori.workers.dev/go/lnk_0f22&lt;/pre&gt;
 &lt;/div&gt;
 &lt;/body&gt;&lt;/html&gt;"></iframe></figure>
 <aside class="note" id="note-brief" style="left:120px;top:350px;width:390px"><p>運用者の1日は2回だけ。朝、企画に「OK」と言う。夕方、順番を決める。それ以外の時間、この画面は「何もない」と言う。</p></aside>
-<aside class="note" id="note-note-idle" style="left:120px;top:2480px;width:390px"><p>🔴 訂正（2026-09-23）。この板はもと「判断待ちなし（週の大半はこの画面）」だった — 判断の有無で表情を変える1つの画面を描いていた。decisions.md 2026-09-23 がその前提を外した：判断待ちはアカウントの画面へ移り、トップ画面はもう判断の有無に関わらず毎日この形（アカウントの状態）になる。「何もないと言うだけでは不安」という元の観察は今も生きている — その答えがいまはアカウントごとの状態行と、会社ぜんたいの最近の動きになった。</p></aside>
+<aside class="note" id="note-note-idle" style="left:120px;top:2480px;width:390px"><p>🔴 訂正（2026-09-23）。この板はもと「判断待ちなし（週の大半はこの画面）」だった — 判断の有無で表情を変える1つの画面を描いていた。decisions.md 2026-09-23 がその前提を外した：判断待ちはアカウントの画面へ移り、トップ画面はもう判断の有無に関わらず毎日この形（アカウントの状態）になる。「何もないと言うだけでは不安」という元の観察は今も生きている — その答えがいまはアカウントごとの状態行と、会社ぜんたいの最近の動きになった、と書いていた。</p><p>🔴 さらに訂正（2026-09-24、decisions.md）。それも不正確だった：会社ぜんたいの数字や直近12件の最近の動きでは、個々のアカウントが今日動いたかどうかを確実には示せない。本番の `amp-test` で実際に3行とも `&lt;span class=&quot;status-facts&quot;&gt;&lt;/span&gt;` — 空だった。<strong>いまは行そのものが言う。</strong>稼働中で今日のサイクルが記録されていれば「今日は完了しました」と次回の時刻（`cadence.cycleStartsAt` から実時刻に解決、時計の名前つき）、まだなら「今日はまだ動いていません」（次はいつかは言わない — 嘘の安心を避けるため）、非アクティブ・停止・設定無効はそれぞれの事実。下の状態行のうち4〜7枚目がその例。</p></aside>
 <aside class="note" id="note-who" style="left:590px;top:1440px;width:390px"><p>右上の丸い「みどり」は、いま誰の合言葉で開いているか。承認したことは全部この名前で記録に残るので、押す前に見えている必要がある。</p><p><strong>以前は「みどり として ・ 1 / 2」と、名前と待ち件数が1つの灰色の行に同居していた。</strong>名前が役職に読まれ、数も名前も読み飛ばされた。v0.4.0ではその答えとして、名前は右上の常設の furniture、件数は「あなたの判断待ち」の見出しの横に分けた——数と、数えている物が一緒に読める場所にある。🔴 2026-09-23、その見出しごとアカウントの画面へ移った。件数はいまアカウントの状態チップ（`accounts.waiting`）が持つ。</p><p>合言葉は人ごと。1本を共有すると、記録は全部オーナーの名前になる — そして<strong>承認の記録は後から作り直せない</strong>。権限の区別はまだ無く、名前を持つ人は全員同じことができる。違うのは記録が本当のことを言う点だけ。</p></aside>
 <aside class="note" id="note-note-main" style="left:590px;top:430px;width:390px"><p>10案のうち推奨3件だけを開いて、最初からチェック済み。そのまま押せば30秒。疑ったときだけ下の7件と根拠を開く。</p><p>🔴 追記（2026-09-23）。この板と Dark.dc.html が描く企画の承認は、v0.3.0時点ではトップ画面（今日）そのものだった。decisions.md 2026-09-23 でここはアカウントの画面（#/ventures/&lt;id&gt;）の1節に変わったので、ヘッダーに「← 全アカウント」を足し、「今日」のナビ強調を外した。見出しも「あなたの判断待ち」から実装どおりの「企画の承認 — {アカウント名}」に直した（gate.heading）。この2枚はいまも門そのものだけを描いていて、同じ画面に実際は先に出る venture-head（アカウント名・状態チップ）や、その下の予約中の投稿は描いていない——Venture.dc.html 側にもまだ無い、見つけたが未解決の欠け。</p></aside>
 <aside class="note" id="note-note-publish" style="left:1060px;top:430px;width:390px"><p>枠の時刻は数字から決まっていて動かせない。動かせるのは「どれをどの枠に」だけ。並べ替えると時刻が付け替わる。</p></aside>

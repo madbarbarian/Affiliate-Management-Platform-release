@@ -19,7 +19,7 @@ import { renderSetup } from "../src/worker/setup.ts";
 import { createSqliteDriver } from "../src/storage/sqlite-driver.ts";
 import type { SqlParam, SqlStatement } from "../src/storage/sql-driver.ts";
 import type { D1Database, D1PreparedStatement } from "../src/storage/d1-driver.ts";
-import { createWorkerRuntime } from "../src/worker/runtime.ts";
+import { createWorkerRuntime, forgetIsolateSqlCacheForTests } from "../src/worker/runtime.ts";
 import worker from "../src/worker/index.ts";
 import { createWorker, licenseeProblem } from "../src/worker/handler.ts";
 import { configSource } from "../src/worker/bundled.generated.ts";
@@ -61,6 +61,18 @@ function fakeD1(): D1Database & { close(): Promise<void> } {
 async function exampleConfig(): Promise<string> {
   return readFile(join(repoRoot(), "platform.config.example.yaml"), "utf8");
 }
+
+// `node --test` runs every test below in one process, i.e. one module scope -
+// the same thing a real Worker isolate is. Most of these tests open their own
+// throwaway D1 stand-in to model a *different* isolate serving a different
+// licensee's database, which `worker/runtime.ts`'s isolate-lifetime cache has
+// no way to tell apart from "the same isolate, a later request" on its own -
+// that distinction is precisely what real Cloudflare deployment guarantees
+// (one Worker, one database) and nothing inside a test process. Forgetting
+// the cache before every test draws that boundary explicitly.
+test.beforeEach(() => {
+  forgetIsolateSqlCacheForTests();
+});
 
 /**
  * The example, switched to the real model.
@@ -398,7 +410,7 @@ test("a link in a published post keeps redirecting when the rest cannot start", 
   await db.close();
 });
 
-test("the D1 driver is kept for the isolate's life, not rebuilt on every request", async () => {
+test("the D1 driver is kept for the isolate's life, even when env.DB is a different object each time", async () => {
   // `ensureSchema` (sql-store.ts) already keeps its own memo of which drivers
   // have been migrated - a `WeakMap` keyed on the driver, "once per driver for
   // as long as it lives, which on a Worker is once per isolate". But
@@ -406,29 +418,58 @@ test("the D1 driver is kept for the isolate's life, not rebuilt on every request
   // single call, so that memo's key was fresh every time too and could never
   // hit - the schema's `PRAGMA table_info` check, and the six `CREATE ... IF
   // NOT EXISTS` statements behind it, ran again on every request, not once per
-  // isolate as that comment already assumed. Counting `PRAGMA table_info`
-  // calls - `migrate()`'s first statement - proves it now runs once for as
-  // long as the same `env.DB` object is handed in, the way `env.DB` is for
-  // the life of a real Worker's isolate.
+  // isolate as that comment already assumed.
+  //
+  // v0.12.1 fixed that by keying a new cache on `env.DB` itself, and the
+  // version of this test that shipped with it passed the *identical* `db`
+  // object to `createWorkerRuntime` twice. That only proves a `WeakMap` can
+  // find a key it was handed back unchanged - it does not touch the actual
+  // question, which is whether the Workers runtime hands `fetch` the same
+  // `env.DB` object on the next request. Measured on the deployed Worker, it
+  // does not behave as if it does: eight consecutive `/api/state` calls
+  // seconds apart, well inside the portfolio memo's 30-second TTL, never once
+  // returned faster than the first - the same shape of failure PR #83 had
+  // just fixed one layer up, one layer further down.
+  //
+  // This test builds two *different* JS objects that both answer for the
+  // same underlying database - standing in for "the same D1 database, a
+  // structurally new binding object on the next call," which is what the
+  // measurement above says production actually does. Counting
+  // `PRAGMA table_info` calls - `migrate()`'s first statement - proves the
+  // schema is checked once no matter how many distinct objects `env.DB` turns
+  // out to be, which the identical-object version of this test could not
+  // have told apart from the bug it was meant to catch.
   const raw = fakeD1();
   let pragmaCalls = 0;
-  const db: typeof raw = {
+  const freshBindingForSameDatabase = (): typeof raw => ({
     ...raw,
     prepare(sql: string) {
       if (sql.includes("PRAGMA table_info")) pragmaCalls += 1;
       return raw.prepare(sql);
     },
-  };
+  });
 
-  const first = await createWorkerRuntime({ env: { DB: db }, configText: await exampleConfig(), prompts: {} });
+  const first = await createWorkerRuntime({
+    env: { DB: freshBindingForSameDatabase() },
+    configText: await exampleConfig(),
+    prompts: {},
+  });
   assert.ok(first.ok, first.ok ? "" : first.error.message);
   await first.value.close();
   assert.equal(pragmaCalls, 1, "the first request in an isolate does check the schema");
 
-  const second = await createWorkerRuntime({ env: { DB: db }, configText: await exampleConfig(), prompts: {} });
+  const second = await createWorkerRuntime({
+    env: { DB: freshBindingForSameDatabase() },
+    configText: await exampleConfig(),
+    prompts: {},
+  });
   assert.ok(second.ok, second.ok ? "" : second.error.message);
   await second.value.close();
-  assert.equal(pragmaCalls, 1, "a second request against the same env.DB must reuse the driver, not re-check the schema");
+  assert.equal(
+    pragmaCalls,
+    1,
+    "a second request, even against a different object standing in for the same database, must reuse the driver rather than re-check the schema",
+  );
 
   await raw.close();
 });
