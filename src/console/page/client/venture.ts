@@ -202,10 +202,10 @@ function renderVenture(v) {
   $("venture-numbers-head").textContent = fmt("venture.numbers", { days: state?.portfolio?.days ?? 30 });
   $("venture-numbers").innerHTML =
     '<div class="card"><div class="stat-row">' +
-      [[T["accounts.colPosts"], v.posts], [T["accounts.colMedian"], v.medianScore],
-       [T["accounts.colClicks"], v.clicks], [T["accounts.colConversions"], v.conversions],
-       [T["accounts.colRevenue"], esc(v.approvedRevenue ?? "—")]]
-        .map((pair) => '<span class="stat">' + esc(pair[0]) + "<b>" + pair[1] + "</b></span>").join("") +
+      [[T["accounts.colPosts"], [v.posts]], [T["accounts.colMedian"], [v.medianScore]],
+       [T["accounts.colClicks"], [v.clicks]], [T["accounts.colConversions"], [v.conversions]],
+       [T["accounts.colRevenue"], v.approvedRevenueLines ?? ["—"]]]
+        .map((pair) => statHtml(pair[0], pair[1])).join("") +
     '</div><div class="why">' + esc(T["venture.numbersWhy"]) + "</div></div>";
 
   $("venture-playbook-head").textContent =

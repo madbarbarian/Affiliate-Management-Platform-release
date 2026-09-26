@@ -140,7 +140,7 @@ export const TODAY_SCRIPT = `function render() {
     median: String(row.medianScore),
     clicks: String(row.clicks),
     conversions: String(row.conversions),
-    revenue: esc(row.approved),
+    revenue: row.approvedLines.map(esc).join("<br>"),
     playbook: esc(row.playbook),
     measurement: row.measurement === "closed"
       ? esc(T["accounts.measurementClosed"])
@@ -175,7 +175,9 @@ export const TODAY_SCRIPT = `function render() {
         (column.numeric ? ' class="num"' : "") + ">" + (cells[column.key] ?? "") + "</td>").join("") + "</tr>";
     }).join("") +
     "</tbody></table></div>" +
-    '<button class="grid-reset" type="button">' + esc(T["accounts.resetWidths"]) + "</button>";
+    // Hidden by default: wireColumnResize shows it only once a stored width
+    // exists, since resetting means nothing until a column has been dragged.
+    '<button class="grid-reset" type="button" hidden>' + esc(T["accounts.resetWidths"]) + "</button>";
   // After the innerHTML above, not before: every element the resize handler
   // holds on to has just been replaced.
   wireColumnResize($("portfolio"));
@@ -190,50 +192,24 @@ export const TODAY_SCRIPT = `function render() {
   // table's {days}, and the two adjacent headings both read as "recent".
   $("stats-head").textContent = fmt("today.stats", { days: portfolio.days ?? 30 });
   $("stats").innerHTML = '<div class="card stat-row">' + state.stats.map((stat) =>
-    '<div class="stat"><b>' + esc(stat.value) + "</b><span class=\\"muted\\">" + esc(stat.label) + "</span></div>").join("") + "</div>";
+    statHtml(stat.label, stat.lines)).join("") + "</div>";
 
+  // entry.text arrives already in the operator's language - router.ts's
+  // buildActivityFeed and describeAuditEvent do the translating now, the
+  // same place the composing happens (clicks and conversions are not audit
+  // events, so this page could never have done that join on its own). This
+  // page's only job is to lay the line out: the meta row names when, which
+  // account (absent for a whole-platform event) and who, in that order, and
+  // the ones that need a person's attention today - a failure, a gate that
+  // lapsed unanswered - are bold. (No backticks in here: this file is one
+  // big template literal.)
   $("activity").innerHTML = state.activity.length === 0
     ? '<p class="empty">' + esc(T["today.activityEmpty"]) + "</p>"
-    : '<div class="card">' + state.activity.map((entry) =>
-        '<div class="muted">' + esc(entry.at) + T["punct.sep"] + esc(entry.actor) + "</div><div>" + activityText(entry) + "</div>").join("<hr style=\\"border:none;border-top:1px solid var(--line);margin:8px 0\\">") + "</div>";
-}
-
-/**
- * The stored summary is the durable record and it is English. A failed day is
- * the one entry an operator has to act on, so it is said in their language,
- * from the same code the accounts table reads. Everything else falls through.
- */
-function activityText(entry) {
-  // A day that lapsed is the other entry an operator has to act on: it means
-  // the thirty seconds a day this product is built around stopped happening,
-  // and nothing else on the screen says so once the gate is gone.
-  if (entry.type === "decision.expired") {
-    return "<b>" + esc(fmt("today.activityExpired", { day: entry.day ?? "" })) + "</b>";
-  }
-  // Not the same line, and not bold. The operator closed this one themselves
-  // by switching the account off; telling them they missed it is how a record
-  // stops being believed.
-  if (entry.type === "decision.closed") {
-    return esc(fmt("today.activityClosed", { day: entry.day ?? "" }));
-  }
-  // Handing a post over and a person posting it both land here, and with only
-  // the stored summary the two read as the same line twice about the same post.
-  if (entry.type === "post.handed_over") {
-    return esc(fmt("today.activityHandedOver", { hook: entry.summary }));
-  }
-  // src/kernel/resume.ts's audit line. "Who" and "when" are already the row's
-  // own columns; this is only what happened, in the operator's language rather
-  // than the English the stored summary carries for everything that falls
-  // through below.
-  if (entry.type === "platform.resumed") {
-    return esc(T["today.activityResumed"]);
-  }
-  if (entry.type !== "cycle.failed") return esc(entry.summary);
-  const failure = failureSummary(entry.failureCode);
-  return '<b>' + esc(fmt("today.activityFailed", {
-    step: cycleStepLabel(entry.failureStep),
-    reason: failure.short,
-  })) + "</b>";
+    : '<div class="card">' + state.activity.map((entry) => {
+        const meta = [entry.at, entry.ventureName, entry.actor].filter(Boolean).map(esc).join(T["punct.sep"]);
+        const line = esc(entry.text);
+        return '<div class="muted">' + meta + "</div><div>" + (entry.emphasize ? "<b>" + line + "</b>" : line) + "</div>";
+      }).join("<hr style=\\"border:none;border-top:1px solid var(--line);margin:8px 0\\">") + "</div>";
 }
 
 function renderProposal(proposal) {

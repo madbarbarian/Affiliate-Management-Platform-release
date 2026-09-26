@@ -17,8 +17,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startConsole, type ConsoleHandle } from "../src/console/server.ts";
-import { handleRequest, forgetPortfolio } from "../src/console/router.ts";
-import { createTestCompany, refusingProvider, testConfig, BASE_CONFIG, type TestCompany } from "./helpers.ts";
+import {
+  handleRequest,
+  forgetPortfolio,
+  describeAuditEvent,
+  memoisedClicksAndConversions,
+  ACTIVITY_EVENT_MEMO_MS,
+  FAILURE_EVENT_TYPES,
+} from "../src/console/router.ts";
+import { createTestCompany, refusingProvider, testConfig, BASE_CONFIG, HOUR_MS, type TestCompany } from "./helpers.ts";
 import { createMockProvider, type MockProvider } from "../src/llm/mock.ts";
 import { createDemoHandlers } from "../src/llm/demo.ts";
 import type { Lock } from "../src/storage/lock.ts";
@@ -30,7 +37,7 @@ import { renderPage } from "../src/console/ui.ts";
 import { fill, LOCALES, MESSAGES, type Locale } from "../src/console/messages.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { repoRoot } from "../src/config/load.ts";
-import { CYCLE_STEPS, type VentureId } from "../src/core/types.ts";
+import { CYCLE_STEPS, type AuditEvent, type VentureId } from "../src/core/types.ts";
 import { unwrap } from "../src/core/result.ts";
 import { runScout } from "../src/kernel/exploration.ts";
 import type { Runtime } from "../src/runtime.ts";
@@ -49,6 +56,7 @@ import { importAsWranglerBuildsIt } from "./wrangler-build.ts";
 import { WAITING_IS_OVER_SOURCE, type WaitingSnapshot } from "../src/console/waiting.ts";
 import {
   MIN_COLUMN_WIDTH,
+  PAGE_GUTTER,
   portfolioColumns,
   portfolioStackBelow,
   portfolioTableWidth,
@@ -335,6 +343,66 @@ test("the publish gate shows a threaded post once, not the hook and the close tw
       }),
     },
   );
+});
+
+test("the publish gate never shows the raw internal timestamp or the domain's own English slot reason", async () => {
+  // Reported live, on a real deployed card, right beside a chip that correctly
+  // said "2026-09-26 07:30（日本標準時）":
+  //   2026-09-25T22:30:14.666Z — 07:30 Asia/Tokyo - default slot - not enough
+  //   published posts to measure a best time yet
+  // Two formats for the same fact on the same card, one of them raw ISO plus
+  // untranslated English. That was `item.summary` - kernel's own
+  // `${isoTimestamp} — ${slotReason}` (orchestrator.ts's buildPublishDecision,
+  // a legitimate line in cli.ts's plain-text listing) - forwarded straight
+  // onto the screen by router.ts. `buildPreview`'s "枠の理由" line carried the
+  // identical raw reason into the card's opened detail panel too.
+  //
+  // A fresh venture has no published posts, so `planSlots` (scheduling.ts)
+  // always falls back to "default slot - not enough published posts to
+  // measure a best time yet" - the fixture reproduces the reported string
+  // without seeding anything by hand.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const atProposal = unwrap(await company.orchestrator.runCycle("main"));
+    const proposal = (await company.store.decisions.get(atProposal.pendingDecisionId as string))!;
+    unwrap(
+      await company.orchestrator.resolveGate(proposal.id, {
+        decidedBy: "tester",
+        selectedIds: proposal.items.slice(0, proposal.selectionHint.max).map((item) => item.id),
+        nowIso: company.clock.nowIso(),
+      }),
+    );
+
+    const rawIso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+    const englishSlotReason = /not enough published posts|measured best slot|default slot -/;
+
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as { pending: { gateLabel: string; items: { summary: string; preview: string }[] }[] };
+    const publish = state.pending.find((decision) => decision.gateLabel === "投稿の承認と順番");
+    assert.ok(publish, "the cycle should be waiting at the publish gate");
+    assert.ok(publish.items.length > 0, "and it should have posts in it, or this test proves nothing");
+
+    for (const item of publish.items) {
+      assert.doesNotMatch(item.summary, rawIso, `the card's summary leaked a raw timestamp:\n${item.summary}`);
+      assert.doesNotMatch(
+        item.summary,
+        englishSlotReason,
+        `the card's summary leaked the domain's own reasoning:\n${item.summary}`,
+      );
+      assert.doesNotMatch(item.preview, rawIso, `the opened preview leaked a raw timestamp:\n${item.preview}`);
+      assert.doesNotMatch(
+        item.preview,
+        englishSlotReason,
+        `the opened preview leaked the domain's own reasoning:\n${item.preview}`,
+      );
+    }
+
+    // And what actually renders, not only the JSON handed to it.
+    const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-decisions" });
+    const html = page.html("venture-decisions");
+    assert.doesNotMatch(html, rawIso, `the rendered card leaked a raw timestamp:\n${html}`);
+    assert.doesNotMatch(html, englishSlotReason, `the rendered card leaked the domain's own reasoning:\n${html}`);
+  });
 });
 
 test("a failed day tells the operator why, on the page that is all they have", async () => {
@@ -653,6 +721,400 @@ test("the activity feed says the day died, in the operator's words", async () =>
   );
 });
 
+test("最近の動き reads like news, not the audit log it is built from", async () => {
+  // A realistic day: the audit trail a real cycle actually writes (the six
+  // roles narrating their own steps, verbatim - this is the bug report,
+  // copied close to what reached the deployed console), plus a click, two
+  // conversions and a decision a person actually resolved. Seeded directly
+  // on the stores rather than run through a live cycle, the same way the
+  // "headline numbers" test above seeds clicks and conversions - the point of
+  // this test is what `buildActivityFeed` does with the records, not how a
+  // cycle produces them.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const { store, clock, config } = company;
+    const offer = config.offers[0]!;
+    const ago = (ms: number) => new Date(clock.now() - ms).toISOString();
+
+    await store.posts.put({
+      id: "pst_realday",
+      ventureId: "main",
+      cycleId: "cyc_realday",
+      draftId: "drf_realday",
+      channel: "threads",
+      status: "published",
+      scheduledFor: clock.now() - HOUR_MS,
+      order: 1,
+      slotReason: "test",
+      commentDrafts: [],
+      publishedAt: ago(HOUR_MS),
+      content: {
+        hook: "モバイルバッテリー3個持って行ったら",
+        body: "b",
+        cta: "c",
+        disclosure: "#PR",
+        hashtags: [],
+      },
+    } as never);
+    await store.links.put({
+      id: "lnk_realday",
+      ventureId: "main",
+      postId: "pst_realday",
+      offerId: offer.id,
+      code: "realday",
+      destinationUrl: "https://example.invalid",
+      createdAt: ago(HOUR_MS),
+    } as never);
+    await store.clicks.put({ id: "clk_realday", linkId: "lnk_realday", at: ago(30 * 60_000) } as never);
+    await store.conversions.put({
+      id: "cnv_realday_pending",
+      linkId: "lnk_realday",
+      externalId: "ext1",
+      at: ago(20 * 60_000),
+      amount: 1000,
+      currency: offer.currency,
+      status: "pending",
+    } as never);
+    await store.conversions.put({
+      id: "cnv_realday_approved",
+      linkId: "lnk_realday",
+      externalId: "ext2",
+      at: ago(15 * 60_000),
+      amount: 1000,
+      currency: offer.currency,
+      status: "approved",
+    } as never);
+    // Must never surface: the network saying this one does not count is not
+    // news the operator has to act on today.
+    await store.conversions.put({
+      id: "cnv_realday_rejected",
+      linkId: "lnk_realday",
+      externalId: "ext3",
+      at: ago(10 * 60_000),
+      amount: 1000,
+      currency: offer.currency,
+      status: "rejected",
+    } as never);
+
+    await store.decisions.put({
+      id: "dec_realday",
+      cycleId: "cyc_realday",
+      ventureId: "main",
+      gate: "proposal_approval",
+      createdAt: ago(HOUR_MS),
+      items: [
+        { id: "item1", refId: "idea1", title: "t1", summary: "s1", recommended: true, detail: {} },
+        { id: "item2", refId: "idea2", title: "t2", summary: "s2", recommended: false, detail: {} },
+        { id: "item3", refId: "idea3", title: "t3", summary: "s3", recommended: false, detail: {} },
+      ],
+      selectionHint: { min: 1, max: 3 },
+      status: "approved",
+      resolution: { decidedBy: "owner", decidedAt: ago(5 * 60_000), selectedIds: ["item1"], ordering: ["item1"] },
+      autoResolved: false,
+    } as never);
+
+    const note = (
+      type: string,
+      summary: string,
+      data: Record<string, unknown>,
+      actor: string,
+      at: string,
+    ) => store.audit.append({ id: `evt_${type}_${at}`, at, ventureId: "main", cycleId: "cyc_realday", type, actor, summary, data });
+
+    // The roles' own narration - exactly the shape the owner's screenshot
+    // showed, English and all. None of this may reach the screen.
+    await note("role.plan.completed", "Proposed 3 ideas for approval.", {}, "orchestrator", ago(59 * 60_000));
+    await note("role.write.completed", 'Drafted "モバイルバッテリー3個持って行ったら…".', {}, "orchestrator", ago(58 * 60_000));
+    await note(
+      "role.inspect.passed",
+      "Draft drf_54713830758a4727ac54 cleared inspection (smell 17).",
+      { draftId: "drf_54713830758a4727ac54" },
+      "orchestrator",
+      ago(57 * 60_000),
+    );
+    await note(
+      "decision.opened",
+      "proposal_approval: 3 items need a decision.",
+      { decisionId: "dec_realday", gate: "proposal_approval", items: 3 },
+      "orchestrator",
+      ago(56 * 60_000),
+    );
+    await note("role.schedule.completed", "Scheduled 1 post(s) for approval.", {}, "orchestrator", ago(55 * 60_000));
+
+    // What must survive, in the operator's language.
+    await note(
+      "decision.resolved",
+      "proposal_approval: 1 of 3 approved.",
+      { decisionId: "dec_realday", gate: "proposal_approval", selected: ["item1"], ordering: ["item1"] },
+      "owner",
+      ago(5 * 60_000),
+    );
+    await note(
+      "post.published",
+      "モバイルバッテリー3個持って行ったら",
+      { postId: "pst_realday", externalId: "ext_pub", url: null },
+      "orchestrator",
+      ago(HOUR_MS),
+    );
+    await note(
+      "cycle.failed",
+      "The cycle stopped at write (llm.rate_limited).",
+      { step: "write", code: "llm.rate_limited", retryable: true, message: "429 rate limited" },
+      "orchestrator",
+      ago(2 * 60_000),
+    );
+
+    const page = await openPage({ base, token: handle.token, until: "activity" });
+    const feed = page.html("activity");
+
+    // No internal id.
+    assert.doesNotMatch(feed, /\b(drf|evt|cyc|dec|pst|lnk|cnv|idea)_[a-zA-Z0-9_]+/, `an internal id reached the screen:\n${feed}`);
+    // No internal step name, in English.
+    assert.doesNotMatch(feed, /\bwrite\b|\banalyze\b|\binspect\b|\bschedule\b|\bdispatch\b|proposal_approval|publish_approval/, `an internal step name reached the screen:\n${feed}`);
+    // No untranslated English - the exact lines the owner's screenshot showed.
+    assert.doesNotMatch(feed, /Drafted|cleared inspection|items need a decision|Scheduled \d|Proposed \d|approved\.|orchestrator|scheduler/, `untranslated English reached the screen:\n${feed}`);
+
+    // What must be there.
+    assert.match(feed, /クリックが入りました/, "no click entry");
+    assert.match(feed, /成果が入りました（確定前）/, "no pending-conversion entry");
+    assert.match(feed, /確定報酬が入りました/, "no approved-revenue entry");
+    assert.match(feed, /投稿を公開しました/, "no published entry");
+    assert.match(feed, /企画の承認.*3件のうち1件を承認しました/, "no human-decided entry, in the operator's words");
+    assert.match(feed, /執筆で止まりました.*実行できませんでした/s, "the mandatory failure entry is missing");
+  });
+});
+
+test("最近の動き says what it is waiting for when there is nothing yet - not that nothing was recorded", async () => {
+  // The trap: a strictly-filtered feed on a quiet account (three accounts,
+  // no traffic) looks exactly like a broken one, which is the ambiguity the
+  // status strip was fixed for in v0.12.2. This asserts the copy actually
+  // in force names what the section tracks, not just that some string shows.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "activity" });
+    const feed = page.html("activity");
+    assert.match(feed, /クリック・成果・投稿・判断など、意味のある動きがあるとここに出ます/);
+  });
+});
+
+/**
+ * Every audit event type `src/roles/`, `src/kernel/` and
+ * `src/scheduler/tick.ts` can actually emit, found by scanning the source -
+ * the same reasoning as `pageSourceFiles()` above: a hand-written list goes
+ * stale the moment someone adds a type and does not think to update a test
+ * three files away, and a scan that silently found nothing would leave every
+ * caller of it green while checking nothing (see the completeness assertion
+ * in the test below, which is the guard on exactly that).
+ *
+ * Two call shapes carry a type in this codebase: an object literal's `type:`
+ * property (including the one ternary, `terminal ? "post.failed" :
+ * "post.deferred"`), and a call to a function literally named `note` -
+ * `context.note(type, summary, data)` in every role and in
+ * `kernel/exploration.ts`, and `venture-switch.ts`'s own local
+ * `note(request, type, summary)`, which is why that one gets its own pattern:
+ * the type is its *second* positional argument, not its first. A type is
+ * either a plain string or a reference to an `const NAME = "literal"`
+ * declared in one of these same files (`resolveConst` follows it).
+ *
+ * **What this cannot find**, and the reason `EXPECTED_NON_FAILURE_TYPES`
+ * below adds two entries by hand: `kernel/exploration.ts`'s
+ * `` `proposal.${resolution.status}` `` builds its type from
+ * `ProposalStatus`, a *type*, not a string literal - there is no text in the
+ * source for a scan to find "proposal.accepted" in. Resolving it would mean
+ * reading the type declaration, which this function does not do. An honest
+ * scan says what it cannot do rather than silently missing it - the two
+ * concrete values are added below with this same comment pointing at it.
+ */
+function scanAuditEventTypes(): Set<string> {
+  const files = [
+    ...readdirSync(join(repoRoot(), "src/roles")).map((name) => `src/roles/${name}`),
+    ...readdirSync(join(repoRoot(), "src/kernel")).map((name) => `src/kernel/${name}`),
+    "src/scheduler/tick.ts",
+  ].filter((path) => path.endsWith(".ts"));
+
+  const texts = files.map((path) => readFileSync(join(repoRoot(), path), "utf8"));
+  const allText = texts.join("\n");
+
+  const dotted = /"([a-z][a-z_]*(?:\.[a-z][a-z_]*){1,2})"/g;
+  const constRef = /\b([A-Z][A-Z0-9_]{3,})\b/g;
+
+  const resolveConst = (name: string): string | undefined =>
+    allText.match(new RegExp(`const\\s+${name}(?::[^=]+)?\\s*=\\s*"([a-z][a-z_.]*)"`))?.[1];
+
+  const extractFrom = (chunk: string, sink: Set<string>) => {
+    for (const match of chunk.matchAll(dotted)) sink.add(match[1]!);
+    for (const match of chunk.matchAll(constRef)) {
+      const resolved = resolveConst(match[1]!);
+      if (resolved) sink.add(resolved);
+    }
+  };
+
+  // Up to the first top-level comma after the keyword - short enough that a
+  // ternary's two strings are both inside it, long enough for the longest
+  // real call site (`role.analyze.unattributed`'s three-argument `.note`).
+  const typeChunk = /\btype:\s*([\s\S]{1,150}?),/g;
+  const noteChunk = /(?<!request, )\bnote\(\s*([\s\S]{1,220}?),/g;
+  const noteRequestChunk = /\bnote\(request,\s*([\s\S]{1,150}?),/g;
+
+  const found = new Set<string>();
+  for (const text of texts) {
+    for (const match of text.matchAll(typeChunk)) extractFrom(match[1]!, found);
+    for (const match of text.matchAll(noteChunk)) extractFrom(match[1]!, found);
+    for (const match of text.matchAll(noteRequestChunk)) extractFrom(match[1]!, found);
+  }
+  return found;
+}
+
+test("every audit event type this platform emits is classified as failure-shaped or not - none fall through unnoticed", () => {
+  const scanned = scanAuditEventTypes();
+  // The empty-scan guard `pageSourceFiles()`'s own comment describes: a
+  // regression in the patterns above would make every assertion below pass
+  // vacuously, on an empty set, while checking nothing.
+  assert.ok(
+    scanned.size > 20,
+    `scanAuditEventTypes() found only ${scanned.size} type(s) - it is almost certainly broken, not the codebase having shrunk`,
+  );
+
+  // scanAuditEventTypes()'s own comment explains why these two, and only
+  // these two, cannot be found by scanning: `proposal.${resolution.status}`.
+  const notFoundByScanning = new Set(["proposal.accepted", "proposal.dismissed"]);
+
+  // Not a failure: accepting or dismissing the scout's weekly proposal is a
+  // person deciding, not a report that something is broken.
+  const nonFailureTypes = new Set([
+    "decision.auto_resolved",
+    "decision.closed",
+    "decision.expired",
+    "decision.opened",
+    "decision.resolved",
+    "platform.resumed",
+    "post.handed_over",
+    "post.published",
+    "role.analyze.completed",
+    "role.analyze.unattributed",
+    "role.inspect.blocked",
+    "role.inspect.dropped_finding",
+    "role.inspect.passed",
+    "role.plan.completed",
+    "role.plan.dropped_references",
+    "role.research.completed",
+    "role.research.dropped_pattern",
+    "role.research.empty",
+    "role.schedule.completed",
+    "role.scout.completed",
+    "role.scout.dropped_proposal",
+    "role.write.completed",
+    "venture.activated",
+    "venture.deactivated",
+    "comment.compliance",
+    ...notFoundByScanning,
+  ]);
+
+  const classified = new Set([...FAILURE_EVENT_TYPES, ...nonFailureTypes]);
+  const everyKnownType = new Set([...scanned, ...notFoundByScanning]);
+
+  // Every type the source can actually produce has a verdict. This is the
+  // half that catches a *new* type: add a `role.something.failed` tomorrow
+  // and this fails until someone puts it in one list or the other.
+  for (const type of everyKnownType) {
+    assert.ok(
+      classified.has(type),
+      `"${type}" is emitted somewhere in src/roles or src/kernel but this test has no verdict on whether it denotes a failure. ` +
+        `Add it to FAILURE_EVENT_TYPES (src/console/router.ts) if so, or to nonFailureTypes here if not.`,
+    );
+  }
+  // Every type this test has a verdict on is still actually emitted. This is
+  // the half that catches a *stale* verdict: a type renamed or removed from
+  // the source should not go on being classified as if it still existed.
+  for (const type of classified) {
+    assert.ok(
+      everyKnownType.has(type),
+      `"${type}" is classified here but scanAuditEventTypes() no longer finds it emitted anywhere - a stale entry, or the scan missed a renamed call site.`,
+    );
+  }
+});
+
+test("every failure-shaped audit event type produces a visible line - a case above, or the generic fallback", async () => {
+  // The regression this guards: `default: return undefined` makes an event
+  // type this function has no case for vanish rather than merely read in
+  // English - worse than the defect this feature fixes, and the same shape
+  // console-architecture.md's incident is: the screen stays quiet while
+  // something is wrong. `node scripts/mutate.ts` on the fallback's own `if`
+  // (turning it back into an unconditional `return undefined`) is what proves
+  // this test is a real gate rather than decoration.
+  const company = createTestCompany();
+  const T = MESSAGES.ja;
+  for (const type of FAILURE_EVENT_TYPES) {
+    const event: AuditEvent = {
+      id: "evt_test",
+      at: company.clock.nowIso(),
+      ventureId: "main",
+      type,
+      actor: "orchestrator",
+      summary: "a synthetic event for this test only",
+      data: {},
+    };
+    const described = await describeAuditEvent(event, company.store, T, new Map());
+    assert.ok(described, `"${type}" is in FAILURE_EVENT_TYPES but describeAuditEvent silently dropped it`);
+    assert.equal(described.kind, "failure", `"${type}" denotes a failure but rendered as kind "${described.kind}"`);
+    assert.equal(described.emphasize, true, `"${type}" denotes a failure but did not render bold`);
+    assert.notEqual(described.text.trim(), "", `"${type}" produced an empty line`);
+    // No internal id and no untranslated English, even from the generic
+    // fallback path - the whole point of it being generic.
+    assert.doesNotMatch(described.text, /evt_test|[a-z]+_[a-zA-Z0-9]{6,}/, `"${type}"'s line names an internal id: ${described.text}`);
+  }
+});
+
+test("memoisedClicksAndConversions does not re-scan inside its TTL, and does refresh once it passes", async () => {
+  // `Collection<T>` (unlike `AuditLog`) has no bounded "recent" read, so
+  // `buildActivityFeed` has no way to ask a store for only the newest few
+  // clicks or conversions - it has to read an account's whole history to pick
+  // them out. Unmemoised, that read happened on every `/api/state` poll (every
+  // 30 seconds) and grew without bound as a licensee's own traffic grew - the
+  // /code-review finding this test is the evidence for having addressed.
+  //
+  // Unit-tested directly against the function, not through `/api/state`:
+  // `buildState` also calls `memoisedPortfolio`, which reads these same two
+  // collections a second time (`domain/performance.ts`'s
+  // `computePerformance`) behind its *own* independent 30-second TTL. Going
+  // through the HTTP route would count both memos' reads in one number, so a
+  // bug that made *this* memo cache forever could still look green - the
+  // portfolio memo expiring on the same schedule would keep the total moving.
+  // Calling the function directly, with `nowMs` as a plain argument instead of
+  // a clock, removes that ambiguity entirely.
+  const company = createTestCompany();
+  const store = company.stores.open("main");
+  let clicksAllCalls = 0;
+  let conversionsAllCalls = 0;
+  const realClicksAll = store.clicks.all;
+  const realConversionsAll = store.conversions.all;
+  store.clicks.all = async () => {
+    clicksAllCalls += 1;
+    return realClicksAll();
+  };
+  store.conversions.all = async () => {
+    conversionsAllCalls += 1;
+    return realConversionsAll();
+  };
+
+  const t0 = Date.parse("2026-04-01T00:00:00Z");
+  await memoisedClicksAndConversions(store, t0);
+  assert.equal(clicksAllCalls, 1, "the first call never read clicks at all - is the memo even wired in?");
+  assert.equal(conversionsAllCalls, 1, "the first call never read conversions at all - is the memo even wired in?");
+
+  // A moment later, still inside the TTL - the shape every 30-second poll
+  // takes when nothing has actually changed. This is the assertion the
+  // finding asked for: a second call inside the TTL must not re-scan.
+  await memoisedClicksAndConversions(store, t0 + ACTIVITY_EVENT_MEMO_MS - 1);
+  assert.equal(clicksAllCalls, 1, "a call inside the TTL re-scanned clicks - the cache did not hit");
+  assert.equal(conversionsAllCalls, 1, "a call inside the TTL re-scanned conversions - the cache did not hit");
+
+  // Past the TTL: a real click or conversion still has to reach the screen
+  // eventually. "Expires on its own" is indistinguishable from "never
+  // updates" unless something proves the expiry side too.
+  await memoisedClicksAndConversions(store, t0 + ACTIVITY_EVENT_MEMO_MS + 1);
+  assert.equal(clicksAllCalls, 2, "clicks were never re-read once the memo's own TTL passed");
+  assert.equal(conversionsAllCalls, 2, "conversions were never re-read once the memo's own TTL passed");
+});
+
 test("every step and state a cycle can be in has a word the operator can read", () => {
   // The cell read `2026-09-09 failed → write` on a page that is otherwise
   // entirely Japanese, to somebody with no terminal to look "write" up in. The
@@ -839,7 +1301,7 @@ test("the account behind a row carries what the list deliberately does not", asy
         ventureId: string;
         lastCycle?: { failure?: string; failureCode?: string; failureStep?: string };
         recentCycles: { date: string; status: string; failureCode?: string }[];
-        approvedRevenue: string;
+        approvedRevenueLines: string[];
         setup: {
           path: string;
           configPath: string;
@@ -864,7 +1326,7 @@ test("the account behind a row carries what the list deliberately does not", asy
       assert.equal(detail.setup.offers[0]?.name, "テスト商材");
       assert.equal(detail.setup.market?.id, "jp");
       assert.equal(detail.setup.market?.disclosureText, "#PR", "the disclosure follows the reader's market");
-      assert.match(detail.approvedRevenue, /¥|JPY|0/, "money formatted per currency, never summed");
+      assert.ok(detail.approvedRevenueLines.every((line) => /JPY|^0$/.test(line)), "one formatted line per currency, never summed");
 
       const missing = await fetch(`${base}/api/ventures/not-an-account`, { headers });
       assert.equal(missing.status, 404);
@@ -1121,6 +1583,55 @@ test("one long cell cannot crush the rest of the accounts table", () => {
   assert.match(page, /列の幅をもとに戻す/, "and can undo that without clearing site data");
 });
 
+test("開く, the only control in a row, does not start behind a horizontal scroll", () => {
+  // PR #86 gave the accounts section no width of its own any more: it renders
+  // at main's own content width, and whichever columns do not fit inside that
+  // scroll within .table-wrap ("the accounts section takes the page's width,
+  // not a width of its own", above). That trade-off is accepted on purpose -
+  // but the column left dangling past the edge was `actions`, the only
+  // control a row has. It started at x=1038 on an 828px container and needed
+  // a scroll past every other column to reach, on every normal desktop view.
+  //
+  // The container is read from the page itself (main's own max-width minus
+  // its own left+right padding, which is PAGE_GUTTER counted twice) rather
+  // than hard-coded here a second time - a duplicated number is exactly what
+  // let the table and its container disagree before (see the colgroup/
+  // min-width test above).
+  const source = renderPage({ companyName: "テスト" });
+  const declaredMainWidth = source.match(/main \{ max-width: (\d+)px/);
+  assert.ok(declaredMainWidth, "main's own max-width has to be declared for the container width to be derived");
+  const container = Number(declaredMainWidth[1]) - PAGE_GUTTER;
+
+  const columns = portfolioColumns(MESSAGES.ja);
+  let cumulative = 0;
+  const startOf = new Map<string, number>();
+  for (const column of columns) {
+    startOf.set(column.key, cumulative);
+    cumulative += column.width;
+  }
+
+  const actions = columns.find((column) => column.key === "actions");
+  assert.ok(actions, "the actions column has to exist");
+  const actionsEnd = startOf.get("actions")! + actions!.width;
+  assert.ok(
+    actionsEnd <= container,
+    `actions ends at x=${actionsEnd}, past the ${container}px the table renders inside before scrolling - ` +
+      "the row's only control would start a scroll, not a click",
+  );
+  // Not merely "somewhere before the scroll boundary": the brief's own default
+  // ("name, then the action, then everything else") is that nothing sits
+  // between the two, so a later change that keeps actions early but no longer
+  // adjacent to name - e.g. a new column inserted between them - still fails
+  // this, even though it would still pass the check above.
+  const name = columns.find((column) => column.key === "name");
+  assert.ok(name, "the name column has to exist");
+  assert.equal(
+    startOf.get("actions"),
+    name!.width,
+    "the control has to sit immediately after the name column, not just somewhere before the scroll boundary",
+  );
+});
+
 test("a column is wide enough for its own header in both languages", () => {
   // The widths were sized against Japanese, where 成果 is two glyphs. In
   // English the same column says "Conversions" - eleven characters in 62px,
@@ -1143,16 +1654,48 @@ test("a column is wide enough for its own header in both languages", () => {
   }
 });
 
-test("the accounts table fits the space it is given, so its last column is never clipped", async () => {
+test("the reset-column-widths button only shows once a column has been dragged", async () => {
+  // console-ux-proposal.md §6.3: a control that means something only after a
+  // column has been resized was rendering under the table on every visit,
+  // whether or not anyone had ever touched a border. It now ships hidden, and
+  // wireColumnResize is the only thing that reveals or re-hides it - tied to
+  // whether a width is actually stored, not to the table simply existing.
+  //
+  // The page harness has no pointer, so dragging a grip and pressing the
+  // button are not exercised end to end here (see page-harness.ts's own
+  // note on what it does not cover). What is checked end to end is the part
+  // that does not need a pointer: a fresh browser, with nothing stored, has
+  // to render the button already hidden rather than relying on a script that
+  // might not run in time.
+  const source = renderPage({ companyName: "テスト" });
+  assert.match(
+    source,
+    /reset\.hidden = Object\.keys\(widths\)\.length === 0/,
+    "the button's visibility has to be decided by whether a width is stored, not by the table simply existing",
+  );
+  assert.match(source, /reset\.hidden = false/, "dragging a column has to be able to reveal the button");
+  assert.match(source, /reset\.hidden = true/, "resetting has to be able to hide it again");
+
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "portfolio" });
+    const markup = page.html("portfolio");
+    assert.match(
+      markup,
+      /<button class="grid-reset" type="button" hidden>/,
+      "with nothing stored the button has to start hidden in the markup itself, not only once a script decides to hide it",
+    );
+  });
+});
+
+test("the accounts table's colgroup and its own min-width are the same fact, written once", async () => {
   // The bug the owner walked into: 開く, the only control in a row, was cut in
   // half on a 1440px screen and off the edge entirely on anything narrower.
   //
   // The cause was two numbers for one fact. The stylesheet said the table was
-  // at least 1180px and the section it sits in is at most 1240px, which reads
-  // as if it fits - but the widths in the colgroup summed to 1378px, and a
-  // fixed-layout table is as wide as its columns say. So the container scrolled
-  // on every screen the console was ever opened on, and what it hid was the
-  // right-hand end.
+  // at least 1180px and the widths in the colgroup summed to 1378px, and a
+  // fixed-layout table is as wide as its columns say - so the container
+  // scrolled on every screen the console was ever opened on, and what it hid
+  // was the right-hand end with nothing to say a scrollbar would find it.
   //
   // Measured off the markup the page actually writes, not off the declaration,
   // because the declaration was the thing that was wrong.
@@ -1164,40 +1707,33 @@ test("the accounts table fits the space it is given, so its last column is never
 
     const sum = widths.reduce((total, width) => total + width, 0);
     const source = renderPage({ companyName: "テスト" });
-    const section = source.match(/#portfolio-section \{ width: min\((\d+)px/);
-    assert.ok(section, "the accounts section still declares the widest it can be");
-    assert.ok(
-      sum <= Number(section[1]),
-      `the columns add up to ${sum}px inside a section at most ${section[1]}px wide, so ${sum - Number(section[1])}px of the last column is behind the edge`,
-    );
-
     const declared = source.match(/table\.grid \{[^}]*min-width:\s*(\d+)px/);
     assert.ok(declared, "the table still declares a minimum width");
     assert.equal(Number(declared[1]), sum, "the table's minimum width and its columns are the same fact, written twice");
   });
 });
 
-test("the accounts section is never wider than the table actually needs", () => {
-  // The cap used to be a bare 1240 - a round number picked before this file
-  // derived tableWidth from the columns, and never revisited once it did. A
-  // fixed-layout table stretches to fill whatever container it sits in, so on
-  // an ordinary wide monitor the section (and the table stretched to match
-  // it) sat up to 134px wider than the columns actually declare - and wider
-  // still than the per-account status strip above it and every section below
-  // it, both at main's 860px. That mismatch is what the owner saw as the
-  // table sticking out: 「横幅が他のところと合っておらず、表がはみ出た感じに
-  // 見える」. Tied to the same tableWidth the table's own min-width already
-  // uses (the test above this one), so the two cannot drift apart again.
-  const columns = portfolioColumns(MESSAGES.ja);
-  const tableWidth = portfolioTableWidth(columns);
+test("the accounts section takes the page's width, not a width of its own", () => {
+  // Up to 2026-09-2x this section stepped outside main on purpose, capped at
+  // tableWidth so it would not stretch further than the table needed - which
+  // fixed one drift (a bare 1240 that disagreed with the columns) but left a
+  // second: on an ordinary wide monitor the section sat up to 139px wider on
+  // each side than every other section on the page, all pinned to main's
+  // 860px. That is what the owner saw as the table sticking out:
+  // 「横幅が他のところと合っておらず、表がはみ出た感じに見える」. The fix this
+  // guards is not giving the section a width of its own again - #portfolio-
+  // section has no CSS rule at all now, so it is sized like every plain
+  // section on the page, and the eleven columns scroll inside .table-wrap
+  // instead of stretching the section to fit them.
   const source = renderPage({ companyName: "テスト" });
-  const section = source.match(/#portfolio-section \{ width: min\((\d+)px/);
-  assert.ok(section, "the accounts section still declares its own cap");
-  assert.equal(
-    Number(section[1]),
-    tableWidth,
-    "the section's own cap and the table's width are the same fact, and should never be written as two different numbers",
+  assert.doesNotMatch(
+    source,
+    /#portfolio-section\s*\{/,
+    "the accounts section has its own width rule again, so it can drift from the rest of the page",
   );
+  // The escape hatch this now relies on for every desktop window, not only
+  // for a column dragged wider than the window.
+  assert.match(source, /\.table-wrap \{[^}]*overflow-x:\s*auto/, "eleven columns no longer fit main's width, so the table has to scroll inside it");
 });
 
 test("no column is dropped when the accounts table stops being a table", async () => {
@@ -1587,6 +2123,10 @@ test("a gate for a day that has passed cannot be touched, only read", async () =
 
     // Today's is untouched: the point is the day, not a blanket lockdown.
     assert.doesNotMatch(today as string, /data-act="submit"[^>]*disabled/);
+    // The accent frame means "waiting on you": the open gate has it, the one
+    // whose day has gone - which nothing can be done about - does not.
+    assert.match(html, /<section class="gate">/, "the open gate is framed");
+    assert.equal(html.match(/<section class="gate">/g)?.length, 1, "and only the open one");
   });
 });
 
@@ -3620,7 +4160,7 @@ test("a post the platform cannot publish reaches the operator as text, a link an
             comments: { purpose: string; text: string }[];
             composerUrl?: string;
           }[];
-          stats: { label: string; value: string }[];
+          stats: { label: string; lines: string[] }[];
         };
 
       const before = await read();
@@ -4384,7 +4924,7 @@ test("the headline numbers are windowed to the same days as the table under them
     const state = (await (
       await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
     ).json()) as {
-      stats: { label: string; value: string }[];
+      stats: { label: string; lines: string[] }[];
       portfolio: { days: number };
     };
 
@@ -4392,13 +4932,13 @@ test("the headline numbers are windowed to the same days as the table under them
     // ever changes, the numbers below must be recomputed, not just this line.
     assert.equal(state.portfolio.days, 30);
 
-    const byLabel = new Map(state.stats.map((stat) => [stat.label, stat.value]));
-    assert.equal(byLabel.get(MESSAGES.ja["stats.posts"]), "1", "the 90-day-old post is outside a 30-day window");
-    assert.equal(byLabel.get(MESSAGES.ja["stats.clicks"]), "1");
-    assert.equal(byLabel.get(MESSAGES.ja["stats.conversions"]), "1");
-    assert.equal(
+    const byLabel = new Map(state.stats.map((stat) => [stat.label, stat.lines]));
+    assert.deepEqual(byLabel.get(MESSAGES.ja["stats.posts"]), ["1"], "the 90-day-old post is outside a 30-day window");
+    assert.deepEqual(byLabel.get(MESSAGES.ja["stats.clicks"]), ["1"]);
+    assert.deepEqual(byLabel.get(MESSAGES.ja["stats.conversions"]), ["1"]);
+    assert.deepEqual(
       byLabel.get(MESSAGES.ja["stats.revenue"]),
-      "3,000 JPY",
+      ["3,000 JPY"],
       "not the old post's 100,000 JPY",
     );
     assert.equal(byLabel.size, 4, `expected exactly 4 headline numbers (no engagement total), found ${byLabel.size}`);
@@ -4479,4 +5019,71 @@ test("the portfolio memo hits across two Runtime objects that share a store regi
   forgetPortfolio(buildRuntime());
   await handleRequest(buildRuntime(), operators, stateRequest());
   assert.equal(patternsAllCalls, 4, "forgetPortfolio must still force a real recomputation");
+});
+
+test("revenue reaches the browser as one line per currency, and both screens draw a labelled number the same way", async () => {
+  // Was one string, "3,000 JPY / 5 USD", that the page would have had to cut
+  // apart on " / " to lay out per currency - a second reading of a fact the
+  // server had already built from parts. The server now sends the parts.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle, company) => {
+    const { store, clock, config } = company;
+    const offer = config.offers[0]!;
+    const nowMs = clock.now();
+    const at = new Date(nowMs - 2 * 86_400_000).toISOString();
+    // Currency comes from the offer, not the conversion, so a second currency
+    // needs a second offer. Registered on the live config the router reads.
+    (config.offers as unknown as unknown[]).push({ ...offer, id: "offer_usd", currency: "USD" });
+    (config.ventures[0]!.offers as unknown as string[]).push("offer_usd");
+
+    const seed = async (tag: string, amount: number, offerId: string) => {
+      await store.links.put({
+        id: `lnk_${tag}`, ventureId: "main", postId: `pst_${tag}`, offerId, code: tag,
+        subId: `sub_${tag}`, destinationUrl: "https://example.invalid", createdAt: at,
+      } as never);
+      await store.posts.put({
+        id: `pst_${tag}`, ventureId: "main", cycleId: `cyc_${tag}`, draftId: `drf_${tag}`, channel: "threads",
+        status: "published", scheduledFor: nowMs - 2 * 86_400_000, publishedAt: at,
+        content: { hook: tag, body: "b", cta: "c", disclosure: "#PR", hashtags: [] }, comments: [],
+      } as never);
+      await store.clicks.put({ id: `clk_${tag}`, linkId: `lnk_${tag}`, at } as never);
+      await store.conversions.put({
+        id: `cnv_${tag}`, linkId: `lnk_${tag}`, externalId: `ext_${tag}`, at, amount, status: "approved",
+      } as never);
+    };
+    await seed("yen", 3000, offer.id);
+    await seed("usd", 5, "offer_usd");
+
+    const state = (await (
+      await fetch(`${base}/api/state`, { headers: { authorization: `Bearer ${handle.token}` } })
+    ).json()) as {
+      stats: { label: string; lines: string[] }[];
+      portfolio: { rows: { ventureId: string; approvedLines: string[] }[] };
+    };
+    const revenue = state.stats.find((stat) => stat.label === MESSAGES.ja["stats.revenue"])!;
+    assert.deepEqual([...revenue.lines].sort(), ["3,000 JPY", "5 USD"], "one line per currency, none summed");
+    const row = state.portfolio.rows.find((entry) => entry.ventureId === "main")!;
+    assert.deepEqual([...row.approvedLines].sort(), ["3,000 JPY", "5 USD"]);
+
+    // The day's totals and the account's own numbers: same markup, label first.
+    const statShape = /<div class="stat"><span class="muted stat-label">[^<]+<\/span><b>(<span class="stat-line">[^<]*<\/span>)+<\/b><\/div>/g;
+    const today = await openPage({ base, token: handle.token, until: "stats" });
+    const todayHtml = today.elements.get("stats")!.innerHTML;
+    assert.equal(todayHtml.match(statShape)?.length, 4, "each of the day's four numbers is one .stat");
+    assert.equal(
+      todayHtml.match(/<span class="stat-line">[^<]*(JPY|USD)<\/span>/g)?.length,
+      2,
+      "two currencies are two lines of the one revenue number",
+    );
+    assert.doesNotMatch(todayHtml, / \/ /, "the joined string never reaches the page");
+    // The accounts table's own 確定報酬 cell is the third reader of the same fact.
+    const tableHtml = today.elements.get("portfolio")!.innerHTML;
+    assert.match(tableHtml, /(3,000 JPY<br>5 USD|5 USD<br>3,000 JPY)/, "one line per currency in the table cell too");
+    assert.doesNotMatch(tableHtml, /JPY \/ |USD \/ /);
+
+    const venture = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-numbers" });
+    const ventureHtml = venture.elements.get("venture-numbers")!.innerHTML;
+    assert.equal(ventureHtml.match(statShape)?.length, 5, "the account's five numbers are drawn by the same helper");
+    assert.equal(ventureHtml.match(/<span class="stat-line">[^<]*(JPY|USD)<\/span>/g)?.length, 2);
+    assert.doesNotMatch(ventureHtml, / \/ /);
+  });
 });

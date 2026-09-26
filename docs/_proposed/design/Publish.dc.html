@@ -26,7 +26,8 @@
     .muted { color: var(--muted); font-size: 13px; }
     .step { margin-left: auto; font-variant-numeric: tabular-nums; }
     .question { margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
-    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; }
+    /* The open gate is what is waiting on the operator, so it carries the accent frame .card.handover has. */
+    .scroll { flex: 1; overflow-y: auto; padding: 16px 16px 20px; margin: 10px 12px 0; border: 1px solid var(--accent); border-radius: var(--radius); }
     h2 {
       font-size: 14px; text-transform: uppercase; letter-spacing: .07em;
       color: var(--muted); margin: 0 0 10px; font-weight: 500;

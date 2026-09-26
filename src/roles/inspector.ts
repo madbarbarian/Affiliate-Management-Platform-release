@@ -11,7 +11,7 @@
  */
 
 import { ok, type PlatformError, type Result } from "../core/result.ts";
-import { checkCompliance, detectAiSmell, passesPolicy } from "../kernel/policy.ts";
+import { checkCompliance, detectAiSmell, passesPolicy, renderPlainText } from "../kernel/policy.ts";
 import { describeCompliance, findMarket, resolveCompliance, type ComplianceProfile } from "../domain/market.ts";
 import { ventureBrief, type Role, type RoleContext } from "../kernel/role.ts";
 import { array, enumOf, integer, object, string } from "../llm/schema.ts";
@@ -35,10 +35,19 @@ const INSPECT_SCHEMA = object({
     object({
       severity: enumOf(SEVERITIES),
       code: string("Dotted code, e.g. voice.hedged or compliance.missing_disclosure."),
-      message: string("What is wrong, specifically."),
-      excerpt: string("The offending text, or an empty string."),
+      message: string("What is wrong, specifically, with YOUR REWRITE below. Not the original draft."),
+      excerpt: string(
+        "The offending text exactly as it appears in YOUR REWRITE, or an empty string. If your rewrite " +
+          "already fixed this, leave the finding out entirely - do not report it.",
+      ),
       suggestion: string("How to fix it, or an empty string."),
     }),
+    {
+      description:
+        "Problems remaining in YOUR REWRITE (the `revised` object below), judged as strictly as " +
+        "revisedAiSmellScore. Not the original draft: a problem the original had that your rewrite already " +
+        "fixed must not be reported here.",
+    },
   ),
   revised: object({
     hook: string(),
@@ -157,7 +166,39 @@ export const inspector: Role<InspectInput, InspectionReport> = {
       ...(finding.suggestion ? { suggestion: finding.suggestion } : {}),
     }));
 
-    const findings: InspectionFinding[] = [...afterCompliance, ...afterSmell.findings, ...modelFindings];
+    // The soft fix above (the schema description) asks the model not to report
+    // a problem its own rewrite already solved, but a prompt is not a
+    // guarantee - this is the live defect: a finding true of the pre-rewrite
+    // draft, shown next to a rewrite that had already fixed it. For any
+    // finding that quotes specific text, that text has to actually be in the
+    // rewrite the operator is looking at, or the finding is describing a draft
+    // that no longer exists. A finding with no excerpt (a structural claim
+    // like "no first person anywhere") cannot be checked this way without
+    // reimplementing detectAiSmell's own heuristics, so it passes through
+    // unverified - the schema description is the only defence for that case.
+    const revisedText = renderPlainText(revised);
+    const liveModelFindings: InspectionFinding[] = [];
+    const staleModelFindings: InspectionFinding[] = [];
+    for (const finding of modelFindings) {
+      if (finding.excerpt && !excerptAppearsIn(finding.excerpt, revisedText)) {
+        staleModelFindings.push(finding);
+      } else {
+        liveModelFindings.push(finding);
+      }
+    }
+    if (staleModelFindings.length > 0) {
+      await context.note(
+        "role.inspect.dropped_finding",
+        `Draft ${draft.id}: dropped ${staleModelFindings.length} model finding(s) whose excerpt does not ` +
+          `appear in the rewrite (describing the pre-rewrite draft).`,
+        {
+          draftId: draft.id,
+          dropped: staleModelFindings.map((finding) => ({ code: finding.code, excerpt: finding.excerpt })),
+        },
+      );
+    }
+
+    const findings: InspectionFinding[] = [...afterCompliance, ...afterSmell.findings, ...liveModelFindings];
 
     if (response.value.unfixable.trim() !== "") {
       findings.push({
@@ -256,4 +297,18 @@ function normaliseRevision(
 
 function toSeverity(value: string): FindingSeverity {
   return (SEVERITIES as readonly string[]).includes(value) ? (value as FindingSeverity) : "note";
+}
+
+/**
+ * Whitespace is the only slack given here - runs of it collapse to a single
+ * space on both sides before the exact substring check. Nothing else is
+ * loosened: a fuzzy match that could line up an excerpt with unrelated text
+ * would let a stale finding through, which is the exact bug this guards
+ * against. Losing a real finding to an over-strict match is the safer
+ * failure, so this stays a plain `includes`, not an edit-distance or
+ * token-overlap comparison.
+ */
+function excerptAppearsIn(excerpt: string, revisedText: string): boolean {
+  const collapse = (text: string) => text.replace(/\s+/g, " ").trim();
+  return collapse(revisedText).includes(collapse(excerpt));
 }

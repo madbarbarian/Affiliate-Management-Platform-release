@@ -40,4 +40,5 @@ every one of them; they are re-checked mechanically afterwards.
 
 ---
 
-Score the original, list what is wrong with it, and return the rewritten post.
+Score the original, write the rewrite, then list what is still wrong with
+*the rewrite* - never the original draft you started from.

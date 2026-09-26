@@ -163,6 +163,19 @@ function esc(value) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+/*
+ * The one way a labelled number is drawn: label above, small and muted; value
+ * below, large and bold. The day's totals and an account's own numbers each
+ * built their own copy of this and ended up in opposite orders, so both call
+ * here now. lines is one entry per line of the value - a revenue figure is
+ * one per currency, sent that way by the server, never a joined sentence to
+ * be cut apart here. Plain text in, escaped here.
+ */
+function statHtml(label, lines) {
+  return '<div class="stat"><span class="muted stat-label">' + esc(label) + "</span><b>" +
+    lines.map((line) => '<span class="stat-line">' + esc(line) + "</span>").join("") + "</b></div>";
+}
+
 // Built from labels.ts rather than written out here, so a step added to
 // CycleStep without a Japanese word fails a test instead of reaching the
 // screen in English.
@@ -292,6 +305,14 @@ function wireColumnResize(container) {
     if (typeof saved === "number" && saved >= MIN_COLUMN_WIDTH) cols[index].style.width = saved + "px";
   });
 
+  // Meaningless until a column has actually been dragged (console-ux-proposal.md
+  // §6.3): the button used to render every day under a table people check
+  // weekly. A stored width, not the button's own history, is what it means to
+  // "have something to reset" - the button itself is rebuilt from scratch on
+  // every render, so it cannot remember whether it was shown before.
+  const reset = container.querySelector(".grid-reset");
+  if (reset) reset.hidden = Object.keys(widths).length === 0;
+
   for (const grip of container.querySelectorAll(".grip")) {
     grip.addEventListener("pointerdown", (event) => {
       const index = PORTFOLIO_COLUMNS.findIndex((column) => column.key === grip.dataset.grip);
@@ -315,6 +336,7 @@ function wireColumnResize(container) {
         const kept = savedColumnWidths();
         kept[PORTFOLIO_COLUMNS[index].key] = Math.round(cols[index].getBoundingClientRect().width);
         saveColumnWidths(kept);
+        if (reset) reset.hidden = false;
       };
       grip.addEventListener("pointermove", move);
       grip.addEventListener("pointerup", done);
@@ -322,13 +344,13 @@ function wireColumnResize(container) {
     });
   }
 
-  const reset = container.querySelector(".grid-reset");
   if (reset) {
     reset.addEventListener("click", () => {
       saveColumnWidths({});
       PORTFOLIO_COLUMNS.forEach((column, index) => {
         cols[index].style.width = column.width + "px";
       });
+      reset.hidden = true;
     });
   }
 }

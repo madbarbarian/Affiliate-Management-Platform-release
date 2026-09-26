@@ -43,7 +43,7 @@ a second company day.
 ## Layers
 
 ```
-  entry points     cli.ts · console/ · scheduler/
+  entry points     cli.ts · console/ · scheduler/ · worker/
         │
         ▼
   runtime.ts       builds everything from config, one place
@@ -66,6 +66,17 @@ a second company day.
 Dependencies point one way. A role may use the domain and the ports; nothing
 below the kernel knows the orchestrator exists.
 
+`worker/` is the Cloudflare host: `worker/runtime.ts` mirrors `runtime.ts` (same
+`assembleRuntime` in `kernel/assemble.ts`, config and prompts from the build
+instead of the filesystem, storage from D1). `worker/handler.ts`'s `fetch` hands
+every request straight to `console/router.ts` — the daemon and the Worker serve
+the same routes from the same code, not two copies to keep in sync.
+
+`console/` itself splits into `router.ts`/`server.ts` (routing, auth, the API)
+and `console/page/` (the rendered screen, composed by `ui.ts` from one file per
+section under `console/page/client/`). A screen change does not touch routing,
+and vice versa.
+
 ## The ports
 
 Four seams, each one file to replace:
@@ -73,7 +84,7 @@ Four seams, each one file to replace:
 | Port | Shipped adapters | Replace it when |
 |---|---|---|
 | `LlmProvider` | `anthropic`, `mock` | never, realistically — but the mock is how tests and dry runs work |
-| `Store` | JSON files, in-memory | you outgrow a single machine, or want Postgres/D1/Supabase |
+| `Store` | JSON files, in-memory, D1 (via `sql-store.ts`) | you outgrow a single machine and D1 does not fit either — Postgres/Supabase speak the same driver interface |
 | `Channel` | `mock`, `threads`, `webhook` | you post somewhere the platform does not ship |
 | `OfferNetwork` | `mock`, `csv`, `webhook` | your network has a real API worth speaking natively |
 
@@ -187,7 +198,11 @@ on every tick:
 each block the scout appended to it — the config is git-ignored, so git does
 not have these.
 
-All three of those are files because the platform runs as a process on a
-machine. On a serverless host it cannot: the filesystem is read-only and
-nothing survives an invocation. What that costs and what it would change is
-in [Running on Cloudflare](cloudflare-design.md) — a design, not yet built.
+All three of those are files when the platform runs as a process on a machine
+(`node src/cli.ts daemon`). On the Worker, which has no writable filesystem,
+the same collections live in D1 instead (`storage/sql-store.ts`), and the two
+small operating-state files become two rows read through `storage/sql-state.ts`
+— same `StateStore` port `pause.ts` and `venture-state.ts` already used, same
+fail-closed/fail-open split. **This is shipped, not a proposal**: it is how
+every licensee that deploys with the Deploy button runs. What building it
+changed and what it cost is in [Running on Cloudflare](cloudflare-design.md).

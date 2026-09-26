@@ -210,14 +210,26 @@ export function totalCounts(rollups: Iterable<RevenueRollup>): { clicks: number;
   return { clicks, conversions };
 }
 
-/** Renders per-currency totals as "1,200 JPY / 34 USD". */
+/**
+ * One already-formatted line per currency: ["1,200 JPY", "34 USD"], or ["0"]
+ * when there is nothing in any of them. The console sends this shape rather
+ * than formatMoney's joined string so the browser never has to split a
+ * sentence back into the parts it was built from.
+ */
+export function formatMoneyLines(
+  totals: ReadonlyMap<string, RevenueRollup>,
+  field: "approvedRevenue" | "pendingRevenue",
+): string[] {
+  const lines = [...totals.values()]
+    .filter((rollup) => rollup[field] !== 0)
+    .map((rollup) => `${Math.round(rollup[field]).toLocaleString("en-US")} ${rollup.currency}`);
+  return lines.length > 0 ? lines : ["0"];
+}
+
+/** Renders per-currency totals as one line of text, "1,200 JPY / 34 USD". For terminals and reports. */
 export function formatMoney(
   totals: ReadonlyMap<string, RevenueRollup>,
   field: "approvedRevenue" | "pendingRevenue",
 ): string {
-  if (totals.size === 0) return "0";
-  return [...totals.values()]
-    .filter((rollup) => rollup[field] !== 0)
-    .map((rollup) => `${Math.round(rollup[field]).toLocaleString("en-US")} ${rollup.currency}`)
-    .join(" / ") || "0";
+  return formatMoneyLines(totals, field).join(" / ");
 }

@@ -19,14 +19,14 @@ import { localDate, nextLocalTime, parseTimeOfDay } from "../core/clock.ts";
 import { composeThreadParts } from "../channels/format.ts";
 import { composerUrlOf } from "../channels/manual.ts";
 import { readPause } from "../kernel/pause.ts";
-import { resumeEverything } from "../kernel/resume.ts";
+import { PLATFORM_RESUMED_EVENT, resumeEverything } from "../kernel/resume.ts";
 import { REDIRECT_PATH } from "../affiliate/links.ts";
 import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
-import { formatMoney } from "../affiliate/attribution.ts";
+import { emptyRollup, formatMoney, formatMoneyLines, payoutFor, type RevenueRollup } from "../affiliate/attribution.ts";
 import { buildPortfolio } from "../domain/portfolio.ts";
 import { findMarket, resolveCompliance } from "../domain/market.ts";
 import { appendVentureBlock, listProposals, markAppended, renderVentureBlock, resolveProposal } from "../kernel/exploration.ts";
-import { CYCLES_LOCK } from "../scheduler/tick.ts";
+import { CYCLE_ABANDONED_EVENT, CYCLES_LOCK } from "../scheduler/tick.ts";
 import { DECISION_CLOSED_EVENT } from "../kernel/orchestrator.ts";
 import { switchVentureOff, switchVentureOn } from "../kernel/venture-switch.ts";
 import type { Operator } from "./operators.ts";
@@ -34,10 +34,19 @@ import type { Runtime } from "../runtime.ts";
 import { buildTimeline, type Timeline } from "./timeline.ts";
 import type { Services } from "../kernel/role.ts";
 import type { Store, StoreRegistry } from "../storage/store.ts";
-import { COMPANY_SCOPE, type VentureId } from "../core/types.ts";
+import {
+  COMPANY_SCOPE,
+  type AuditEvent,
+  type ClickEvent,
+  type ConversionEvent,
+  type CycleStep,
+  type Offer,
+  type TrackedLink,
+  type VentureId,
+} from "../core/types.ts";
 import { renderPage } from "./ui.ts";
 import { commentPurposeKey, fill, messagesFor, type Messages } from "./messages.ts";
-import { POST_STATUS_KEYS } from "./labels.ts";
+import { CYCLE_STEP_LABELS, FAILURE_SUMMARIES, POST_STATUS_KEYS } from "./labels.ts";
 import { companyTimezone, createWhen, type When } from "./when.ts";
 import { checkForUpdate } from "./updates.ts";
 import { isVentureActive, readVentureState } from "../kernel/venture-state.ts";
@@ -88,6 +97,70 @@ const HAND_OVER_SHOWN = 20;
 
 /** Same reasoning as `HAND_OVER_SHOWN`, for the upcoming-schedule table. */
 const UPCOMING_SHOWN = 12;
+
+/**
+ * How many raw audit rows `buildActivityFeed` pulls per account before it
+ * drops the ones that are not news (see the function's own comment for the
+ * list). Generous on purpose: a single cycle writes on the order of ten
+ * audit lines and only two or three of them survive the filter, so a low
+ * limit here would starve the merge below of real candidates on a busy day.
+ */
+const ACTIVITY_AUDIT_CANDIDATES = 40;
+
+/** Same idea as `ACTIVITY_AUDIT_CANDIDATES`, for clicks and conversions. */
+const ACTIVITY_EVENT_CANDIDATES = 8;
+
+/**
+ * How long `memoisedClicksAndConversions` trusts its own answer.
+ *
+ * `store.clicks`/`store.conversions` have no bounded "recent" read - unlike
+ * `AuditLog.recent()`, `Collection<T>` carries no ordering, so a licensee's
+ * whole history has to be loaded before the newest `ACTIVITY_EVENT_CANDIDATES`
+ * can even be picked out. That read is already paid once a poll for the
+ * portfolio's own revenue numbers (`domain/performance.ts`'s
+ * `computePerformance`, behind `memoisedPortfolio`'s own TTL); without a cache
+ * here this feed paid it a second time, every account, every 30 seconds,
+ * growing without bound as a licensee's own traffic grows - the same shape of
+ * cost this session spent a day removing from the rest of this endpoint
+ * (`portfolio-table-width`'s neighbour, decisions.md 2026-09-25).
+ *
+ * Not wired to `forgetPortfolio`: a click or a conversion showing up up to
+ * this many milliseconds late is not a defect the way a stale approval count
+ * would be - the page already redraws on this cadence, and 最近の動き is a
+ * view of what happened, not a gate anything waits on. Letting it expire on
+ * its own is what keeps that true without adding a sixth call site that has
+ * to remember to invalidate a seventh cache.
+ */
+export const ACTIVITY_EVENT_MEMO_MS = 30_000;
+
+/** Final length of 最近の動き, merged across every account. */
+const ACTIVITY_SHOWN = 12;
+
+/**
+ * Every audit event type that denotes something going wrong - whether or not
+ * `describeAuditEvent` has a dedicated `case` for it. This is *not* the whole
+ * of that switch: most of its cases (a person deciding, a post going out) are
+ * not failures. This is the narrower list a type joins the moment it is
+ * failure-shaped, and `describeAuditEvent`'s `default` branch checks it before
+ * dropping anything - an event type reaching neither a specific `case` above
+ * nor this set is the only kind of thing this feed is allowed to make vanish.
+ *
+ * `test/console.test.ts`'s "every failure-shaped audit event either has a
+ * case or hits the generic fallback" keeps this list honest against the
+ * actual source: it scans every `.note(...)` / `type: ...` call site in
+ * `src/roles/` and `src/kernel/` and `src/scheduler/tick.ts`, and fails if a
+ * type shows up there that this file has never classified as failure-shaped
+ * or not. That test's own comment names the one call shape a scan cannot
+ * resolve (`` `proposal.${resolution.status}` `` in `exploration.ts`) and why.
+ */
+export const FAILURE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "cycle.failed",
+  CYCLE_ABANDONED_EVENT,
+  "post.link_drop_failed",
+  "post.failed",
+  "post.deferred",
+  "role.scout.failed",
+]);
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -535,7 +608,12 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     store.posts.find((post) => post.status === "approved" || post.status === "scheduled" || post.status === "queued"),
   );
   const handOverRawPromise = gather((store) => store.posts.find((post) => post.status === "handed_over"));
-  const activityRawPromise = gather((store) => store.audit.recent(12));
+  // Composed, not gathered: clicks and conversions are not audit events at
+  // all - they are rows the redirect and the network adapters write straight
+  // into their own collections - so this cannot be `gather`'s one-collection
+  // shape. `buildActivityFeed` reads all three per account and merges them
+  // itself; kicked off here and awaited below with everything else.
+  const activityPromise = buildActivityFeed(runtime, scopes, T, when, zoneOf, ventureName);
   const portfolioPromise = memoisedPortfolio(runtime);
   const proposalsStorePromise = stores.for(COMPANY_SCOPE);
 
@@ -613,7 +691,21 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     items: decision.items.map((item) => ({
       id: item.id,
       title: item.title,
-      summary: item.summary,
+      // For a publish decision, `item.summary` is kernel's own
+      // `${isoTimestamp} — ${slotReason}` (orchestrator.ts's
+      // buildPublishDecision) - built for `cli.ts`'s plain-text listing, not
+      // for a screen. The timestamp it repeats is already the chip below
+      // (`buildChips`, via `when.atIso`), correctly named to the account's
+      // clock; showing it a second time here as raw ISO next to that chip is
+      // the defect reported live ("2026-09-25T22:30:14.666Z — 07:30
+      // Asia/Tokyo - ..." beside "2026-09-26 07:30（日本標準時）"). The
+      // slot's rationale beyond the time - measured-best vs. default-for-
+      // lack-of-data - is domain-internal English (scheduling.ts's own
+      // `SlotCandidate.reason`) with no structured form left on the post to
+      // translate faithfully, so rather than pass it through raw or
+      // string-match it into Japanese, the console drops it here: it is not
+      // a choice the operator can act on differently.
+      summary: decision.gate === "publish_approval" ? "" : item.summary,
       recommended: item.recommended,
       chips: buildChips(item.detail, runtime.config.policy.maxAiSmellScore, T, when, zoneOf(decision.ventureId)),
       preview: buildPreview(item.detail, T),
@@ -744,28 +836,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
   // because the row felt empty without a fourth number in it.
   const portfolio = await portfolioPromise;
 
-  // `type` travels with the entry so the page can say a failure in the
-  // operator's words. The summary is the durable English record and stays the
-  // fallback; it is not what a licensee should have to read.
-  const activity = (await activityRawPromise)
-    .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, 12)
-    .map((event) => ({
-    at: when.atIso(event.at, zoneOf(event.ventureId)),
-    actor: event.actor,
-    summary: event.summary,
-    type: event.type,
-    ...(event.type === "cycle.failed"
-      ? { failureCode: String(event.data["code"] ?? ""), failureStep: String(event.data["step"] ?? "") }
-      : {}),
-    // The day, so the page can say it in the operator's language rather than
-    // showing the stored English. Which day lapsed - or was closed - is the
-    // whole content of these two entries, and they are two entries on purpose:
-    // one is a gate nobody answered, the other is one the operator ended.
-    ...(event.type === "decision.expired" || event.type === DECISION_CLOSED_EVENT
-      ? { day: String(event.data["day"] ?? "") }
-      : {}),
-  }));
+  const activity = await activityPromise;
 
   // Surfaced so the console cannot show a calm list of scheduled posts while
   // the platform is stopped and none of them are going anywhere.
@@ -861,7 +932,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
         medianScore: row.medianScore,
         clicks: row.clicks,
         conversions: row.conversions,
-        approved: formatMoney(new Map(row.revenue.map((rollup) => [rollup.currency, rollup])), "approvedRevenue"),
+        approvedLines: moneyLines(row.revenue, "approvedRevenue"),
         playbook: `${row.playbook.active}/${row.playbook.total}`,
         measurement: row.measurementClosed ? "closed" : "INCOMPLETE",
         // The step, not the sentence: `doctor`'s prose is English and written
@@ -873,19 +944,451 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
     upcoming,
     handOver,
     stats: [
-      { label: T["stats.posts"], value: String(portfolio.totals.posts) },
-      { label: T["stats.clicks"], value: String(portfolio.totals.clicks) },
-      { label: T["stats.conversions"], value: String(portfolio.totals.conversions) },
-      {
-        label: T["stats.revenue"],
-        value: formatMoney(
-          new Map(portfolio.totals.byCurrency.map((rollup) => [rollup.currency, rollup])),
-          "approvedRevenue",
-        ),
-      },
+      { label: T["stats.posts"], lines: [String(portfolio.totals.posts)] },
+      { label: T["stats.clicks"], lines: [String(portfolio.totals.clicks)] },
+      { label: T["stats.conversions"], lines: [String(portfolio.totals.conversions)] },
+      // One line per currency, never one summed number.
+      { label: T["stats.revenue"], lines: moneyLines(portfolio.totals.byCurrency, "approvedRevenue") },
     ],
     activity,
   };
+}
+
+/** Per-currency rollups as one formatted line each. Money is never summed across currencies. */
+function moneyLines(rollups: readonly RevenueRollup[], field: "approvedRevenue" | "pendingRevenue"): string[] {
+  return formatMoneyLines(new Map(rollups.map((rollup) => [rollup.currency, rollup])), field);
+}
+
+/** One candidate line for 最近の動き, before it is capped to `ACTIVITY_SHOWN` and formatted for the wire. */
+type ActivityCandidate = {
+  readonly ventureId: string;
+  /** Raw ISO instant - sorted on before `when` ever touches it. */
+  readonly at: string;
+  /** What kind of thing this is, for the client and for a test to key off of. */
+  readonly kind: string;
+  /** The underlying audit type, or a synthetic one for a click/conversion row. Never rendered. */
+  readonly type: string;
+  /** Already in the operator's language. What the page prints. */
+  readonly text: string;
+  /** The durable English record, kept for the same reason the audit log itself is: nothing here is thrown away. */
+  readonly summary: string;
+  /** Bold treatment - a failure, or a gate that lapsed unanswered. */
+  readonly emphasize: boolean;
+  readonly actor?: string;
+  readonly failureCode?: string;
+  readonly failureStep?: string;
+  readonly day?: string;
+};
+
+/**
+ * 最近の動き: composed from the audit log *and* the click and conversion
+ * collections, because the two things the owner named first - clicks,
+ * conversions - are not audit events. They are rows the tracking redirect and
+ * the network adapters write straight into `store.clicks` / `store.conversions`,
+ * so this cannot be a filter over `audit.recent()`; it has to gather from three
+ * collections per account and merge the result by time, the same shape as
+ * `upcoming` and `handOver` above.
+ *
+ * **What it drops, on purpose:** every `role.*` event (the six roles narrating
+ * their own steps - this is the literal defect the owner reported: "Drafted
+ * ...", "cleared inspection", "N items need a decision" are exactly the
+ * `role.write.completed` / `role.inspect.passed` / `decision.opened` lines this
+ * function never reaches), `decision.opened` (the pending gate it announces is
+ * already on this same page), `decision.auto_resolved` (the machine deciding
+ * under `autonomy: auto` is not a person deciding - "人が決めた" would be a
+ * lie), `comment.compliance` (an internal rewrite note), and the scout's own
+ * bookkeeping (`role.scout.*` - its cadence is read from the audit log by
+ * `lastScoutAt`, not watched on a screen). `proposal.accepted` /
+ * `proposal.dismissed` are a real "人が決めた" too - see decisions.md for why
+ * this pass leaves them out.
+ *
+ * **What it never drops:** `cycle.failed` and `post.link_drop_failed`.
+ * `docs/3-development/console-architecture.md` names the incident this is
+ * for: two days died with the audit log silent, and 最近の動き kept saying
+ * "まだ記録がありません" through both of them.
+ */
+
+/**
+ * One account's clicks and conversions, whole - `Collection<T>` has no
+ * bounded "recent" read, so there is no way to ask for only the newest
+ * `ACTIVITY_EVENT_CANDIDATES` without a store adapter that can sort and page
+ * a generic collection, which none of the three (JSON file, memory, D1) do
+ * today. Caching the whole read is the fallback `ACTIVITY_EVENT_MEMO_MS`'s
+ * own comment describes, not the first choice.
+ *
+ * Keyed on `Store`, not on `Runtime` or even `StoreRegistry`: `StoreRegistry`
+ * hands back the *same* `Store` object for the same account for as long as it
+ * lives (its own doc comment says so), which on a Worker is the isolate's
+ * whole life - the exact property `memoisedPortfolio`'s own comment explains
+ * at length for why *that* memo is keyed one level up. One `WeakMap` entry per
+ * account rather than one for the whole registry, because this is already
+ * scoped to a single account's collections.
+ */
+const activityEventMemo = new WeakMap<Store, { at: number; clicks: readonly ClickEvent[]; conversions: readonly ConversionEvent[] }>();
+
+export async function memoisedClicksAndConversions(
+  store: Store,
+  nowMs: number,
+): Promise<{ clicks: readonly ClickEvent[]; conversions: readonly ConversionEvent[] }> {
+  const cached = activityEventMemo.get(store);
+  if (cached && nowMs - cached.at < ACTIVITY_EVENT_MEMO_MS) return cached;
+  const [clicks, conversions] = await Promise.all([store.clicks.all(), store.conversions.all()]);
+  const value = { at: nowMs, clicks, conversions };
+  activityEventMemo.set(store, value);
+  return value;
+}
+
+async function buildActivityFeed(
+  runtime: Runtime,
+  scopes: readonly { readonly ventureId: string; readonly store: Store }[],
+  T: Messages,
+  when: When,
+  zoneOf: (ventureId: string) => string,
+  ventureName: Map<string, string>,
+): Promise<Record<string, unknown>[]> {
+  const offerById = new Map(runtime.config.offers.map((offer) => [offer.id, offer]));
+  const nowMs = runtime.services.clock.now();
+  const perScope = await Promise.all(
+    scopes.map(async (scope) => {
+      const [auditEvents, { clicks, conversions }] = await Promise.all([
+        scope.store.audit.recent(ACTIVITY_AUDIT_CANDIDATES),
+        memoisedClicksAndConversions(scope.store, nowMs),
+      ]);
+
+      const candidates: ActivityCandidate[] = [];
+
+      for (const event of auditEvents) {
+        const described = await describeAuditEvent(event, scope.store, T, ventureName);
+        if (described) candidates.push({ ventureId: scope.ventureId, ...described });
+      }
+
+      const recentClicks = [...clicks].sort((a, b) => b.at.localeCompare(a.at)).slice(0, ACTIVITY_EVENT_CANDIDATES);
+      // Resolved together, not one click after another: each one is its own
+      // `links.get` (and, inside `subjectFor`, its own `posts.get`), and nothing
+      // downstream needs them in order - the sort above already happened. On a
+      // D1-backed store this is up to `ACTIVITY_EVENT_CANDIDATES` round trips
+      // collapsed into one, the same reasoning `buildState`'s own six-promise
+      // fan-out already applies everywhere else on this page.
+      const clickCandidates = await Promise.all(
+        recentClicks.map(async (click): Promise<ActivityCandidate | undefined> => {
+          const link = await scope.store.links.get(click.linkId);
+          const subject = link ? await subjectFor(scope.store, link, offerById) : undefined;
+          if (!subject) return undefined;
+          return {
+            ventureId: scope.ventureId,
+            at: click.at,
+            kind: "click",
+            type: "click.recorded",
+            text: fill(T, "activity.click", { subject }),
+            summary: `Got a click (${subject}).`,
+            emphasize: false,
+          };
+        }),
+      );
+      for (const candidate of clickCandidates) if (candidate) candidates.push(candidate);
+
+      // `rejected` is the network saying this one does not count - a return to
+      // zero, not new information the operator has to act on today. Showing
+      // every rejection risks this feed reading as a complaint log instead of
+      // the progress the owner asked for.
+      const recentConversions = [...conversions]
+        .filter((conversion) => conversion.status !== "rejected")
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .slice(0, ACTIVITY_EVENT_CANDIDATES);
+      const conversionCandidates = await Promise.all(
+        recentConversions.map(async (conversion): Promise<ActivityCandidate | undefined> => {
+          const link = await scope.store.links.get(conversion.linkId);
+          const offer = link ? offerById.get(link.offerId) : undefined;
+          const subject = link ? await subjectFor(scope.store, link, offerById) : undefined;
+          if (!link || !offer || !subject) return undefined;
+          const approved = conversion.status === "approved";
+          // The payout, never the network's raw sale amount: for a revshare offer
+          // those are two different numbers, and "報酬" means the first one.
+          // `payoutFor` is the one place that conversion already exists (`revenueByPost`
+          // reads it the same way) - a second formula here would be a second answer.
+          const payout = payoutFor(offer, conversion);
+          const rollup = { ...emptyRollup(offer.currency), ...(approved ? { approvedRevenue: payout } : { pendingRevenue: payout }) };
+          const amount = formatMoney(new Map([[offer.currency, rollup]]), approved ? "approvedRevenue" : "pendingRevenue");
+          return {
+            ventureId: scope.ventureId,
+            at: conversion.at,
+            kind: approved ? "revenue" : "conversion",
+            type: `conversion.${conversion.status}`,
+            text: fill(T, approved ? "activity.revenueApproved" : "activity.conversionPending", { subject, amount }),
+            summary: `Conversion ${conversion.status} (${subject}, ${amount}).`,
+            emphasize: false,
+          };
+        }),
+      );
+      for (const candidate of conversionCandidates) if (candidate) candidates.push(candidate);
+
+      return candidates;
+    }),
+  );
+
+  return perScope
+    .flat()
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, ACTIVITY_SHOWN)
+    .map((entry) => ({
+      at: when.atIso(entry.at, zoneOf(entry.ventureId)),
+      // Absent for a company-scope entry (a whole-platform resume): there is
+      // no account to name, and naming "company" - this platform's own id for
+      // its own bookkeeping store - would be exactly the internal name this
+      // screen must never show.
+      ...(entry.ventureId !== COMPANY_SCOPE ? { ventureName: ventureName.get(entry.ventureId) ?? entry.ventureId } : {}),
+      kind: entry.kind,
+      type: entry.type,
+      text: entry.text,
+      summary: entry.summary,
+      emphasize: entry.emphasize,
+      ...(entry.actor ? { actor: entry.actor } : {}),
+      ...(entry.failureCode ? { failureCode: entry.failureCode } : {}),
+      ...(entry.failureStep ? { failureStep: entry.failureStep } : {}),
+      ...(entry.day ? { day: entry.day } : {}),
+    }));
+}
+
+/**
+ * One audit event, translated - or `undefined` for the ones this feed drops.
+ * A `switch` rather than a lookup table: the list in `buildActivityFeed`'s own
+ * comment is the contract, and an event type that reaches neither a `case`
+ * here nor that list is the thing a future reader has to notice, not silently
+ * pass through as raw English.
+ */
+export async function describeAuditEvent(
+  event: AuditEvent,
+  store: Store,
+  T: Messages,
+  ventureName: Map<string, string>,
+): Promise<Omit<ActivityCandidate, "ventureId"> | undefined> {
+  // "orchestrator" and "scheduler" are this platform's own actors, chosen for
+  // the code that writes the line - never a person. Everything else reaching
+  // here is a name a person typed: into a gate, or into `amp` when they
+  // stopped something. That is licensee data, not platform vocabulary, so it
+  // is shown as given.
+  const actor = event.actor === "orchestrator" || event.actor === "scheduler" ? T["activity.systemActor"] : event.actor;
+  const nameOf = (ventureId: string): string => ventureName.get(ventureId) ?? ventureId;
+
+  switch (event.type) {
+    case "cycle.failed": {
+      const code = String(event.data["code"] ?? "");
+      const step = String(event.data["step"] ?? "");
+      const failure = FAILURE_SUMMARIES[code] ?? { short: code || "?", hint: "" };
+      const stepLabel = CYCLE_STEP_LABELS[step as CycleStep] ?? step;
+      return {
+        at: event.at,
+        kind: "failure",
+        type: event.type,
+        actor,
+        text: fill(T, "today.activityFailed", { step: stepLabel, reason: failure.short }),
+        summary: event.summary,
+        emphasize: true,
+        failureCode: code,
+        failureStep: step,
+      };
+    }
+    case CYCLE_ABANDONED_EVENT: {
+      // The event tick.ts's own comment calls "read by the console's activity
+      // feed" - written before this file actually did, for the exact
+      // incident console-architecture.md records: a day dies quietly on a
+      // host with no terminal, and the only trace was a log line nobody
+      // could read. `cycle.failure` is attached when the last attempt left
+      // one - reuse the same wording `cycle.failed` uses, so the same
+      // failure reads the same way whether the day died on its first try or
+      // its last.
+      const code = event.data["code"] !== undefined ? String(event.data["code"]) : undefined;
+      const step = event.data["step"] !== undefined ? String(event.data["step"]) : undefined;
+      if (code && step) {
+        const failure = FAILURE_SUMMARIES[code] ?? { short: code || "?", hint: "" };
+        const stepLabel = CYCLE_STEP_LABELS[step as CycleStep] ?? step;
+        return {
+          at: event.at,
+          kind: "failure",
+          type: event.type,
+          actor,
+          text: fill(T, "today.activityFailed", { step: stepLabel, reason: failure.short }),
+          summary: event.summary,
+          emphasize: true,
+          failureCode: code,
+          failureStep: step,
+        };
+      }
+      // No `cycle.failure` on record - abandoned for a reason that was never
+      // a failed step (an unreadable timestamp, say). There is nothing more
+      // specific than "this day is not happening" to say about it.
+      return {
+        at: event.at,
+        kind: "failure",
+        type: event.type,
+        actor,
+        text: fill(T, "activity.dayAbandoned", { day: String(event.data["day"] ?? "") }),
+        summary: event.summary,
+        emphasize: true,
+      };
+    }
+    case "post.link_drop_failed": {
+      // The stored summary is the API's own message, truncated - exactly what
+      // console-architecture.md says never to put on this screen. The post's
+      // own hook is not that: it is content the account already published, in
+      // the reader's own language, so it is what names the line instead.
+      const postId = String(event.data["postId"] ?? "");
+      const post = postId ? await store.posts.get(postId) : undefined;
+      const hook = post?.content.hook.slice(0, 70);
+      return {
+        at: event.at,
+        kind: "failure",
+        type: event.type,
+        actor,
+        text: hook ? fill(T, "activity.linkDropFailed", { hook }) : T["activity.linkDropFailedGeneric"],
+        summary: event.summary,
+        emphasize: true,
+      };
+    }
+    case "decision.resolved": {
+      const gate = event.data["gate"] === "publish_approval" ? T["gate.publishLabel"] : T["gate.proposalLabel"];
+      const selected = Array.isArray(event.data["selected"]) ? (event.data["selected"] as unknown[]).length : 0;
+      // The total is not in this event's own `data` - only the selection is.
+      // The decision record still has it, and it is one more read on an event
+      // that fires at most twice a day per account.
+      const decisionId = String(event.data["decisionId"] ?? "");
+      const decision = decisionId ? await store.decisions.get(decisionId) : undefined;
+      const total = decision?.items.length ?? selected;
+      return {
+        at: event.at,
+        kind: "decided",
+        type: event.type,
+        actor,
+        text: selected === 0 ? fill(T, "activity.decidedNone", { gate }) : fill(T, "activity.decided", { gate, total, selected }),
+        summary: event.summary,
+        emphasize: false,
+      };
+    }
+    case "decision.expired": {
+      const day = String(event.data["day"] ?? "");
+      return {
+        at: event.at,
+        kind: "decided",
+        type: event.type,
+        actor,
+        text: fill(T, "today.activityExpired", { day }),
+        summary: event.summary,
+        emphasize: true,
+        day,
+      };
+    }
+    case DECISION_CLOSED_EVENT: {
+      const day = String(event.data["day"] ?? "");
+      return {
+        at: event.at,
+        kind: "decided",
+        type: event.type,
+        actor,
+        text: fill(T, "today.activityClosed", { day }),
+        summary: event.summary,
+        emphasize: false,
+        day,
+      };
+    }
+    case "venture.deactivated": {
+      return {
+        at: event.at,
+        kind: "decided",
+        type: event.type,
+        actor,
+        text: fill(T, "activity.ventureStopped", { name: nameOf(event.ventureId) }),
+        summary: event.summary,
+        emphasize: false,
+      };
+    }
+    case "venture.activated": {
+      return {
+        at: event.at,
+        kind: "decided",
+        type: event.type,
+        actor,
+        text: fill(T, "activity.ventureActivated", { name: nameOf(event.ventureId) }),
+        summary: event.summary,
+        emphasize: false,
+      };
+    }
+    case PLATFORM_RESUMED_EVENT: {
+      return {
+        at: event.at,
+        kind: "resumed",
+        type: event.type,
+        actor,
+        text: T["today.activityResumed"],
+        summary: event.summary,
+        emphasize: false,
+      };
+    }
+    case "post.handed_over": {
+      return {
+        at: event.at,
+        kind: "handover",
+        type: event.type,
+        actor,
+        text: fill(T, "today.activityHandedOver", { hook: event.summary }),
+        summary: event.summary,
+        emphasize: false,
+      };
+    }
+    case "post.published": {
+      return {
+        at: event.at,
+        kind: "published",
+        type: event.type,
+        actor,
+        text: fill(T, "activity.published", { hook: event.summary }),
+        summary: event.summary,
+        emphasize: false,
+      };
+    }
+    default:
+      // Dropping unconditionally here is what made a failure with no
+      // dedicated case above (`post.failed`, `post.deferred`,
+      // `role.scout.failed` today) invisible rather than merely untranslated
+      // - a worse defect than the one this file exists to fix, and the same
+      // shape: "まだ記録がありません" while something was, in fact, wrong.
+      // `FAILURE_EVENT_TYPES` is the fence against that. Its own comment, and
+      // the test that scans `src/roles/` and `src/kernel/` for every type
+      // this platform can emit, are what keep "failure-shaped" from silently
+      // meaning "the three I happened to think of."
+      if (FAILURE_EVENT_TYPES.has(event.type)) {
+        return {
+          at: event.at,
+          kind: "failure",
+          type: event.type,
+          actor,
+          // Deliberately unspecific: this function has no translation for
+          // *this* code, so it says only what it actually knows - that
+          // something failed, and that the durable record (`summary`, and
+          // the audit log behind it) has more. Never the raw message: that
+          // is exactly the "truncate the API text" mistake
+          // console-architecture.md forbids.
+          text: T["activity.unknownFailure"],
+          summary: event.summary,
+          emphasize: true,
+        };
+      }
+      return undefined;
+  }
+}
+
+/**
+ * What a click or a conversion is *of*, for the reader: the post it was under,
+ * or - a link with no post, e.g. one dropped somewhere outside a scheduled
+ * post - the offer it points at. `undefined` only when neither resolves,
+ * which this feed treats as reason to drop the row rather than print
+ * something with nothing to say what it was.
+ */
+async function subjectFor(store: Store, link: TrackedLink, offerById: Map<string, Offer>): Promise<string | undefined> {
+  if (link.postId) {
+    const post = await store.posts.get(link.postId);
+    if (post) return post.content.hook.slice(0, 70);
+  }
+  return offerById.get(link.offerId)?.name;
 }
 
 /**
@@ -927,8 +1430,8 @@ async function buildVentureDetail(runtime: Runtime, ventureId: string): Promise<
     ...row,
     // Formatted the same way the list formats it, from the same numbers.
     // Money is never summed across currencies, here or anywhere.
-    approvedRevenue: formatMoney(new Map(row.revenue.map((rollup) => [rollup.currency, rollup])), "approvedRevenue"),
-    pendingRevenue: formatMoney(new Map(row.revenue.map((rollup) => [rollup.currency, rollup])), "pendingRevenue"),
+    approvedRevenueLines: moneyLines(row.revenue, "approvedRevenue"),
+    pendingRevenueLines: moneyLines(row.revenue, "pendingRevenue"),
     recentCycles: cycles,
     // Read-only, and each line says where it comes from: a screen that cannot
     // be edited still has to save the operator from opening the YAML to find
@@ -1147,7 +1650,14 @@ function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): s
   push(T["preview.promisedOutcome"], "promisedOutcome");
   push(T["preview.rationale"], "rationale");
   push(T["preview.risk"], "risk");
-  push(T["preview.slotReason"], "slotReason");
+  // Not `push(T["preview.slotReason"], "slotReason")`: `detail.slotReason` is
+  // the same raw, English, internal string the card's own `summary` used to
+  // leak (router.ts's `items: decision.items.map(...)`, above) - domain-
+  // internal English with no structured form left to translate. It duplicated
+  // the scheduled time already shown correctly by the chip above
+  // (`buildChips`, via `when.atIso`) and carried nothing else the operator
+  // could act on, so both leaks are dropped together rather than one being
+  // fixed and the other left for the next report.
 
   if (Array.isArray(detail["comments"])) {
     for (const comment of detail["comments"] as { purpose?: string; text?: string }[]) {

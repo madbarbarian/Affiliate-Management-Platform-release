@@ -43,6 +43,15 @@ type ColumnShape = {
  */
 const SHAPE: readonly ColumnShape[] = [
   { key: "name", labelKey: "accounts.colName", width: 176 },
+  // 開く is the only control in a row. PR #86 capped this table's container at
+  // the page's own width (828px measured on the deployed console) and
+  // accepted horizontal scroll for whatever does not fit - a reasonable
+  // trade, but it left this column last, so it started at x=1038 and needed
+  // a scroll past every other column, on every normal desktop view, every
+  // day. Total table width does not change with order, so moving it here
+  // costs nothing the table was not already going to spend; it only decides
+  // which column pays for the columns that still do not fit.
+  { key: "actions", width: 68 },
   { key: "state", labelKey: "accounts.colState", width: 104 },
   { key: "cycle", labelKey: "accounts.colCycle", width: 196 },
   { key: "posts", labelKey: "accounts.colPosts", width: 56, numeric: true },
@@ -52,7 +61,6 @@ const SHAPE: readonly ColumnShape[] = [
   { key: "revenue", labelKey: "accounts.colRevenue", width: 100, numeric: true },
   { key: "playbook", labelKey: "accounts.colPlaybook", width: 72, numeric: true },
   { key: "measurement", labelKey: "accounts.colMeasurement", width: 112 },
-  { key: "actions", width: 68 },
 ];
 
 /** Narrower than this and a column is thinner than its own header. */

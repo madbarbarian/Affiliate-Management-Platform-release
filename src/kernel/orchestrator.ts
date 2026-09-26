@@ -1256,8 +1256,9 @@ export function createOrchestrator(services: Services): Orchestrator {
             actor: "scheduler",
             // English, like every other stored summary: the record is durable
             // and the screen's language is a setting. The console says this one
-            // in the operator's language from `activityText`, because it is a
-            // line they have to act on.
+            // in the operator's language from `describeAuditEvent`
+            // (`src/console/router.ts`), because it is a line they have to act
+            // on.
             summary: `The gate for ${cycle.date} lapsed unanswered`,
             data: { decisionId: decision.id, gate: decision.gate, day: cycle.date, items: decision.items.length },
           });

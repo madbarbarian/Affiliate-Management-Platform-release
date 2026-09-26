@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { ConfigError, parseConfig } from "../src/config/schema.ts";
 import { describeCompliance, findMarket, resolveCompliance } from "../src/domain/market.ts";
 import { checkCompliance, passesPolicy, type LinkContext } from "../src/kernel/policy.ts";
-import { formatMoney, totalCounts, totalsByCurrency } from "../src/affiliate/attribution.ts";
+import { formatMoney, formatMoneyLines, totalCounts, totalsByCurrency } from "../src/affiliate/attribution.ts";
 import type { DraftContent, Offer } from "../src/core/types.ts";
 import { BASE_CONFIG, testConfig } from "./helpers.ts";
 
@@ -261,4 +261,15 @@ test("revenue in two currencies is never added together", () => {
 
   assert.equal(formatMoney(totals, "approvedRevenue"), "7,500 JPY / 30 USD");
   assert.equal(formatMoney(totals, "pendingRevenue"), "12 USD");
+});
+
+test("formatMoneyLines gives one line per currency and formatMoney is those lines joined", () => {
+  const totals = totalsByCurrency([
+    { clicks: 10, conversions: 2, approvedRevenue: 5000, pendingRevenue: 0, currency: "JPY" },
+    { clicks: 4, conversions: 1, approvedRevenue: 30, pendingRevenue: 12, currency: "USD" },
+  ]);
+  assert.deepEqual(formatMoneyLines(totals, "approvedRevenue"), ["5,000 JPY", "30 USD"]);
+  assert.deepEqual(formatMoneyLines(totals, "pendingRevenue"), ["12 USD"], "a currency with nothing in this field has no line");
+  assert.deepEqual(formatMoneyLines(new Map(), "approvedRevenue"), ["0"]);
+  assert.equal(formatMoney(totals, "approvedRevenue"), formatMoneyLines(totals, "approvedRevenue").join(" / "));
 });

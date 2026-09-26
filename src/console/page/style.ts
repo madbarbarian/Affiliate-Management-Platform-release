@@ -11,8 +11,6 @@
  * that guards that counts every unescaped backtick in the whole file.
  */
 
-import { PAGE_GUTTER } from "../portfolio-columns.ts";
-
 export function pageStyle(tableWidth: number, stackBelow: number, dark: string): string {
   return `
   /*
@@ -109,34 +107,50 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
    * per line. Fixed layout plus a colgroup means the widths are decided here;
    * nothing is ever crushed by its neighbour.
    *
-   * This still scrolls, because the operator can drag a column wider than the
-   * window and that is their business. What it must not do is scroll when
-   * nobody asked: the declared widths add up to ${tableWidth}px and the media
-   * query below hands the table over to the card layout before the window gets
-   * narrower than that, so a table at its default widths always fits.
+   * The declared widths add up to ${tableWidth}px, which is wider than this
+   * page's content ever gets (see the comment below on #portfolio-section) -
+   * so on an ordinary desktop window this now scrolls by default, not only
+   * when the operator drags a column wider still. That is a deliberate trade,
+   * not a bug: see below for what it replaced.
    */
   .table-wrap { overflow-x: auto; }
   /*
-   * main is 860px wide because that is a comfortable measure for reading the
-   * proposals. This table is not prose, and inside that column it scrolled
-   * sideways on a screen with room to spare, so it steps outside it - still
-   * centred, still bounded by the window. (No backticks anywhere in this file:
-   * the page is one template literal.)
-   *
-   * The cap used to be a bare 1240 - a round number picked before this file
-   * derived tableWidth from the columns, and never revisited once it did. The
-   * table itself only ever needs ${tableWidth}px; the extra width above that
-   * had nowhere to go but the columns, which a fixed-layout table stretches to
-   * fill its container - so on an ordinary wide monitor this section sat up to
-   * 134px wider than the table drawn inside it, and wider still than the
-   * per-account status strip and every section above and below it, which is
-   * the "はみ出た感じ" the owner saw once the top page had something at 860px on
-   * both sides of this to compare it against. Capping at the same tableWidth
-   * the table's own min-width already uses (below) means this section is
-   * never wider than the table needs, in exactly the spirit of the fix above
-   * it: one fact, not a second number that can drift from it.
+   * Says the table scrolls. On a macOS overlay scrollbar nothing shows until
+   * the pointer touches it, and the table is ~280px wider than main, so
+   * 確定報酬 arrived as a 6px sliver with no cue that 型 and 計測 were beyond
+   * it. A thin scrollbar that stays drawn is the cue. It exists only while
+   * .table-wrap actually overflows, so nothing shows when the table fits, and
+   * the stacked-card layout below resets overflow to visible, which removes it
+   * there. (An edge fade is not an option: the table paints its own opaque
+   * panel over anything the wrapper could put behind it.) The webkit rules
+   * are what keep it always-on in Safari; scrollbar-color is Firefox and
+   * current Chrome, which ignore the webkit ones once it is set.
    */
-  #portfolio-section { width: min(${tableWidth}px, calc(100vw - ${PAGE_GUTTER}px)); margin-left: 50%; transform: translateX(-50%); }
+  .table-wrap { scrollbar-width: thin; scrollbar-color: var(--muted) var(--chip); }
+  .table-wrap::-webkit-scrollbar { height: 10px; }
+  .table-wrap::-webkit-scrollbar-track { background: var(--chip); border-radius: 5px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 5px; }
+  /*
+   * main is 860px wide because that is a comfortable measure for reading the
+   * proposals. This table used to step outside that column on purpose - still
+   * centred, still bounded by the window, capped at the same ${tableWidth}px
+   * the table itself needs - because eleven columns scrolling inside 828px of
+   * content read as cramped on a screen with room to spare. (The cap used to
+   * be a bare 1240 before that; see the change that replaced it with
+   * tableWidth for the bug that number caused.)
+   *
+   * But a section that grows to fit its own table, while every other section
+   * on the page stays at main's width, drifts from them as the window widens -
+   * up to 139px wider on each side at a common desktop size, which is exactly
+   * the "はみ出た感じ" the owner saw once there was something else on the page
+   * to compare it against: 「横幅が他のところと合っておらず、表がはみ出た感じに
+   * 見える」. The owner's call, once both could not be had at once: match the
+   * page over keeping the table scroll-free. So this section is given no
+   * width of its own any more - the plain "section" rule above already sizes
+   * it like every section above and below it - and the table scrolls inside
+   * .table-wrap when eleven columns do not fit, the same mechanism a column
+   * dragged wider than the window already relied on.
+   */
   /*
    * A surface of its own, like every .card. On a dark screen a table drawn
    * straight onto the page background has nothing holding it together: the row
@@ -184,6 +198,12 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
     cursor: col-resize; touch-action: none;
   }
   .grip:hover, .grip.dragging { background: var(--accent); opacity: .35; }
+  /*
+   * Meaningful only to someone who has actually dragged a column, so it ships
+   * hidden (the "hidden" attribute in the markup) and wireColumnResize shows
+   * it once a stored width exists. Before this it rendered under the table on
+   * every visit, whether or not anyone had ever touched a border.
+   */
   .grid-reset { font-size: 12px; color: var(--muted); background: none; border: 0; padding: 4px 0; cursor: pointer; }
   /* The control the row exists for. It must never be the thing that is clipped. */
   table.grid td[data-col="actions"] { white-space: nowrap; }
@@ -195,15 +215,15 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
    * measuring, and 開く - past the right edge with nothing to say so. Nothing
    * is dropped here: this screen exists to compare accounts, and a comparison
    * missing a number is a wrong comparison rather than a smaller one. The
-   * columns are laid out instead: name, state and 直近サイクル across the card,
-   * the six figures three to a line with their own headers as labels, then
-   * 計測 and the control.
+   * columns are laid out instead, in the same order portfolio-columns.ts
+   * declares them: name and the control right under it, then state and
+   * 直近サイクル, the six figures three to a line with their own headers as
+   * labels, then 計測.
    *
    * The 列の幅をもとに戻す button goes: there are no columns here to reset. The
    * widths it resets are still remembered, and come back with the table.
    */
   @media (max-width: ${stackBelow - 1}px) {
-    #portfolio-section { width: auto; margin-left: 0; transform: none; }
     .table-wrap { overflow-x: visible; }
     table.grid { display: block; table-layout: auto; min-width: 0; background: none; border: 0; border-radius: 0; }
     table.grid colgroup, table.grid thead { display: none; }
@@ -305,6 +325,14 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
    * saying which day it was do not: that is the one thing left to read.
    */
   section.locked .card { opacity: .5; }
+  /*
+   * A gate that is open is waiting on the operator and nothing else on the
+   * screen is, so it gets the frame .card.handover has: --accent means "does
+   * not happen unless you act". A locked gate (its day has passed) is not
+   * waiting on anyone, so it does not get it - the class is only put on an
+   * open one, in renderDecision.
+   */
+  section.gate { border: 1px solid var(--accent); border-radius: var(--radius); padding: 14px 16px 4px; }
   .gate-stale { color: var(--warn); font-weight: 600; }
   /*
    * Furniture, not content. It sits beside the refresh button and reads as part
@@ -345,7 +373,10 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
   .stopped b { color: var(--danger); }
   .stopped code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
   .stat-row { display: flex; gap: 22px; flex-wrap: wrap; }
+  /* Label above, value below - drawn only by statHtml() in the client helpers. One .stat-line per currency. */
+  .stat .stat-label { display: block; }
   .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat .stat-line { display: block; }
   /*
    * The top page's whole content now: which account is in what state. One row
    * per account, always the same shape whether there is one account or five -

@@ -128,7 +128,7 @@ function renderDecision(decision) {
           <input type="checkbox" data-act="toggle" data-decision="\${esc(decision.id)}" data-item="\${esc(item.id)}" \${checked ? "checked" : ""} \${shut ? "disabled" : ""}>
           <div class="item-body">
             <div class="title">\${esc(item.title)}</div>
-            <div class="muted">\${esc(item.summary)}</div>
+            \${item.summary ? '<div class="muted">' + esc(item.summary) + "</div>" : ""}
             <div class="chips">\${chips}</div>
             \${item.post ? '<pre class="post">' + esc(item.post) + "</pre>" : ""}
             \${item.post ? (item.disclosure
@@ -186,7 +186,7 @@ function renderDecision(decision) {
 
   const count = entry.selected.size;
   return \`
-    <section\${locked ? ' class="locked"' : ""}>
+    <section class="\${locked ? "locked" : "gate"}">
       <h2>\${esc(fmt("gate.heading", { gate: decision.gateLabel, venture: decision.ventureName }))}</h2>
       \${decision.day ? '<p class="' + (locked ? "gate-stale" : "muted") + '">' + esc(gateDay(decision)) + "</p>" : ""}
       <p class="muted">\${esc(fmt("gate.question", { question: decision.question, max: decision.max }))}\${atMax && !locked ? " " + esc(fmt("gate.atMax", { max: decision.max })) : ""}</p>

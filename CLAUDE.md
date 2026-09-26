@@ -35,7 +35,7 @@ src/
   core/        Result, Clock, ids, logger, events, and the domain vocabulary
   config/      YAML reader, schema, loader. The one file a licensee edits.
   llm/         The model port + Anthropic adapter + deterministic mock
-  storage/     The Store port + JSON file adapter + in-memory adapter
+  storage/     The Store port + JSON file / in-memory / D1 (SQL) adapters
   channels/    The channel port + mock / threads / webhook adapters
   networks/    The affiliate-network port + mock / csv / webhook adapters
   domain/      Engagement, performance windows, slot planning, market rules
@@ -43,8 +43,12 @@ src/
   affiliate/   Tracked links and revenue attribution
   roles/       The six agents. One file each.
   kernel/      Role contract, prompts, policy, approvals, orchestrator
-  console/     The approval console and the tracking redirect
+  console/     The approval console (router.ts/server.ts) and the tracking
+               redirect; the rendered screen itself is console/page/
   scheduler/   The daemon
+  worker/      The Cloudflare entry point (fetch + scheduled). Mirrors
+               runtime.ts against D1 instead of the filesystem; both hand off
+               to the same kernel/assemble.ts and console/router.ts
 prompts/       Role prompts as Markdown. Editing these is a supported action.
 docs/          The dev_base 7-category layout:
                1-requirements 2-setup 3-development 4-operations

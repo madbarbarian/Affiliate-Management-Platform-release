@@ -203,7 +203,11 @@ const ja = {
   // 「直近」とだけ読めた。
   "today.stats": "全アカウント合計 — 直近{days}日",
   "today.activity": "最近の動き",
-  "today.activityEmpty": "まだ記録がありません。",
+  // 「記録がありません」だけだと、記録が取れていないのか、本当に何も起きて
+  // いないのかが画面の上で見分けられない — v0.12.2で消したはずの曖昧さが、
+  // フィルタを強くしたことでこの欄に戻ってくる。だから何を待っているかを
+  // 名指しする。
+  "today.activityEmpty": "まだ記録がありません。クリック・成果・投稿・判断など、意味のある動きがあるとここに出ます。",
   "today.activityFailed": "{step}で止まりました — {reason}",
   "today.activityExpired": "{day} の判断は、答えのないまま日が変わりました",
   "today.activityClosed": "{day} の判断は、アカウントを止めたので閉じました",
@@ -212,6 +216,31 @@ const ja = {
   "today.activityHandedOver": "あなたが投稿する番です — {hook}",
   // `platform.resumed`. 誰が・いつは行の頭に既に出るので、ここは何が起きたかだけ。
   "today.activityResumed": "全体の停止を解除しました。",
+  // 最近の動き の残りの語彙 — router.ts の buildActivityFeed が組み立てる。
+  // "orchestrator" / "scheduler" はコードが監査ログに書くための名前であって
+  // 人の名前ではない。行の頭には必ず「誰が」が出るので、この2つだけこの語に
+  // 差し替える。それ以外の actor はすべて、ゲートで人が打った名前か
+  // `amp` に渡した名前で、そのまま出してよい。
+  "activity.systemActor": "システム",
+  "activity.click": "クリックが入りました — 「{subject}」",
+  "activity.conversionPending": "成果が入りました（確定前） — 「{subject}」、{amount}",
+  "activity.revenueApproved": "確定報酬が入りました — 「{subject}」、{amount}",
+  "activity.published": "投稿を公開しました — 「{hook}」",
+  "activity.decided": "{gate} — {total}件のうち{selected}件を承認しました",
+  "activity.decidedNone": "{gate} — 全て見送りました",
+  "activity.ventureStopped": "「{name}」を止めました",
+  "activity.ventureActivated": "「{name}」を再開しました",
+  // CLAUDE.md が名指しする「リンクを落とし続けた」欠陥そのもの — 生きている
+  // 投稿の下にアフィリエイトリンクが結局つかなかった、という失敗。APIの
+  // メッセージは切り詰めない（console-architecture.md）ので、固定文にする。
+  "activity.linkDropFailed": "リンクが投稿に反映されませんでした — 「{hook}」",
+  "activity.linkDropFailedGeneric": "リンクが投稿に反映されませんでした",
+  "activity.dayAbandoned": "{day} はやり直しをあきらめました",
+  // `describeAuditEvent`のフォールバック——失敗だと分かっている種類に専用の
+  // 訳がまだ無いとき（`post.failed`・`post.deferred`・`role.scout.failed`）に出す。
+  // 具体的なことは言わない——言えることが無いのに言ったふりをする方が悪い。
+  // 「詳しくは記録にある」は本当のことで、監査ログは消えていない。
+  "activity.unknownFailure": "うまくいかなかったことがあります。詳しくは記録にあります。",
   // Words the server renders. The router runs in the same process as this file
   // and reads it directly rather than shipping a second vocabulary: what a
   // screen says has to have one source, or console.locale becomes a promise
@@ -235,7 +264,6 @@ const ja = {
   "preview.promisedOutcome": "提供する結果",
   "preview.rationale": "根拠",
   "preview.risk": "リスク",
-  "preview.slotReason": "枠の理由",
   "preview.comment": "コメント",
   "preview.finding": "指摘",
 
@@ -526,12 +554,25 @@ const en: Messages = {
   "handOver.noEngagement": "Likes and replies cannot be read back on this channel. Clicks and revenue are recorded as usual.",
   "today.stats": "All accounts total — last {days} days",
   "today.activity": "Recently",
-  "today.activityEmpty": "Nothing recorded yet.",
+  "today.activityEmpty": "Nothing here yet. Clicks, conversions, publishes and decisions will show up here once there are any.",
   "today.activityFailed": "Stopped at {step} — {reason}",
   "today.activityExpired": "The gate for {day} lapsed unanswered",
   "today.activityClosed": "The gate for {day} was closed when the account was switched off",
   "today.activityHandedOver": "Your turn to post — {hook}",
   "today.activityResumed": "Lifted the stop on everything.",
+  "activity.systemActor": "The platform",
+  "activity.click": "Got a click — “{subject}”",
+  "activity.conversionPending": "A conversion came in (not yet confirmed) — “{subject}”, {amount}",
+  "activity.revenueApproved": "Approved revenue came in — “{subject}”, {amount}",
+  "activity.published": "Published — “{hook}”",
+  "activity.decided": "{gate} — approved {selected} of {total}",
+  "activity.decidedNone": "{gate} — passed on all of them",
+  "activity.ventureStopped": "Stopped “{name}”",
+  "activity.ventureActivated": "Reactivated “{name}”",
+  "activity.linkDropFailed": "The affiliate link never made it into the post — “{hook}”",
+  "activity.linkDropFailedGeneric": "The affiliate link never made it into the post",
+  "activity.dayAbandoned": "Gave up retrying {day}",
+  "activity.unknownFailure": "Something didn't work. See the record for details.",
   "gate.proposalLabel": "Proposals",
   "gate.publishLabel": "Posts and their order",
   "gate.questionProposal": "Which of today's proposed posts should be written?",
@@ -549,7 +590,6 @@ const en: Messages = {
   "preview.promisedOutcome": "Promised outcome",
   "preview.rationale": "Rationale",
   "preview.risk": "Risk",
-  "preview.slotReason": "Why this slot",
   "preview.comment": "Comment",
   "preview.finding": "Finding",
 

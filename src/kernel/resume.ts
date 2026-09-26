@@ -26,7 +26,7 @@ export type ResumeEverythingRequest = {
   readonly by: string;
 };
 
-/** The audit event's type. `ui.ts`'s `activityText()` matches on this string. */
+/** The audit event's type. `src/console/router.ts`'s `describeAuditEvent` matches on this string. */
 export const PLATFORM_RESUMED_EVENT = "platform.resumed";
 
 /**

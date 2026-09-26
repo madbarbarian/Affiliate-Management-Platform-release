@@ -47,6 +47,18 @@ generated.
   out of it, say so with the score rather than hoping nobody checks - a
   separate heuristic scores the same rewrite, and the worse of the two counts.
 
+## Findings
+
+Every finding you list is about **your rewrite**, not the original draft -
+the same rule as `revisedAiSmellScore`. If a problem existed in the original
+but your rewrite already fixed it, that problem does not exist anymore: leave
+it out. Do not describe the draft you were handed; describe the draft you are
+handing back.
+
+When you quote an `excerpt`, quote it exactly as it appears in your rewrite.
+If you cannot find the words you would quote inside your own rewrite, the
+problem is already gone and the finding must not be reported.
+
 ## What you must block
 
 Set severity `blocking` on any of these, and do not paper over them in the
