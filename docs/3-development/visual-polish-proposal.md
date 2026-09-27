@@ -443,7 +443,7 @@ only at window widths of 1138px and above.
 | What to do | Prerequisite |
 |---|---|
 | Add a period-over-period delta to the headline numbers (Buffer-style up 7%) | **It does not exist in today's code.** A design is needed that adds `untilMs` to `computePerformance` / `buildPortfolio` and runs the aggregation twice. Confirmed reward becomes a per-currency delta, so it does not fit a single "up 7%" like Buffer's; how to present multiple delta sentences needs separate design (§3.1) |
-| Channel monogram badge (§4) | Implementation cost is small, but it is a **new feature the owner himself called "an idea that just came to me,"** and is not a direct answer to "looks lame." It also requires adding a ja/en pair to `messages.ts` |
+| ~~Channel monogram badge (§4)~~ **Done (2026-09-27).** `src/console/channel-monogram.ts` maps the known ids (`threads`/`x`/`note`/`youtube`/`by-hand`) to their letters and everything else to `?`, exactly as §4.2 specified; wired into both places §4.3 names (`venture.ts`'s channel chips, `hand-over.ts`'s slot line), styled off `.chip` in `style.ts`, with the `channel.unknownTitle` ja/en pair in `messages.ts` for the `?` badge's title. | — |
 | Check on a real device whether the hand-over card's button row fits on one line at mobile 390px | §5.3. After preparing a safe way to create the hand-over state without going through an approval (for example, using test fixture data) |
 | Decide whether to add mobile-specific CSS adjustments to the status band, all accounts and headline numbers | As in §5.5, "not broken" so not urgent, but the fact that there are only three dedicated media queries (§2.5) also means there is no mechanism to notice the next time even one thing breaks |
 

@@ -45,12 +45,14 @@ Each entry also says **what would invalidate it** (so it can be re-checked) and 
 - **Why it matters:** Threads cannot carry the ad code's 1px tracking image, so every post that shows only the URL is "link only". This applies **with or without** the redirect and is the larger open question. We do not know whether A8 treats social posts differently.
 - **Depends on:** the assumption that posting A8 links on Threads is allowed at all.
 - **Invalidated by:** an A8 reply (see the inquiry below); a revision of the media-member terms (A8 announced a revision on 2026-04-01, effective 2026-05-01 — https://a8pr.jp/2026/04/01/kiyaku-revision-20260501/, not read).
+- 🔴 **Largely resolved (2026-09-27), see E-19.** This prohibition is about extracting the link out of the **HTML ad code** ("通常広告用") without authorization. A8 ships a **separate, dedicated link-only feature for SNS posting** ("SNS・note用") that is explicitly link-only by design. Posting only a link on Threads through that feature is not the case this rule describes. The remaining open question narrowed from "is link-only content allowed at all" to the redirect question in E-03/Q-1.
 
 ### E-03 · A8.net: no explicit ban on redirects, shortened URLs or intermediate pages found
 
-- **Grade:** A (`prohibited-matter.php` and https://support.a8.net/a8/as/faq/manual/how_to_post.php, 2026-09-26; also `media-userpolicy.php` §8.1.12 on 2026-09-22 with zero hits for リダイレクト／転送／短縮)
+- **Grade:** A (`prohibited-matter.php` and https://support.a8.net/a8/as/faq/manual/how_to_post.php, 2026-09-26; also `media-userpolicy.php` §8.1.12 on 2026-09-22 with zero hits for リダイレクト／転送／短縮; **extended 2026-09-27** to the SNS-specific pages in E-19 — same zero hits)
 - **Consequence:** unresolved. **Silence is not permission.** Amazon, by contrast, states the ban and the consequence.
 - **Depends on:** keeping `redirect` as the default link mode while A8 is unanswered.
+- **Sharper after E-19 (2026-09-27):** A8's own SNS-only link already has a stated tracking limitation — E-19 quotes it as unable to fully capture referrer, varying by platform. Putting our own `/go/` redirect in front of a link that already has irregular referrer behaviour is a second, compounding unknown, not a resolved one. This raises the stakes of Q-1, it does not answer it.
 
 ### E-04 · A8.net support reportedly answered "アフィリエイトリンクのリダイレクトはご遠慮ください"
 
@@ -96,6 +98,45 @@ Each entry also says **what would invalidate it** (so it can be re-checked) and 
 - **Grade:** A / S (search only, 2026-09-26). Amazon's help pages describe the Product Advertising API as product data, requiring qualifying sales to keep access.
 - **Not established:** whether reports can be downloaded, and how many tracking IDs an account may hold.
 
+### E-19 · A8.net ships an official, link-only posting feature for SNS, and names Threads by name
+
+- **Grade:** P (all four pages fetched and read directly by the parent, 2026-09-27, `get_page_text` — raw extraction, not a summary)
+- **Sources:**
+  - https://support.a8.net/a8/as/faq/2022/post_1955.html ("SNSに広告を掲載できますか？")
+  - https://support.a8.net/a8/as/faq/2026/post_2971.html ("SNS・note投稿用リンクに関する注意事項")
+  - https://www.a8.net/as/sns/ ("A8.net SNSアフィリエイトガイドライン")
+  - https://www.a8.net/as/Instagram/ ("Instagramを使ったアフィリエイトガイド", the link-creation steps apply platform-agnostically)
+- **What it says:**
+  - Supported SNS list, verbatim, includes Threads: 「Instagram／YouTube／TikTok／X／Threads／Pinterest／note」.
+  - Two officially named methods of SNS affiliating: 「投稿にアフィリエイトリンクを直接掲載する方法」and「SNSを利用して集客を行い、アフィリエイトサイトへ誘導する方法」 — posting the affiliate link directly on the post is one of the two sanctioned methods, not a workaround.
+  - A dedicated link-creation tab, **「SNS・note用」**, distinct from **「通常広告用」** (the HTML ad code used on a blog/website). Quote: 「コピーされるのはリンクのみで、HTMLコードは含まれません。」 — link-only output is the intended, designed behaviour of this feature, not an improvised trimming of the HTML ad code.
+  - A separate link must be generated per destination SNS: 「リンクは掲載するSNSごとに作成してください」.
+  - Two stated limitations of links made this way: (a) referrer capture is incomplete and varies by platform — 「SNS・note投稿用リンクでは、リファラ（流入元）を完全に取得することができません」; (b) impression counts do not appear in reports for links from this feature — 「本機能で発行したリンクを利用した場合、レポートにインプレッション数は反映されません」. Clicks/conversions are not stated as affected — only referrer detail and impressions.
+  - Only stated prohibition specific to SNS use: private/access-restricted posting — 「外部非公開又は閲覧制限のある環境での利用は、禁止しております」. A public Threads post does not fall under this.
+  - PR-labelling and 広告掲載URL submission are required regardless of link-only or full-code use, and explicitly apply even to posts with **no link at all** (a review or a mention driving traffic elsewhere) — 「アフィリエイトリンクの有無に関わらず…」.
+- **Consequence:** narrows E-02 (see the correction there) — link-only content on Threads, made through this feature, is a sanctioned use case, not the prohibited "link part only" extraction. This was the larger of the two original worries in the inquiry drafted 2026-09-26; it is now answered from a primary source, so Q-1's old question 2 is dropped from the enquiry (see revised Q-1).
+- **Does not say anything about:** the redirect question (E-03/Q-1) — none of these four pages mentions a redirect, shortener, or intermediate domain, in either direction.
+- **Invalidated by:** any of these four pages changing; re-fetch before relying on this for a licensee-facing claim.
+
+### E-20 · The advertising-URL-submission form takes a list of URLs, and individual SNS posts are explicitly not treated as a shared display area
+
+- **Grade:** P (fetched and read directly, 2026-09-27)
+- **Sources:**
+  - https://www.a8.net/compliance/prNotation-urlSubmission.php ("PR等の表記と広告掲載URLのご提出について")
+  - https://support.a8.net/a8/as/faq/manual/ad_url_manage.php ("広告掲載URL管理の使い方")
+- **What it says:** submission is per affiliate program, and the form itself accepts **up to 100 URLs per submission**, or up to ~10,000 via a CSV upload — built for many individual URLs, not one URL per program. A published FAQ on the same page draws the one case where a *single* representative URL is enough: 「Webサイトの共通表示エリア…同一ドメインでの全ページ共通表示エリアへ…掲載している場合」（a sidebar or header repeated identically across every page of one site）. The same page separately states that the PR-labelling duty applies per act of promotion, explicitly including 「SNS上での自身の運営サイト・メディアへの誘導や、商品レビュー等」 — each such post is being treated as its own instance, not folded into a site-wide "common area".
+- **Consequence:** a Threads post is a discrete URL, not a "common display area" repeated across pages of one site — the shared-area exception does not obviously extend to it. The evidence leans toward **each individual post's URL needing its own submission**, though no page says the words "one row per SNS post" outright.
+- **Depends on:** answers Q-1's old question 3 (dropped from the revised enquiry below); still worth confirming with A8 support if volume ever makes 100-or-10,000-per-submission a real constraint.
+- **Invalidated by:** an A8 reply saying otherwise; either page changing.
+
+### E-21 · A8.net advertises 27,000+ advertisers, dated
+
+- **Grade:** P (fetched 2026-09-27) — https://www.a8.net/as/Instagram/: 「A8.netは累計で27,000社を超える広告主が...出稿しているASPです。※2026年9月現在」. Marketing copy, not a design input; recorded only because it is dated and could be cited if scale ever matters to a decision.
+
+### E-22 · Not reached in this pass (flagged, not guessed)
+
+- **Grade:** A (2026-09-27) — the "注意事項・禁止事項" tab specific to the Instagram guide did not visibly switch content when clicked (tooling limitation, not a content finding); Hootsuite's and Later's actual approval screens (see E-15) remain unverified; A8's 成果データ連携API manual (E-08) remains unread.
+
 ---
 
 ## B. Using the licensee's own Claude subscription
@@ -127,10 +168,38 @@ Each entry also says **what would invalidate it** (so it can be re-checked) and 
 
 ## C. Visual references
 
-### E-14 · Buffer and Metricool dashboards
+### E-14 · Buffer and Metricool dashboards (superseded by E-15–E-18 below)
 
 - **Grade:** observed by eye, 2026-09-25 (`buffer.com/insights`, `metricool.com`); **no screenshots were saved.** Patterns noted: a label → number → coloured delta stack for headline figures; icon + short label navigation; channel identity shown by a small platform badge; soft card backgrounds with one dark colour reserved for primary buttons.
 - **Use:** inspiration only. Decisions taken from it are in `visual-polish-proposal.md`.
+- 🔴 **Correction (2026-09-27):** this entry was graded on memory of eyeballing, with nothing saved. A second pass (E-15–E-18) re-visited these two sites plus four more, saved screenshots, and — for the two claims below load-bearing enough to matter — the parent opened the saved screenshot directly rather than trusting the sub-agent's description. Kept here so the earlier, weaker pass is on record rather than silently replaced.
+
+### E-15 · Six competitor sites give a "needs approval" queue its own named place, separate from the routine calendar (confirmed, screenshot-verified)
+
+- **Grade:** P (screenshots taken 2026-09-27 of live marketing pages; **the two claims below were opened and read directly by the parent**, not taken on the sub-agent's word — the rest of this entry's sites were not independently re-opened)
+- **Sprout Social** — `sproutsocial.com`, screenshot verified by the parent: the Publishing sidebar lists `New post / Calendar / Sprout queue / Drafts / Needs approval / Rejected / Campaigns` as separate items — "Needs approval" is its own line, not folded into Calendar or a general feed.
+- **Publer** — `publer.com`, screenshot verified by the parent: the Collaborate screen has two side-by-side filters, "Scheduled" and "Pending Approve", and a post card with three actions — red "Decline", neutral "Edit", green filled "Approve".
+- **Not independently re-opened by the parent** (sub-agent's report only): Buffer (`buffer.com/insights` — headline stats as label → bold number → coloured delta arrow; a "Top channels" list with small colour-square platform icon + name; a channel sidebar with avatar + small circular platform-logo badge overlaid at the corner), Metricool (`metricool.com` — icon+label top nav; a multi-channel line chart with a coloured-dot legend per platform), Hootsuite (`hootsuite.com/platform/analytics` — a small platform icon inline in each metric card's own title, e.g. "📷 Post reach"; an "18 Social Networks" filter; **no screenshot of an actual approval-workflow screen was found**, only prose), Later (`later.com/social-media-scheduler/` — header avatars with a brand-colour ring + small dark platform-icon badge at bottom-right + a checkmark badge top-right; **the linked "Approvals" pages 404'd, so that screen is unverified**).
+- **Consequence:** the console's existing decision to give judgment items ("承認待ち"/gates) their own visually distinct treatment (`console-ux-proposal.md` §4.3/§4.4, shipped) is independently corroborated by real, screenshotted competitor UI — at least two competitors do the same thing, not as inspiration copied from them but as convergent confirmation after the fact.
+- **Does not say anything about:** whether an *empty* approval queue should be hidden entirely (`console-ux-proposal.md` §6.1, still unshipped) — no marketing page from any of the six sites showed an empty state, so this evidence is silent on that specific question.
+- **Invalidated by:** a redesign of any of these products; re-fetch before citing again.
+
+### E-16 · Channel identity is shown as a small badge overlaid on an avatar, not a bare monogram in text (weak analogy to our case)
+
+- **Grade:** P\* (sub-agent's report on saved screenshots; not independently re-opened by the parent)
+- **Pattern:** Buffer (sidebar avatars), Later (header avatars), Publer (post-card avatar) all pair a profile picture with a small circular platform-logo badge at one corner — three sites, one consistent shape.
+- **Why it's a weak analogy for us:** all three pair the badge with an actual photo/avatar. This platform's "account" is a venture/niche, not a person or a branded profile picture — there is no avatar for the badge to sit on. The owner's monogram-chip idea (`visual-polish-proposal.md` §4) is not confirmed or refuted by this; the direct comparison doesn't transfer.
+- **Consequence:** do not cite this entry as "competitors validate the chip design" — it validates only the general idea that channel identity is shown visually, not the specific chip form.
+- 🔴 **Correction (2026-09-27, same day):** the first version of this entry stopped at "weak analogy" and left it there. That undersold it. Hootsuite's pattern (E-15's list) is a *different* shape from Buffer/Later/Publer's: a small platform icon **inline in text, with no avatar at all** ("📷 Post reach"). That is exactly the shape `visual-polish-proposal.md` §4.2–4.3 already specified for us — a monogram in a `.chip` pill, no avatar involved — and it has shipped nowhere in this product yet (confirmed: no icon, badge, or monogram appears anywhere in the current `amp-test` screens, checked 2026-09-27). So the evidence, read correctly, is: the no-avatar icon-in-label shape is directly comparable and unremarkable among competitors (Hootsuite ships it); the avatar-badge shape is not comparable (no avatar exists here). Framing this as "not confirmed either way" buried a real, applicable data point under a caveat about a shape nobody proposed building.
+
+### E-17 · Green = affirmative action, on an Approve button
+
+- **Grade:** P (parent-verified screenshot, Publer, 2026-09-27 — see E-15) — the "Approve" button is filled green, "Decline" is a lighter/red tone, "Edit" is neutral grey.
+- **Consequence:** reinforces, rather than originates, the console's own already-shipped rule that green marks "waiting on you" (`console-ux-proposal.md` §4.3). External confirmation after the fact, not the source of the decision.
+
+### E-18 · Iconosquare was not visited
+
+- **Grade:** A (2026-09-27) — time budget was spent on the other six sites; nothing here should be read as "Iconosquare has no such pattern."
 
 ---
 
@@ -138,14 +207,24 @@ Each entry also says **what would invalidate it** (so it can be re-checked) and 
 
 ### Q-1 · Enquiry to A8.net support (owner sends; text below is ready to paste)
 
-Revised on 2026-09-26 after reading E-05: it now asks about the parameter report's export, which the manual does not say.
+Revised on 2026-09-26 after reading E-05 (added the parameter-export question). **Revised again on
+2026-09-27 after E-19/E-20: dropped the old questions 2 and 3 — both are now answered from A8's own
+SNS-affiliate pages, not from this enquiry.** Old Q2 ("is link-only content a violation") is resolved:
+A8 ships a dedicated link-only feature for exactly this ("SNS・note用", E-19), naming Threads by name.
+Old Q3 ("is URL registration per post") is answered closely enough (E-20) not to need asking. What
+remains genuinely unanswered by any primary source is the redirect question — now sharper, because
+E-19 shows A8's own SNS link already has irregular referrer capture, so our own redirect in front of it
+is a second, compounding unknown, not a smaller one.
 
-> 貴社の広告主の商品を、SNS（Threads）の投稿でご紹介する予定です。次の4点を教えてください。
+> 貴社の広告主の商品を、SNS（Threads）の投稿でご紹介する予定です。次の2点を教えてください。
 >
-> 1. 発行された成果測定リンクを、自社ドメインの中継URL（例：`https://自分のドメイン/go/xxxx`。アクセスを1回記録してから、そのまま貴社のリンクへ即座に転送するのみ）経由で読者に届ける形式は、認められますか。「アフィリエイトリンクのリダイレクトはご遠慮ください」というご案内を見かけたのですが、これは禁止でしょうか。認められない場合、成果は承認されないのでしょうか。
-> 2. SNSの投稿には広告コードの画像タグ（1pxのトラッキング画像）を含められず、リンクのみを載せる形になります。禁止事項にある「広告コードからリンク部分のみを使用すること」に該当しますか。SNSでの掲載方法として、貴社が想定・推奨している形があれば教えてください。
-> 3. 「広告掲載URL管理」への登録は、SNSの個別の投稿URLごとに必要ですか。
-> 4. パラメータ計測（`id1`〜`id5`）の集計結果は、CSVまたはAPIで取得できますか。また、パラメータ別のクリック数は確認できますか。
+> 1. 貴社の「SNS・note用」機能で発行した成果測定リンクを、自社ドメインの中継URL（例：`https://自分のドメイン/go/xxxx`。アクセスを1回記録してから、そのまま貴社のリンクへ即座に転送するのみ）経由で読者に届ける形式は、認められますか。「アフィリエイトリンクのリダイレクトはご遠慮ください」というご案内を見かけたのですが、これは禁止でしょうか。認められない場合、成果は承認されないのでしょうか。なお、このリンクは元々リファラを完全には取得できないとヘルプに記載されていましたが、中継を挟むことでさらに取得できる情報が変わる可能性はありますか。
+> 2. パラメータ計測（`id1`〜`id5`）の集計結果は、CSVまたはAPIで取得できますか。また、パラメータ別のクリック数は確認できますか。
+
+**Superseded questions (kept for the record, not sent):**
+
+> ~~2. SNSの投稿には広告コードの画像タグ（1pxのトラッキング画像）を含められず、リンクのみを載せる形になります。禁止事項にある「広告コードからリンク部分のみを使用すること」に該当しますか。~~ → answered by E-19: A8's own "SNS・note用" feature is designed to output link-only.
+> ~~3. 「広告掲載URL管理」への登録は、SNSの個別の投稿URLごとに必要ですか。~~ → answered closely enough by E-20: the form is built for many URLs per program, and the one named exception (a site-wide common display area) does not describe an individual SNS post.
 
 **Reply log** (fill in when the reply arrives; a reply supersedes E-03/E-04):
 

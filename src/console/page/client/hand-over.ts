@@ -52,7 +52,8 @@ export const HAND_OVER_SCRIPT = `function renderHandOver(post) {
   return '<div class="card handover">' +
     "<h3>" + esc(T["handOver.heading"]) + " — " + esc(post.ventureName) + "</h3>" +
     '<p class="muted">' + esc(T["handOver.lede"]) + "</p>" +
-    '<p class="muted">' + esc(fmt("handOver.slot", { at: post.at })) + T["punct.sep"] + esc(post.channel) + "</p>" +
+    '<p class="muted">' + esc(fmt("handOver.slot", { at: post.at })) + T["punct.sep"] + esc(post.channel) +
+      channelBadgeHtml(post.channel) + "</p>" +
     order +
     body +
     commentBlocks +

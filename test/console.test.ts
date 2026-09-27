@@ -508,6 +508,38 @@ test("the page's own file list is not empty, and holds every split module", () =
   assert.equal(files.length, expected.length, `pageSourceFiles() found an unexpected extra or missing file: ${files.join(", ")}`);
 });
 
+test("the account settings screen's channel chips carry a monogram badge - a known letter, and the honest '?' for one it does not recognise", async () => {
+  // visual-polish-proposal.md §4.3: this is the first of only two places a
+  // channel identifier reaches the screen. `threads` is BASE_CONFIG's own
+  // channel, so it needs no override; `zapier-mine` stands in for a
+  // licensee's own webhook destination - a name this product cannot
+  // mechanically tell apart from the genuine article (§4.1) - and must draw
+  // the same "?" every unrecognised id does.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-setup" });
+      const html = page.html("venture-setup");
+      assert.match(
+        html,
+        /<span class="chip">threads<\/span><span class="chip channel-badge">T<\/span>/,
+        `threads did not carry its "T" badge: ${html}`,
+      );
+      assert.match(
+        html,
+        /<span class="chip">zapier-mine<\/span><span class="chip channel-badge" title="[^"]+">\?<\/span>/,
+        `zapier-mine did not fall back to the "?" badge: ${html}`,
+      );
+    },
+    {
+      config: {
+        channels: [...BASE_CONFIG.channels, { ...BASE_CONFIG.channels[0], id: "zapier-mine" }],
+        ventures: BASE_CONFIG.ventures.map((venture) => ({ ...venture, channels: ["threads", "zapier-mine"] })),
+      },
+    },
+  );
+});
+
 test("an account that has never run can still be started", async () => {
   // The Run button and the box that reports an error hung off `lastCycle`, so
   // a fresh deploy - or a scout proposal accepted an hour ago - showed
@@ -1587,6 +1619,7 @@ test("one long cell cannot crush the rest of the accounts table", () => {
     /scrollbar-(width|color):/,
     "scrollbar-width/-color outside the Firefox-only guard switch Chrome's always-on bar off",
   );
+  assert.match(page, /td\.num \{[^}]*text-align:\s*center/, "the status figures on the right are centred, not right-aligned");
   assert.match(page, /col-resize/, "the operator adjusts a column by dragging its border");
   assert.match(page, /列の幅をもとに戻す/, "and can undo that without clearing site data");
 });
@@ -4319,6 +4352,29 @@ test("the slot on the hand-over card is the account's own clock, and says which 
       // not be what the card leads with.
       const asUtc = new Date(stored.scheduledFor).toISOString().replace("T", " ").slice(0, 16);
       assert.notEqual(card.at.slice(0, asUtc.length), asUtc, "the slot is being shown in UTC again");
+    },
+    { config: BY_HAND_CONFIG },
+  );
+});
+
+test("the hand-over card's channel line carries the by-hand channel's 手 monogram badge", async () => {
+  // visual-polish-proposal.md §4.3: the second (and, for now, only other) of
+  // the two places a channel identifier reaches the screen -
+  // `src/console/page/client/hand-over.ts`'s slot line, right after
+  // `post.channel` itself. BY_HAND_CONFIG's one channel is `by-hand`, a known
+  // id, so this covers the badge showing the right letter for a real card,
+  // not just a hand-built fixture.
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle, company) => {
+      await handedOver(base, handle.token, company);
+      const page = await openPage({ base, token: handle.token, hash: "#/ventures/main", until: "venture-hand-over" });
+      const html = page.html("venture-hand-over");
+      assert.match(
+        html,
+        /by-hand<span class="chip channel-badge">手<\/span>/,
+        `the hand-over card's channel line did not carry the "手" badge: ${html}`,
+      );
     },
     { config: BY_HAND_CONFIG },
   );

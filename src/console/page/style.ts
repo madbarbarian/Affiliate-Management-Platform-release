@@ -71,6 +71,16 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
   }
   .chip.warn { color: var(--warn); }
   .chip.danger { color: var(--danger); }
+  /*
+   * The channel monogram badge (visual-polish-proposal.md §4.2-4.3): the same
+   * pill .chip already is, sized for one or two characters instead of a
+   * word - narrower padding, a fixed minimum width so "T" and "YT" read as
+   * the same shape, and centred text since there is no line to align left.
+   */
+  .channel-badge {
+    display: inline-block; min-width: 18px; padding: 2px 6px; margin-left: 4px;
+    font-size: 11px; font-weight: 600; text-align: center;
+  }
   details { margin-top: 8px; }
   summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   /*
@@ -180,7 +190,10 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
   /* Eleven columns is more than the eye tracks across unaided. */
   table.grid tbody tr:nth-child(even) { background: var(--row-alt); }
   table.grid tbody tr:hover { background: var(--row-hover); }
-  table.grid th.num, table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Centred, not right-aligned (owner, 2026-09-26): these are short status
+     figures (posts, clicks, 型) that read across a row like a status line, not
+     a ledger of amounts to add down. tabular-nums keeps the digits even. */
+  table.grid th.num, table.grid td.num { text-align: center; font-variant-numeric: tabular-nums; }
   table.grid .err { font-size: 12px; margin-top: 4px; }
   /* The second line of a cell is a note on the first, and reads as one. At the
      same size as the value it doubled the apparent number of columns. */

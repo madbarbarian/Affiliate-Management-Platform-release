@@ -240,7 +240,7 @@ function renderVenture(v) {
           field(T["setup.regulator"], esc(setup.market.regulator), "markets[" + setup.market.id + "].regulator")
         : "") +
       field(T["setup.channels"], '<span class="chips">' +
-        setup.channels.map((id) => '<span class="chip">' + esc(id) + "</span>").join("") + "</span>",
+        setup.channels.map((id) => '<span class="chip">' + esc(id) + "</span>" + channelBadgeHtml(id)).join("") + "</span>",
         setup.path + ".channels") +
       field(T["setup.offers"], setup.offers.length === 0
         ? '<span class="muted">' + esc(T["setup.offersNone"]) + "</span>"

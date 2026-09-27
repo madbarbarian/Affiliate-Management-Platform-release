@@ -23,7 +23,7 @@ export type PortfolioColumn = {
   /** "" for the column that holds 開く - the control says what it is. */
   readonly label: string;
   readonly width: number;
-  /** Right-aligned and tabular, so a column of figures can be scanned down. */
+  /** Centred and tabular: short status figures that read across a row. */
   readonly numeric?: boolean;
 };
 

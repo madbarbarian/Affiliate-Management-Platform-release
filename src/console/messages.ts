@@ -395,6 +395,12 @@ const ja = {
   "setup.disclosure": "開示文",
   "setup.regulator": "監督",
   "setup.channels": "チャネル",
+  // The channel monogram badge's title/aria-label (visual-polish-proposal.md
+  // §4.2-4.3): only the "?" badge carries it. A known letter sits right next
+  // to the channel id itself, already visible as text, so it needs no gloss;
+  // "?" is the one glyph whose whole job is to say "this is not one of the
+  // names this product recognises," which a bare "?" does not say on its own.
+  "channel.unknownTitle": "不明なチャネル",
   "setup.offers": "案件",
   "setup.offersNone": "なし",
   "setup.crossBorder": "越境",
@@ -690,6 +696,7 @@ const en: Messages = {
   "setup.disclosure": "Disclosure",
   "setup.regulator": "Regulator",
   "setup.channels": "Channels",
+  "channel.unknownTitle": "Unknown channel",
   "setup.offers": "Offers",
   "setup.offersNone": "none",
   "setup.crossBorder": "cross-border",

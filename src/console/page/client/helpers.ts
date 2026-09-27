@@ -9,6 +9,7 @@
  * a module-level constant, so it is a function, not a plain string.
  */
 
+import { KNOWN_CHANNEL_MONOGRAMS, UNKNOWN_CHANNEL_MONOGRAM } from "../../channel-monogram.ts";
 import { CYCLE_STATUS_LABELS, CYCLE_STEP_LABELS, FAILURE_SUMMARIES } from "../../labels.ts";
 import type { Messages } from "../../messages.ts";
 import { MIN_COLUMN_WIDTH, type PortfolioColumn } from "../../portfolio-columns.ts";
@@ -174,6 +175,27 @@ function esc(value) {
 function statHtml(label, lines) {
   return '<div class="stat"><span class="muted stat-label">' + esc(label) + "</span><b>" +
     lines.map((line) => '<span class="stat-line">' + esc(line) + "</span>").join("") + "</b></div>";
+}
+
+// Built from channel-monogram.ts rather than written out again here, so a
+// channel this product starts shipping and documenting gets its badge the
+// same day it gets a mapping table entry, instead of drifting the way a
+// second copy of a table always does.
+const CHANNEL_MONOGRAMS = ${JSON.stringify(KNOWN_CHANNEL_MONOGRAMS)};
+const UNKNOWN_CHANNEL_MONOGRAM = ${JSON.stringify(UNKNOWN_CHANNEL_MONOGRAM)};
+
+/*
+ * The channel monogram badge (visual-polish-proposal.md §4.2-4.3): a one- or
+ * two-character mark in the same round pill .chip already is, next to a
+ * channel's identity. Only the honest "unknown" mark carries a title - a
+ * known letter sits beside the id itself, already visible as text.
+ * (No backticks in here: this file is one big template literal.)
+ */
+function channelBadgeHtml(channelId) {
+  const known = Object.prototype.hasOwnProperty.call(CHANNEL_MONOGRAMS, channelId);
+  const glyph = known ? CHANNEL_MONOGRAMS[channelId] : UNKNOWN_CHANNEL_MONOGRAM;
+  const title = known ? "" : ' title="' + esc(T["channel.unknownTitle"]) + '"';
+  return '<span class="chip channel-badge"' + title + '>' + esc(glyph) + "</span>";
 }
 
 // Built from labels.ts rather than written out here, so a step added to
