@@ -359,7 +359,9 @@ networks:
   #     reportsDir: ".amp/reports/a8"
   #     encoding: shift_jis     # 国内ASPはShift_JISが多い。UTF-8なら utf-8
   #     currency: JPY
-  #     subIdParam: a8mat       # 成果地点URLに付ける自前のパラメータ名
+  #     subIdParam: id1         # A8 のパラメータ計測（id1〜id5）。**a8mat は A8 自身の広告素材ID
+  #                             # なので絶対に指定しない**（上書きされて A8 のリンクが壊れる）。
+  #                             # 値は半角英数字のみ・50byteまで（こちらのコードは10文字で収まる）
   #     columns:                # 列名はASPの書き出しに合わせて変える
   #       at: "発生日時"
   #       externalId: "注文ID"

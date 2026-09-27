@@ -1,3 +1,503 @@
+> **English is the record; the Japanese version follows below as a supplement** (owner decision, 2026-09-26). If they disagree, the English wins.
+
+# A Proposal on Visual Polish: Along the Axis of Appearance, Not Information Structure
+
+> **This is a proposal, not an implementation.** Not a single line of `src/` was touched.
+> This document is a **sibling** of [`console-ux-proposal.md`](console-ux-proposal.md).
+> That one deals with "what goes where" (information structure); this one deals with "how what has been placed looks" (the visual axis).
+> It does **not contradict** the decisions made there (the recommended / other split, the status band, the settlement of table width).
+> Wherever it appears to contradict them, each time it states which decision there it is dealing with, and how.
+
+---
+
+## 0. The conclusion first
+
+**The cause of "looking lame" is not a bad choice of colour palette. It is that the palette is unused on 90% of the screen.**
+
+The palette held by `:root` in `src/console/page/style.ts` (`--bg #fbfbfa`, `--ink #1a1a19`,
+`--muted #6b6b66`, `--accent #2f6f4f`) is plain when viewed alone, but it is not broken.
+Checking on a real screen, **the elements that actually use this palette are the 「開く」 (Open) link, the green border of `.card.handover`,
+and the disclosure chips (`.pr-ok` / `.pr-missing`), and little else; everything else (headings, numbers, labels,
+body text) is either the black of `--ink` or the grey of `--muted`.** The four numbers for all accounts combined,
+and the five numbers for each individual account, are all bold black. Headings are all the same 14px, uppercase, wide letter-spacing, grey
+(`style.ts:58`, applied equally to every `<h2>`). **The most meaningful number for this product (confirmed reward)
+and the least meaningful number (the total count of patterns) line up on the screen with the same weight and the same colour.**
+
+In addition, **there is primary data found by measurement** (§2.2): at an ordinary desktop window width,
+the all-accounts table is physically cut off right after the 「成果」 (Conversions) column, and everything from the 「確定報酬」 (Confirmed reward) column onward (confirmed reward, patterns, tracking) is
+invisible without horizontal scrolling. The owner's remark, "the part from the revenue column onward also has somehow inconsistent widths," is
+neither a metaphor nor a misperception; **it is happening exactly as stated, down to the measured pixel.**
+
+On mobile, I checked on a real screen (§5). **The hunch that "it will probably turn out the same" is half right and
+half wrong.** The unused palette (poverty of expression) is exactly the same on mobile too:
+there are only three responsive CSS rules to begin with (described below), and with no mechanism for changing the rules of colour, weight and hierarchy,
+that is only natural. On the other hand, the problem of the table being cut off at revenue **does not occur on mobile**:
+below `stackBelow` window width the table turns into stacked cards, and this particular loss does not reproduce.
+
+---
+
+## 1. What was looked at, and how it was verified
+
+### 1.1 The real screen (browser)
+
+`https://amp-test.madbarbarian.workers.dev/` has a login wall (a passphrase), and
+no credentials were given to this session. **Rather than give up on checking a real screen, I ran the same code
+on my own machine, still on mocks, and checked there.** Concretely:
+
+1. I copied `platform.config.example.yaml` to make `platform.config.yaml` (gitignored,
+   not committed), enabled the `by-hand` (manual posting) channel, and set up three accounts
+   (`ai-tools`, `gadget-life`, `home-cooking`).
+2. I ran a mock cycle with `node src/cli.ts cycle run` and produced one planning approval gate.
+3. I stood up the approval screen locally with `npm run console` and opened it from a real browser using
+   `mcp__plugin_chrome-devtools-mcp_chrome-devtools__*`
+   (Chrome DevTools MCP).
+
+This is not `amp-test` itself, but it is the same HTML/CSS drawn by **the same `src/console/` code as `amp-test`**.
+If there is a difference, it is only the amount of real data; the visual rules are identical. From here on,
+descriptions of screenshots come from this real-screen check unless stated otherwise.
+
+**I did not perform the approval itself.** The act of pressing the gate's 「承認して進める」 (Approve and proceed) button from the browser
+was rejected by this session's safety mechanism as "self-approval," and I think that was the right restraint. Pressing on someone's behalf
+an operation that this product has decided from the start "only the operator presses," merely to check appearance, is out of line
+even with local mock data. **As a result, there is no real-screen screenshot of the hand-over posting card (`.card.handover`).**
+In §5.3 I limit myself to a reproduction based on the source code, explicitly labelled as such.
+
+### 1.2 The mobile viewport: as the brief warned, I chose the tool again
+
+As the brief pointed out, `mcp__claude-in-chrome__resize_window` did not actually change the viewport in this environment.
+Instead I called Chrome DevTools MCP's `emulate` with a `viewport` string, and
+**`window.innerWidth` did return `390`** (with only the `width`/`height` arguments of `resize_page`,
+`innerWidth` stayed at `500`, which also could not be relied on; the `viewport` argument of `emulate` was the one that
+actually worked). The mobile descriptions from here on are based on screenshots at this measured 390px width (iPhone-equivalent,
+`devicePixelRatio:2`, `isMobile:true`).
+
+### 1.3 The two sites used as references
+
+- **Buffer** (`buffer.com/insights`): the row of headline numbers has a three-tier structure: "small grey uppercase
+  tracked label", then "large bold number", then "a coloured delta with an arrow (up 7%, green for an increase) plus the raw comparison value
+  added small". **The most concrete reference, one that can be applied as is to this product's "all accounts combined".**
+- **Metricool** (`metricool.com`): nav of icon plus short label, a gradient line under the active tab, cards
+  with pastel backgrounds, rounded corners, and dark colour reserved for the primary button only.
+  In the list of connected channels, a small circular platform icon sits next to the name;
+  this is the very source of the owner's "icon plus small label" idea.
+
+---
+
+## 2. What the appearance actually is: a breakdown based on measurement
+
+### 2.1 The palette is unused (measured)
+
+I captured a full-page screenshot of the 「今日」 (Today) screen in light mode on desktop (1440x900). What was visible:
+
+- Headings (`h2`): 「アカウントの状態」 (Account status), 「全アカウント — 直近30日」 (All accounts: last 30 days), 「全アカウント合計 — 直近30日」 (All accounts total: last 30 days),
+  「最近の動き」 (Recent activity): all the grey of `--muted`, all the same 14px, all uppercase and tracked
+  (`style.ts:58`, one rule applied unconditionally to every `<h2>`).
+- The four numbers of 「全アカウント合計」 (published posts, clicks, conversions, confirmed reward):
+  all the black of `--ink`, all 20px bold, all the same margin (`.stat b { font-size:20px }`, `style.ts:352`).
+  **Confirmed reward (money) and the total count of patterns (meta information) get the same treatment.**
+- The only things with colour are: the 「開く」 (Open) link (green text, `a.open`, `style.ts:387-388`), and
+  the grey chip 「承認が要る（1）」 (Approval needed (1)) (`.status-badge`, no colour, `style.ts:372`).
+
+**The one place where colour was deliberately assigned** (the account screen and the planning approval card) really does work well:
+the `予測 400` (Forecast 400) chip, the `PR` chip (green), the risk note chip, and the green / red / grey of `disclosure`
+(`.pr-ok` / `.pr-missing` / `.pr-none`, `style.ts:272-274`). **This is a counterexample to "no colour sense."**
+This product knows where colour carries meaning; it has simply placed colour only where it knows.
+
+### 2.2 The all-accounts table is physically cut off just before 「確定報酬」 (Confirmed reward) (measured, needs fixing)
+
+`console-ux-proposal.md` already deals with this table's width problem, and records that with `fix/portfolio-table-width` it settled on
+the trade-off "fit the table to the same width as main, and leave whatever overflows to the horizontal scroll of `.table-wrap`"
+(stated explicitly in the comment at `style.ts:110-137`). **I think that trade-off
+itself is a correct judgement, but what happens beyond it had not been verified.**
+
+Measurement (numbers read directly from the browser's `getBoundingClientRect` / `scrollWidth`):
+
+```
+Visible width of main (.table-wrap.clientWidth)     : 828px
+Actual width of the table (table.grid.scrollWidth)   : 1107px
+The part invisible without scrolling (overflowPx)    : 279px
+
+Left / right edge of each column header (1440px window, absolute coordinates with main centred):
+  アカウント (Account)             306.5 – 482.5
+  (開く) (Open)                   482.5 – 550.5
+  状態 (Status)                   550.5 – 654.5
+  直近サイクル (Latest cycle)       654.5 – 850.5
+  投稿 (Posts)                     850.5 – 906.5
+  中央値 (Median)                  906.5 – 968.5
+  クリック (Clicks)                 968.5 – 1036.5
+  成果 (Conversions)              1036.5 – 1128.5   <- the visible region ends here (right edge 1134.5px)
+  確定報酬 (Confirmed reward)     1128.5 – 1228.5  <- only 6px of the left edge is visible. Effectively zero
+  型 (Patterns)                   1228.5 – 1300.5   <- completely invisible
+  計測 (Tracking)                 1300.5 – 1412.5   <- completely invisible
+```
+
+Because of `main { max-width: 860px }` (`style.ts:56`), this visible width of 828px **does not change however
+much you widen the window beyond 1440px.** In other words this is not a bug at the specific window width of 1440px; **it always occurs
+on any desktop that opens a screen containing this table.**
+
+**This is the substance of the owner's "the part from the revenue column onward also has somehow inconsistent widths."** It is not a metaphor.
+At the right edge of the 「成果」 column (1134.5px) the table visually ends (its border and rounded corners look complete there),
+and the 「確定報酬」 column that should come right after shows only what looks like a 6px sliver of margin, while 「型」 and 「計測」
+cannot even be known to exist. By default there is also no hint of a scrollbar (in particular, macOS overlay
+scrollbars are invisible until you interact). **That the table reads as "ending right there"
+is itself what became the words "inconsistent widths."**
+
+`console-ux-proposal.md` proposes moving this table down to band C (§4.1, §8c), and the implementation appears to be
+postponed for now. **Moving it down to a band and this loss being visible are separate problems.** Wherever the table is,
+as long as it is a scrolling table, the same thing happens unless the screen says that it can scroll.
+§6.1 gives a remedy.
+
+### 2.3 The same "number widget" is assembled in two different ways
+
+`src/console/page/client/today.ts:194-195` (company-wide total) and
+`src/console/page/client/venture.ts:203-208` (per account) both have the same role, "line up a label and a number,"
+but their DOM is assembled differently.
+
+```
+today.ts:194-195 (company-wide total)
+  <div class="stat"><b>{value}</b><span class="muted">{label}</span></div>
+  -> Appearance: number on top, label below (because .stat b is display:block)
+
+venture.ts:203-208 (per account)
+  <span class="stat">{label}<b>{value}</b></span>
+  -> Appearance: label on top, number below. But the label is plain text (.muted is not attached)
+```
+
+On adjacent screens of the same product (Today screen, then Open, then account screen), **the numbers for the same concept are
+assembled in the opposite vertical order, and the label text also differs in how faint it is.** Neither is broken
+in appearance, but the traces of two implementations having grown independently remain as they are. This too can be a cause of the
+"inconsistency": the experience of the rules changing within a single screen transition.
+
+### 2.4 Amounts concatenate multiple currencies into one line
+
+When there are multiple currencies, `formatMoney` in `src/affiliate/attribution.ts:214-223` returns
+a single string joined with `" / "`, like `"1,234 JPY / 567 USD"`. This is the result of keeping the promise in `CLAUDE.md`
+not to sum amounts across currencies (`totalsByCurrency`), but **the visual side merely squeezes
+that promise into one long string**, which fits poorly with a Buffer-style "one big number"
+layout. While there is one currency it is no problem, but from the second currency on, the length
+translates directly into poor readability. §3.3 deals with this.
+
+### 2.5 There are actually only three places with responsive CSS
+
+I recounted and confirmed the brief's point myself. There are only three media queries in all of `style.ts`:
+
+```
+line 40  @media (prefers-color-scheme: dark)                 (colours only)
+line 210 @media (max-width: ${stackBelow-1}px)                (the single point of table -> cards)
+line 246 @media (min-width:560px) and (max-width:${stackBelow-1}px) (an intermediate tier of the same)
+```
+
+**The status band, hand-over card, headline numbers and decision cards have not a single line of dedicated mobile handling.**
+They are "not broken" but also "not designed for mobile": a state that block elements and
+flexbox wrapping happen to have by chance. The measurements in §5 bear this out.
+
+---
+
+## 3. Redesigning the headline numbers
+
+### 3.1 Can a delta be produced from the data we have? Verification result: no
+
+`computePerformance` in `src/domain/performance.ts` receives only `sinceMs` (the window start), and
+there is no argument called `untilMs` (the window end); **the structure always computes "from then until now"**
+(confirmed at `performance.ts:35`, `:53`, `:101`; there is not a single `until`-type field in the code).
+`buildPortfolio` in `src/domain/portfolio.ts` likewise only builds `sinceMs = nowMs - days*...` from `days`,
+and `nowMs` is always "now" (`portfolio.ts:126`).
+
+So "the last 30 days" can be produced, but **there is no mechanism in today's code to produce "the 30 days before that."**
+To make a Buffer-style "up 7%," at minimum the following changes are needed:
+
+1. Add `untilMs` (the window end) to `computePerformance` / `buildPortfolio`.
+2. Call the aggregation **twice**, once for the last 30 days and once for the 30 days before that (double the cost of
+   the current single call. The comment at `router.ts:895-897` already warns that "this portfolio computation
+   runs on every 30-second poll and is not light").
+3. Confirmed reward is independent per currency (§2.4), so the delta also has to be produced per currency:
+   this becomes **multiple delta sentences** such as "JPY is +12%, USD is new since this period,"
+   and does not fit the simple form of Buffer's single "up 7%."
+
+**This is not a visual change but the addition of new aggregation logic.** It exceeds the scope of this proposal (appearance).
+In §6 it goes under "later."
+
+### 3.2 What we will not do: divide the same 30 days and pass it off as a delta
+
+A rejected idea: if we only have the last 30 days of data, split that into "the last 15 days" and "the 15 days before that"
+and present a pseudo-delta. **I reject this.** It is not "a comparison with the previous period"
+but "just cutting the same window," and would present noise between periods of half the sample size as a "trend."
+It would be the same kind of dishonesty as the "lifetime figures the billing command then charged
+against" that `CLAUDE.md` names: **diluting data that does not exist to look as if it does.**
+What does not exist is said not to exist.
+
+### 3.3 The smallest honest visual improvement we can make now
+
+Without producing a delta, fix only the following three points. **All are changes to CSS and markup; no new aggregation is needed.**
+
+**(a) Unify the assembly of `.stat` into one.** Align the two different orderings of `today.ts` and `venture.ts`
+(§2.3), following Buffer, into a single pattern: "label (small, grey, wide letter-spacing) on top, number (large, bold) below."
+The `venture.ts` side is already close to this order, so aligning the `today.ts` side
+is the smaller change.
+
+```
+Now (today.ts)                After the proposal (both)
+┌──────────────┐            ┌──────────────┐
+│      24        │            │ 公開済み投稿    │ <- small, grey, wide letter-spacing
+│  公開済み投稿    │            │      24        │ <- large, bold
+└──────────────┘            └──────────────┘
+```
+
+(公開済み投稿 = published posts.)
+
+**(b) Split lines per currency for confirmed reward only.** Stop putting the `"1,234 JPY / 567 USD"` returned by `formatMoney`
+into `<b>` as a single line of text; split on `" / "` and make one line per currency
+(the shape of the data does not change; only the display side splits it).
+
+```
+Now                           After the proposal
+┌──────────────┐            ┌──────────────┐
+│ 1,234 JPY / 567 USD │        │ 確定報酬       │
+│    確定報酬          │        │ 1,234 JPY     │
+└──────────────┘            │   567 USD     │
+                              └──────────────┘
+```
+
+(確定報酬 = confirmed reward.)
+
+**(c) Instead of a delta, state in words what is being compared against.** The heading 「全アカウント合計 — 直近{days}日」 (All accounts total: last {days} days)
+already exists (`messages.ts:204/555`). This does not change. Under the number we **do not add** wording such as
+「先月との比較はまだ出せません」 (Comparison with last month cannot be shown yet); going out of our way to say what we cannot say
+would instead raise a new question, "why is it missing?" As in §3.1, this gets added
+once the "later" feature exists. **Saying nothing for now is the more honest course.**
+
+### 3.4 Why `--accent` (green) is not used to dress up numbers
+
+The idea "if we want to make good numbers stand out, why not use that green?" is natural, but **we do not adopt it.**
+This product's `--accent` is already in operation with a single meaning: "something that will not happen unless you act"
+(`.card.handover`, stated explicitly in the comment at `style.ts:255-257` /
+`status-badge--handover`, `style.ts:373-377`). Confirmed reward growing is welcome, but
+**it is not waiting on the operator's action.** If the same green were also repurposed for "good news," every time
+you saw green somewhere on the screen you would have to wonder "is this something I must press, or just news that things are going well?";
+it would dilute the colour grammar this product has only recently established (only the decisions of (2) are green) for the sake of the staging of (1).
+**Rank numbers not by adding colour but by weight and placement alone**; (a) and (b) suffice.
+
+---
+
+## 4. On the icon proposal
+
+### 4.1 Correcting the premise (after the parent's remark, which I also checked myself)
+
+The premise first handed to me was: "`ChannelId` is a general string, and this product does not mechanically know which
+social network it is, so a brand icon would always be dishonest." **This is only half right.**
+I checked the code and the config myself:
+
+- `ChannelConfig.id` is indeed a free string, and for every intended channel other than Threads, the `adapter` becomes
+  `"webhook"` (`src/config/schema.ts:137-138`). **From the adapter type alone one cannot
+  mechanically distinguish "is it X, or the licensee's own personal Zapier scenario?"**
+  Here the original premise holds as stated.
+- **However**, `platform.config.example.yaml` ships `id: x`, `id: note` and `id: youtube` as commented-out templates
+  (all `adapter: webhook`,
+  `platform.config.example.yaml:299-330`), alongside the actually working `id: threads`
+  (`:232-249`), and `docs/3-development/integrations.md` §3
+  (`:65-75`) documents this by name: "templates for X / note / YouTube are included as comments."
+  This is **not conjecture; it is a fact that this product itself has decided and distributes: "if it comes in under this name, it is that social network."**
+
+**Conclusion: the icon proposal may be adopted, within this boundary.** Only when `channel.id`
+matches a known name that this product itself ships and documents (`threads`, `x`, `note`, `youtube`)
+do we show the mark corresponding to that name; this reflects what the licensee's own config file
+says, and is not guesswork. For any other `id` (a custom webhook destination the licensee named themselves),
+**always use the same single kind of "unknown" mark.** Known name to known mark, unknown name to an honest "unknown" mark:
+this honesty is preserved in both cases.
+
+### 4.2 Even so, we do not draw the real logos
+
+Just because we have come inside the boundary, we do not propose **reproducing the exact brand logos of Threads / X / note / YouTube
+as inline SVG.** Three reasons:
+
+1. The act of hand-drawing a reproduction of a trademarked logo carries risk on both accuracy and trademark
+   (if the official logo changes this becomes stale too, and under the constraint in `CLAUDE.md`, "no icon library,
+   hand-drawn SVG only," we would keep paying that cost of keeping up).
+2. This product has no duty to draw logos accurately; **it is enough that "what channel is this" can be told.**
+3. `.chip` / `.who` (`style.ts:68-71` / `:318`) already has the component of "put text in a
+   round-background pill." **Without building a new mechanism, repurposing it as a one- to two-character monogram
+   badge** is the smallest implementation.
+
+```
+threads -> round background + "T"      x -> round background + "X"
+note    -> round background + "n"      youtube -> round background + "YT"
+by-hand (manual) -> round background + "手" (one kanji character. Since this product's first-person voice and prose are Japanese,
+                              it says "not automatic" at a glance better than the Roman letter "M")
+unknown webhook -> round background + "?" (same shape, only the content states "unknown")
+```
+
+Emoji (🤖 / ✋ and so on) were also considered and **rejected.** Emoji render differently by OS and font,
+and cannot meet the brief's requirement to "use only what you have verified for rendering consistency yourself."
+Putting text in a round pill is the same mechanism as the existing `.chip`, so no consistency check is needed
+(it is just text).
+
+### 4.3 Where to show it: only two places for now
+
+At present there are only two places where a channel identifier appears on screen:
+
+- The 「チャネル」 (Channel) field under 「このアカウントの設定」 (Settings for this account) on the account screen (a settings field of `venture.ts`,
+  confirmed on the real screen as a `by-hand` chip).
+- The 「予定していた時刻」 (Scheduled time) row of the hand-over posting card, where `post.channel` appears as plain text as is
+  (`src/console/page/client/hand-over.ts:55`).
+
+The all-accounts table has no channel column (see the column list in §2.2). Adding one badge next to the hand-over card's `post.channel`
+is the natural first place to apply it. **However, this is not a
+direct answer to "looks lame."** As the owner himself stated, "this is a new idea that came to me this time, and
+I have never proposed it before," so in §6 it goes under "later."
+
+---
+
+## 5. Checking the real thing on mobile
+
+Captured at 390x844 (measured `window.innerWidth === 390` confirmed), in light mode.
+
+### 5.1 Header: not broken, but it always takes up 15% of the screen
+
+```
+Measured: header height 123px / viewport height 844px = 15%
+```
+
+The `header` avoids breaking thanks to `flex-wrap: wrap` (`style.ts:49-53`), but
+the five elements (title, nav, `owner` pill, colour-scheme toggle, refresh button) do not fit in 390px width,
+and the two buttons 「配色：自動」 (Colour scheme: auto) and 「更新」 (Refresh) drop to the second line. Because it is `position: sticky; top: 0`
+(`style.ts:52`), **the height of these two lines keeps occupying the top 15% of the screen throughout scrolling.**
+Since it is not broken it cannot be called a "bug," but it is one factor in the impression of "more cramped than expected."
+
+### 5.2 Status band, all accounts (as cards), headline numbers: the real thing
+
+The 「アカウントの状態」 (Account status) status band, and the all-accounts table that turned into stacked cards below `stackBelow` window width,
+**read plainly.** As far as I confirmed in real-screen screenshots,
+the label (generated from the `data-label` attribute, `style.ts:233-235`) sits in grey above each value, and the layout with numbers in a
+three-column grid is not broken. The desktop table clipping of §2.2 **does not reproduce
+on mobile**, because once turned into cards there is no need for horizontal scrolling.
+
+The headline numbers of 「全アカウント合計」 also fit on one line as long as the value is a short string like "0".
+**There is one thing I could not verify, however:** I tried to check by substituting realistic-length values (strings such as `128`, `4,802`,
+`¥182,400`), but **the 30-second polling
+(`load-poll.ts:281`) overwrote the DOM with real data both times before I could take the screenshot, so I could not
+capture the appearance with the injected values.** To write it honestly,
+**this is not a real-screen screenshot but an inference from the CSS:**
+`.stat-row` has `flex-wrap: wrap` (`style.ts:351`), so even if values get longer,
+it is guaranteed to **wrap rather than overflow sideways.** However,
+whether the vertical alignment of label and number lines up after wrapping is not confirmed;
+with uneven value lengths, the last one alone may end up stranded on the second line.
+
+### 5.3 Hand-over posting card: no real screen. A reproduction from source (marked as needing verification)
+
+As in §1.1, I could not actually make a hand-over card occur without performing an approval.
+The following is only a **desk-based reproduction, made by matching the markup of `src/console/page/client/hand-over.ts` with the existing CSS
+(`.card.handover`, `.handover-part`, `.handover-order`, `style.ts:255-274`); it is not a picture seen on a real screen.**
+
+```
+┌─────────────────────────────┐  <- .card.handover (green left border, style.ts:257)
+│ あなたが投稿する番です — AI仕事術  │   (It's your turn to post: AI work skills)
+│ 予定していた時刻：9/26 12:15       │  <- the §4.3 badge is intended to be added here
+│                                │   (Scheduled time: 9/26 12:15)
+│ 貼る順番                        │   (Order to paste)
+│ 1. 本文を投稿                    │   (1. Post the body)
+│ 2. コメントに貼る                 │   (2. Paste into the comment)
+│                                │
+│ [本文のプレビュー枠]              │  <- pre.post, white-space:pre-wrap, so
+│ [コピー]                        │    wrapping itself is safe (style.ts:83-87)
+│                                │   (body preview frame / Copy)
+│ [投稿しました]  [開く]            │  <- .row (flex-wrap). Whether the combined width of the 2 buttons
+└─────────────────────────────┘     fits in 390px is unverified  (I have posted / Open)
+```
+
+`pre.post` already has `white-space: pre-wrap; word-break: break-word`
+(`style.ts:83-87`, plus an override on `.post` at `:250`), so from the code we can say there is no worry
+of a long body overflowing sideways. **Whether the two buttons fit on one line or
+drop to two lines has not been measured.** I leave this as a candidate for "check on a real device later."
+
+### 5.4 Decision card (planning approval): the real thing is available
+
+I was able to capture `gadget-life`'s planning approval gate (left unapproved) at 390px width. The checkbox,
+the 「推奨」 (Recommended) heading, the chips (forecast, PR, risk) and the reorder up/down buttons **all fit
+without breaking.** There were places where a Japanese title split at the end of a line like 「捨て」 / 「た話」,
+but **this is not a bug**: Japanese has no inter-word spaces as English does, and
+a wrap that cuts at any character at the end of a line is grammatically normal. It looks unnatural to English eyes, but I judged
+it is not something to fix.
+
+### 5.5 Answer to the owner's hunch
+
+"Won't it turn out the same when viewed on mobile?": **on poverty of colour and absence of hierarchy, that is
+right.** With only three places of responsive CSS (§2.5), weight, colour and hierarchy do not change at all between desktop and
+mobile. On the table clipping of §2.2 it **does not apply**: that is a desktop-specific loss occurring
+only at window widths of 1138px and above.
+
+---
+
+## 6. Do now / do later
+
+### Do now (CSS and markup only. No new aggregation, no new dependency)
+
+| Order | What to do | Scope touched | Basis |
+|---|---|---|---|
+| 1 | **Make the screen itself say that the all-accounts table can scroll.** A faint gradient fade at the right edge, or keep a thin scrollbar always visible on `.table-wrap` (`scrollbar-width: thin` etc.). At minimum, one line under the table: 「→ 確定報酬・型・計測は横にスクロールできます」 (Confirmed reward, patterns and tracking can be scrolled horizontally). | Around `.table-wrap` in `style.ts` | §2.2. Measured: 279px, three columns' worth, always invisible. The owner's remark itself |
+| 2 | **Unify the assembly of `.stat` into one pattern** (label on top, number below). | Align `today.ts:194-195` to the order of `venture.ts:203-208`, and make it a common CSS class both read | §2.3, §3.3(a) |
+| 3 | **Break lines per currency for confirmed reward.** | The revenue display in `today.ts` / `venture.ts`, the markup inside `.stat` | §2.4, §3.3(b) |
+| 4 | **For the decision-gate section, give the green border that `console-ux-proposal.md` §4.3 proposed to its present location (the top of `#/ventures/<id>`).** That proposal was about the top-screen structure of the time; the decision of 2026-09-23 only changed the gate's address, and the rule itself, "give a border to what is waiting on you," has not been negated by any decision. This is **a proposal to carry that visual idea over to the present address**, not an objection to the information structure. | The wrapper of the gate section in `venture.ts`, `style.ts` | §2.5. Confirmed on a real screen: the gate section still looks the same as the other sections |
+
+### Do later (needs a design decision, or new aggregation)
+
+| What to do | Prerequisite |
+|---|---|
+| Add a period-over-period delta to the headline numbers (Buffer-style up 7%) | **It does not exist in today's code.** A design is needed that adds `untilMs` to `computePerformance` / `buildPortfolio` and runs the aggregation twice. Confirmed reward becomes a per-currency delta, so it does not fit a single "up 7%" like Buffer's; how to present multiple delta sentences needs separate design (§3.1) |
+| Channel monogram badge (§4) | Implementation cost is small, but it is a **new feature the owner himself called "an idea that just came to me,"** and is not a direct answer to "looks lame." It also requires adding a ja/en pair to `messages.ts` |
+| Check on a real device whether the hand-over card's button row fits on one line at mobile 390px | §5.3. After preparing a safe way to create the hand-over state without going through an approval (for example, using test fixture data) |
+| Decide whether to add mobile-specific CSS adjustments to the status band, all accounts and headline numbers | As in §5.5, "not broken" so not urgent, but the fact that there are only three dedicated media queries (§2.5) also means there is no mechanism to notice the next time even one thing breaks |
+
+---
+
+## 7. What was rejected
+
+**(a) Overhauling the colour palette entirely.** The conclusion of the verification is "the palette is not broken. It is just unused"
+(§2.1). An overhaul has a large implementation cost, and also carries the risk of new collisions with the colours that already have meaning,
+`--warn` and `--danger`. **What to fix is not the choosing but the using.**
+
+**(b) Repurposing `--accent` (green) to dress up "good numbers."** Detailed in §3.4. It dilutes the grammar this product
+has only recently established, "green = waiting on you."
+
+**(c) Drawing inline SVG that accurately reproduces the official logos of Threads/X/note/YouTube.** §4.2.
+It is not worth the trademark-accuracy risk and the cost of keeping up. A one- to two-character monogram badge is enough.
+
+**(d) Emoji-based icons (🤖 / ✋ and so on).** §4.2. We cannot verify rendering consistency ourselves.
+
+**(e) Splitting the last 30 days in two to make a pseudo-delta.** §3.2. It is the act of diluting data that does not exist to look as if it does,
+and the same kind of defect as the "lifetime figures" that `CLAUDE.md` names.
+
+**(f) Treating mobile as verified using only `claude-in-chrome`'s `resize_window`.**
+As the brief warned, it did not actually change the viewport, so I switched the tool to Chrome DevTools MCP's
+`emulate`, and confirmed via `window.innerWidth` that it really was 390px
+before going further (§1.2). There is no value in this document that I wrote without confirming it.
+
+---
+
+## 8. What could not be verified (honestly)
+
+- **`amp-test` itself could not be opened.** It has a login wall and I had no credentials. I ran the same source code
+  locally on mocks and checked there. The visual rules (CSS) should be identical,
+  but I cannot say "I saw it on the real `amp-test`."
+- **There is no real-screen screenshot of the hand-over posting card.** It could not be made to occur without performing an approval,
+  and the safety mechanism rightly refused the approval click. §5.3 is limited to a desk-based reproduction from the source code.
+- **I have not confirmed the appearance of the headline numbers after wrapping on mobile.** The 30-second polling
+  overwrote the injected test values both times, so I could not take a real-screen screenshot.
+  I confirmed as far as the CSS guarantee of `flex-wrap: wrap` (it does not overflow sideways),
+  but the alignment after wrapping is unconfirmed (§5.2).
+- **I looked at dark mode only on desktop and in part on mobile.** I have not done an exhaustive
+  re-audit element by element.
+
+---
+
+> This document is a proposal; the owner decides whether to accept it or send it back.
+> `src/`, `test/`, `prompts/` and `docs/_proposed/design/` were not touched by so much as a byte.
+> The `platform.config.yaml` and `.amp/` used for the local real-screen check were both gitignored
+> and were deleted when the work ended: they remain neither in a commit nor in this worktree.
+
+---
+
+# 日本語版（補足・原本）
+
 # 見映えの提案 — 情報構造ではなく、見た目の軸で
 
 > **これは提案であって実装ではない。** `src/` は1行も触っていない。

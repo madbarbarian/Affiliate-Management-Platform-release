@@ -1,8 +1,8 @@
 {
   "name": "affiliate-management-platform",
-  "version": "0.13.0",
-  "commit": "dcfab93",
-  "builtAt": "2026-09-26T16:23:35.887Z",
+  "version": "0.13.1",
+  "commit": "43e2e84",
+  "builtAt": "2026-09-27T01:07:00.233Z",
   "upstream": "madbarbarian/Affiliate-Management-Platform-release",
   "files": [
     {
@@ -32,13 +32,13 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 75697,
-      "sha256": "f629d6daaba78a0a24e706d199c867c5a8ed4bf437dfd07907644cf747394585"
+      "bytes": 76461,
+      "sha256": "f106e7cd73569b964a613cf5abd47ce0985e6d310e45034d0d439a16a3bc9dbb"
     },
     {
       "path": "CLAUDE.md",
-      "bytes": 13284,
-      "sha256": "923eaedc8a0e2a29ebec9c3c433727dd456d7dac53822514139d59bb72645c45"
+      "bytes": 13835,
+      "sha256": "cefece57fb2ddf0517937c7390a4d3c3a5604b1c57af213f8052570aa26ca024"
     },
     {
       "path": "contracts/README.md",
@@ -272,13 +272,13 @@
     },
     {
       "path": "docs/3-development/external-generation-design.md",
-      "bytes": 9490,
-      "sha256": "426eca80c329310b8f0e7557cd85bd4ab87d25a5690c72e0204e1ea7058236ff"
+      "bytes": 17904,
+      "sha256": "1a5f1a4e6dc91776e6421391ad9d48fa5f74257b2bdc76b6c33ebd094f50caa1"
     },
     {
       "path": "docs/3-development/integrations.md",
-      "bytes": 12217,
-      "sha256": "8aed67a8af72796f64d67b7744176d6935202569639d10f1843b73fedd39312f"
+      "bytes": 12817,
+      "sha256": "ff3afe41ca4ff30ca61ffe955d6d95f245d1ef6cf8029116f36a30598733f372"
     },
     {
       "path": "docs/3-development/multi-venture-architecture.md",
@@ -302,8 +302,8 @@
     },
     {
       "path": "docs/3-development/visual-polish-proposal.md",
-      "bytes": 37332,
-      "sha256": "7e53c04244fcbdb8d7153ce3a8d6854bec48fe41e7cdaa8701c636405ca0a73d"
+      "bytes": 72567,
+      "sha256": "8e5fb306a670b3df23e0b990c5ab7db6b931bd70a26688f6567886c74e863c95"
     },
     {
       "path": "docs/4-operations/hosting.md",
@@ -317,8 +317,8 @@
     },
     {
       "path": "docs/5-project-management/decisions.md",
-      "bytes": 110056,
-      "sha256": "bae3237f8159e141e229a76f0ff5a96148780827b599fae261089052dbc4bee6"
+      "bytes": 114805,
+      "sha256": "14d86a90685a8c88147a88f65035539d3c9575c18aa7f593e8882f6f9e61334d"
     },
     {
       "path": "docs/6-testing/.gitkeep",
@@ -346,6 +346,11 @@
       "sha256": "1a3d35bfbc0220193a7bbb4a3fd6e8904689f17878e07b3e599c829b02809880"
     },
     {
+      "path": "docs/7-references/design-evidence.md",
+      "bytes": 14431,
+      "sha256": "7b18d25bcb186b7e5935250e41f22b28e7a2248a93aa2782b3435c59a0450b0c"
+    },
+    {
       "path": "docs/7-references/dev_base-proposal-drafts-vs-proposed.md",
       "bytes": 10354,
       "sha256": "b4c572603d213eeb566ad0f4bcbcc208cb0d9216296af121f909aa3444ca5da7"
@@ -368,12 +373,12 @@
     {
       "path": "package.json",
       "bytes": 1955,
-      "sha256": "c4cb4fd487f96fcd1e6329310ac03f65e140acd412dd85b8c9f00ca6ded947f6"
+      "sha256": "a9cea095b83b21daaf29fa4aa473ba93026bc318ab003470b0946dd59fed1b08"
     },
     {
       "path": "platform.config.example.yaml",
-      "bytes": 23076,
-      "sha256": "e965c8be28daaa4596fdd30713a556d4b71cf2f344a427aacb9dc6a3c492b4e7"
+      "bytes": 23357,
+      "sha256": "c7197d21dec08a7ee640f4b6041531cd9e2cdc077b3243435090e34f2f3b6d8c"
     },
     {
       "path": "prompts/analyst.system.md",
@@ -448,7 +453,7 @@
     {
       "path": "README.md",
       "bytes": 12821,
-      "sha256": "0f7ec1bb6d8bc6c94104ba27c241a93f6cb89be6e04c0cbdeb29b3987eab4869"
+      "sha256": "f9515bc453cde0d58c271702bf707bb2d16b7d6fff2a03838091aebd488e0a6f"
     },
     {
       "path": "scripts/build-canvas.ts",
@@ -632,8 +637,8 @@
     },
     {
       "path": "src/console/page/style.ts",
-      "bytes": 25312,
-      "sha256": "3db97506a33598eed033139565cb988bb10604520ed28d13350ec0c1dc0d55cd"
+      "bytes": 25569,
+      "sha256": "f995d027ff413e3397c461009825b9a55f69473c9ed4e83ccc748ce021a4dd1a"
     },
     {
       "path": "src/console/portfolio-columns.ts",
@@ -1042,8 +1047,8 @@
     },
     {
       "path": "test/console.test.ts",
-      "bytes": 256963,
-      "sha256": "b163935c2df5fd25ae0934e7ee2391dd2e2ea2794868bab08d8c170b820551bd"
+      "bytes": 257463,
+      "sha256": "02a13d602fdf1dba2337537f2432a002b413fe1bd2bfadada1f860215fd286bb"
     },
     {
       "path": "test/coverage.test.ts",
@@ -1052,8 +1057,8 @@
     },
     {
       "path": "test/csv.test.ts",
-      "bytes": 9312,
-      "sha256": "e9c4ac966e99a4c6a652cdd0d6b6b01bb3aab44f3f3c04d47b47173b0ecb13f5"
+      "bytes": 10288,
+      "sha256": "31084080daa906e1eaba283258b41eeef25fa225aa419fcff11ef02dd0c3213e"
     },
     {
       "path": "test/exploration.test.ts",

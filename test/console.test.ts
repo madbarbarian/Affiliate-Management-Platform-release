@@ -1579,6 +1579,14 @@ test("one long cell cannot crush the rest of the accounts table", () => {
   assert.match(page, /table-layout:\s*fixed/, "auto layout is what let one cell take everything");
   assert.match(page, /<col style="width:/, "the widths have to reach the table as a colgroup");
   assert.match(page, /\.table-wrap \{[^}]*overflow-x:\s*auto/, "a column dragged wider than the window still has to be reachable");
+  // Measured on the deployed v0.13.0: with scrollbar-width set outside a
+  // guard, Chrome ignored the webkit rules and the always-on bar took 0px.
+  assert.match(page, /::-webkit-scrollbar \{[^}]*height/, "the always-on bar is drawn by the webkit rules");
+  assert.doesNotMatch(
+    page.replace(/@supports not selector\(::-webkit-scrollbar\) \{[^}]*\}\s*\}/, ""),
+    /scrollbar-(width|color):/,
+    "scrollbar-width/-color outside the Firefox-only guard switch Chrome's always-on bar off",
+  );
   assert.match(page, /col-resize/, "the operator adjusts a column by dragging its border");
   assert.match(page, /列の幅をもとに戻す/, "and can undo that without clearing site data");
 });

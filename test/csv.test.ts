@@ -223,6 +223,24 @@ test("the tracked URL carries the sub-id under the network's own parameter", () 
   assert.equal(new URL(built.value).searchParams.get("a8mat"), "code123");
 });
 
+test("an A8-shaped link keeps its own a8mat and gains the sub-id under id1", () => {
+  // A8's material id is a8mat, and A8 says to leave it alone; the parameter it
+  // gives the media member for their own value is id1..id5. `set` replaces a
+  // parameter of the same name, so naming a8mat here would delete A8's own id
+  // and leave a link that points at nothing - the shipped example config said
+  // exactly that until 2026-09-26. This test records the working shape; it
+  // cannot guard the example file, whose block is a comment.
+  const network = createCsvNetwork(context({ reportsDir: "/tmp", subIdParam: "id1" }));
+  const built = network.buildTrackedUrl({
+    landingUrl: "https://px.a8.net/svt/ejp?a8mat=3ABCDE+1FGHIJ+2KLMN+OPQRS",
+    subId: "k7m2p9x4qa",
+  });
+  assert.ok(built.ok);
+  const url = new URL(built.value);
+  assert.equal(url.searchParams.get("a8mat"), "3ABCDE 1FGHIJ 2KLMN OPQRS");
+  assert.equal(url.searchParams.get("id1"), "k7m2p9x4qa");
+});
+
 test("a local-format export date is read in the export's own timezone", () => {
   // `YYYY/MM/DD` and `YYYY年MM月DD日` come from an ASP writing in its own zone.
   // Reading them as UTC shifted every JST date nine hours, which moves

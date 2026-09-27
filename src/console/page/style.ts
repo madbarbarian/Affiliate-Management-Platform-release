@@ -123,10 +123,15 @@ export function pageStyle(tableWidth: number, stackBelow: number, dark: string):
    * the stacked-card layout below resets overflow to visible, which removes it
    * there. (An edge fade is not an option: the table paints its own opaque
    * panel over anything the wrapper could put behind it.) The webkit rules
-   * are what keep it always-on in Safari; scrollbar-color is Firefox and
-   * current Chrome, which ignore the webkit ones once it is set.
+   * draw the always-on bar in Safari and Chrome. scrollbar-width and
+   * scrollbar-color must NOT be set alongside them: Chrome then ignores the
+   * webkit rules and falls back to the overlay bar, which on macOS hides
+   * itself (measured on v0.13.0: the bar took 0px). They are for Firefox
+   * only, which has no webkit pseudo-elements.
    */
-  .table-wrap { scrollbar-width: thin; scrollbar-color: var(--muted) var(--chip); }
+  @supports not selector(::-webkit-scrollbar) {
+    .table-wrap { scrollbar-width: thin; scrollbar-color: var(--muted) var(--chip); }
+  }
   .table-wrap::-webkit-scrollbar { height: 10px; }
   .table-wrap::-webkit-scrollbar-track { background: var(--chip); border-radius: 5px; }
   .table-wrap::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 5px; }

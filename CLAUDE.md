@@ -131,6 +131,13 @@ The decision can be reopened; re-deriving it by accident cannot.
 
 ## Conventions
 
+- **English is the record; Japanese is the supplement** (owner, 2026-09-26). Every
+  design document, requirement and evidence file is **one file**: the English text
+  first, then a `---` rule and the Japanese version under `# 日本語版（補足）`. No
+  `.en.md` twins. Where a finished Japanese document already exists, keep it whole
+  and put the English before it. Decision records, STATUS and operating procedures
+  may stay Japanese-only. Screen copy for the licensee stays Japanese (です・ます).
+  When the two disagree, English wins.
 - **Comments explain why, not what.** The non-obvious decision, the failure it
   prevents, the thing the next reader would otherwise undo. No comment that
   restates the line below it.
