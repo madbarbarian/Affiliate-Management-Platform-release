@@ -116,6 +116,7 @@ function llmConfig(baseUrl: string, overrides: Partial<LlmConfig> = {}): LlmConf
     baseUrl,
     maxRetries: 0,
     requestTimeoutMs: 5000,
+    externalSession: { enabled: false, tokenEnv: "AMP_EXTERNAL_SESSION_TOKEN" },
     ...overrides,
   };
 }

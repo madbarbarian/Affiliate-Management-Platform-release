@@ -323,10 +323,12 @@ request first, then paste.) After that:
 
 **Actions → "Take updates from the platform" → Run workflow.**
 
-A minute later there is a pull request showing exactly what changed. Read it,
-merge it, and Cloudflare redeploys the way it does for any push. It also runs
-itself on the first of each month, so a copy nobody touches still hears about a
-fix — it opens a pull request, it never merges one.
+A minute later there is a pull request showing exactly what changed, its
+title naming the version change (`... (v0.13.1 → v0.13.2)`) so you know what
+is waiting without opening it. Read it, merge it, and Cloudflare redeploys the
+way it does for any push. It also runs itself on the first of each month, so a
+copy nobody touches still hears about a fix — it opens a pull request, it
+never merges one.
 
 `platform.config.yaml` is not in that pull request: your niche, your audience,
 your voice and your accounts are yours. Your secrets are in Cloudflare's

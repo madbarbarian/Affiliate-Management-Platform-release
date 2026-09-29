@@ -90,6 +90,13 @@ llm:
   maxRetries: 3
   requestTimeoutMs: 120000
 
+  # 🧪 実験的・未サポート機能。予告なく変更・削除されることがあります。
+  # ライセンシー自身の Claude Code Routine を使って生成させる、フェーズ1aの検証専用の仕組みです。
+  # 詳細: docs/3-development/external-generation-design.md
+  # externalSession:
+  #   enabled: false
+  #   tokenEnv: AMP_EXTERNAL_SESSION_TOKEN
+
 console:
   enabled: true
   host: 127.0.0.1

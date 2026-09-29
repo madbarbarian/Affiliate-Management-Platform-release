@@ -15,7 +15,7 @@
  */
 
 import type { PlatformConfig } from "../config/schema.ts";
-import type { CycleStatus, CycleStep, Venture, VentureId } from "../core/types.ts";
+import type { ChannelId, CycleStatus, CycleStep, Venture, VentureId } from "../core/types.ts";
 import { isPaused, readPause, type PauseState } from "../kernel/pause.ts";
 import type { StateStore } from "../kernel/state.ts";
 import {
@@ -36,6 +36,12 @@ export type PortfolioRow = {
   readonly niche: string;
   readonly audience: string;
   readonly market: string;
+  /**
+   * Which channel(s) this account posts to, straight off `venture.channels` -
+   * so the status band and the all-accounts table can show a channel badge
+   * next to the name without a second read.
+   */
+  readonly channels: readonly ChannelId[];
   /** Effective: config `active` and not deactivated by the operator. */
   readonly active: boolean;
   /** Set when the operator switched this account off from the console or CLI. */
@@ -227,6 +233,7 @@ async function rowFor(
     niche: venture.niche,
     audience: venture.audience,
     market: venture.market,
+    channels: venture.channels,
     active,
     ...(deactivated ? { deactivated } : {}),
     stopped: isPaused(scope.pause, venture.id),

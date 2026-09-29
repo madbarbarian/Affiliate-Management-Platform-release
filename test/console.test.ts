@@ -540,6 +540,63 @@ test("the account settings screen's channel chips carry a monogram badge - a kno
   );
 });
 
+test("the top status band shows a channel badge next to the account's name", async () => {
+  // The other two screens a channel identifier reaches are barely visited
+  // (visual-polish-proposal.md §4.3 covered them); this is the status band on
+  // the screen actually looked at daily. BASE_CONFIG's own venture already
+  // carries "threads", so no override is needed to see its "T" badge.
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "status-strip" });
+    const strip = page.html("status-strip");
+    assert.match(
+      strip,
+      /<span class="status-name">テスト運用<\/span><span class="chip channel-badge">T<\/span>/,
+      `the status row did not carry a "T" badge next to the venture's name: ${strip}`,
+    );
+  });
+});
+
+test("the all-accounts comparison table shows the same channel badge in the name cell", async () => {
+  await withConsole({ AMP_TEST_TOKEN: "a-real-token-value" }, async (base, handle) => {
+    const page = await openPage({ base, token: handle.token, until: "portfolio" });
+    const markup = page.html("portfolio");
+    assert.match(
+      markup,
+      /<div class="acct-name">テスト運用<\/div><div class="acct-id">main<\/div><span class="chip channel-badge">T<\/span>/,
+      `the accounts table's name cell did not carry a "T" badge: ${markup}`,
+    );
+  });
+});
+
+test("an account with two channels shows two badges, in the venture's own channel order", async () => {
+  await withConsole(
+    { AMP_TEST_TOKEN: "a-real-token-value" },
+    async (base, handle) => {
+      const statusPage = await openPage({ base, token: handle.token, until: "status-strip" });
+      const strip = statusPage.html("status-strip");
+      assert.match(
+        strip,
+        /<span class="status-name">テスト運用<\/span><span class="chip channel-badge">T<\/span><span class="chip channel-badge">X<\/span>/,
+        `the status row did not carry both badges in order: ${strip}`,
+      );
+
+      const todayPage = await openPage({ base, token: handle.token, until: "portfolio" });
+      const markup = todayPage.html("portfolio");
+      assert.match(
+        markup,
+        /<div class="acct-name">テスト運用<\/div><div class="acct-id">main<\/div><span class="chip channel-badge">T<\/span><span class="chip channel-badge">X<\/span>/,
+        `the accounts table's name cell did not carry both badges in order: ${markup}`,
+      );
+    },
+    {
+      config: {
+        channels: [...BASE_CONFIG.channels, { ...BASE_CONFIG.channels[0], id: "x" }],
+        ventures: BASE_CONFIG.ventures.map((venture) => ({ ...venture, channels: ["threads", "x"] })),
+      },
+    },
+  );
+});
+
 test("an account that has never run can still be started", async () => {
   // The Run button and the box that reports an error hung off `lastCycle`, so
   // a fresh deploy - or a scout proposal accepted an hour ago - showed

@@ -14,10 +14,15 @@
  * which is the right pair of answers under the same uncertainty.
  */
 
-import { PAUSE_KEY, VENTURE_STATE_KEY, type StateSlot, type StateStore } from "../kernel/state.ts";
+import { EXTERNAL_SESSION_JOB_KEY, PAUSE_KEY, VENTURE_STATE_KEY, type StateSlot, type StateStore } from "../kernel/state.ts";
 import type { SqlDriver } from "./sql-driver.ts";
 
-const KEYS: readonly string[] = [PAUSE_KEY, VENTURE_STATE_KEY];
+const KEYS: readonly string[] = [PAUSE_KEY, VENTURE_STATE_KEY, EXTERNAL_SESSION_JOB_KEY];
+// Derived from KEYS.length rather than written out, so a fourth slot added
+// here later cannot silently leave the placeholder count behind - that
+// mismatch is exactly what happened to the hardcoded two-placeholder form
+// this replaced.
+const KEY_PLACEHOLDERS = KEYS.map(() => "?").join(", ");
 
 export function createSqlState(driver: SqlDriver): StateStore {
   let snapshot: Map<string, string> | undefined;
@@ -54,7 +59,7 @@ export function createSqlState(driver: SqlDriver): StateStore {
     async refresh() {
       try {
         const rows = await driver.all<{ key: string; json: string }>(
-          `SELECT key, json FROM state WHERE key IN (?, ?)`,
+          `SELECT key, json FROM state WHERE key IN (${KEY_PLACEHOLDERS})`,
           [...KEYS],
         );
         snapshot = new Map(rows.map((row) => [row.key, row.json]));

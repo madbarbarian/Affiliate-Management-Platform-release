@@ -282,6 +282,7 @@ test("an account is flagged for review only from its own numbers, and never once
     niche: "",
     audience: "",
     market: "jp",
+    channels: [],
     active: true,
     stopped: false,
     pendingDecisions: 0,

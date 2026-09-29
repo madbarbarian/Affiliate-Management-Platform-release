@@ -81,6 +81,38 @@ const COMMITTER = { name: "GitHub Actions", email: "github-actions@github.com" }
 export const UPDATER_COPY = "update-workflow.yml";
 
 export const PULL_REQUEST_TITLE = "Take updates from the platform";
+
+/**
+ * The `"version"` field of a `package.json` file's text, or undefined if the
+ * text does not parse or has none.
+ *
+ * Pure on purpose, unlike the git calls that fetch the text: this is the part
+ * worth unit-testing directly, and the part that must never throw - showing
+ * the version in the pull request's title is a convenience, not a condition
+ * of the update succeeding, so a malformed or absent `package.json` degrades
+ * to no version shown, never to a failed run.
+ */
+export function packageVersion(packageJsonText: string): string | undefined {
+  try {
+    const parsed = JSON.parse(packageJsonText) as { version?: unknown };
+    return typeof parsed.version === "string" ? parsed.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The pull request's title, with the version change appended when both ends
+ * are known and different from each other.
+ *
+ * Owner, 2026-09-27: "PR見るだけでわかるからね" - the version has to be
+ * readable from the pull request itself, not only from `CHANGELOG.md` inside
+ * the diff, so it shows in the pull request list without opening one.
+ */
+export function pullRequestTitle(previousVersion: string | undefined, newVersion: string | undefined): string {
+  if (previousVersion === undefined || newVersion === undefined || previousVersion === newVersion) return PULL_REQUEST_TITLE;
+  return `${PULL_REQUEST_TITLE} (v${previousVersion} → v${newVersion})`;
+}
 export const COMMIT_SUBJECT = "Take updates from the platform";
 export const ISSUE_TITLE = "更新が届いています（Pull request を作れませんでした）";
 
@@ -299,11 +331,26 @@ const PR_BODY_UPDATER = block([
 ]);
 
 /**
+ * The version line at the very top of the body, or nothing when either end is
+ * unknown or the two are the same - the same "never fail, just say less"
+ * degrade as `pullRequestTitle`.
+ */
+function versionLine(previousVersion: string | undefined, newVersion: string | undefined): string {
+  if (previousVersion === undefined || newVersion === undefined || previousVersion === newVersion) return "";
+  return block([
+    `**v${previousVersion} → v${newVersion}** への更新です。`,
+    "",
+    `**Updating v${previousVersion} → v${newVersion}.**`,
+    "",
+  ]);
+}
+
+/**
  * The body exactly as the workflow used to write it: each part a YAML block
  * scalar (one trailing newline), printed with `printf '%s\n'` (another).
  */
-export function pullRequestBody(updaterChanged: boolean): string {
-  return printed(PR_BODY) + (updaterChanged ? printed(PR_BODY_UPDATER) : "");
+export function pullRequestBody(updaterChanged: boolean, previousVersion?: string, newVersion?: string): string {
+  return versionLine(previousVersion, newVersion) + printed(PR_BODY) + (updaterChanged ? printed(PR_BODY_UPDATER) : "");
 }
 
 /**
@@ -377,9 +424,15 @@ export function takeUpdates(options: TakeUpdatesOptions): number {
 function take({ runner, upstreamUrl, upstreamCheckout }: TakeUpdatesOptions): number {
   const root = runner.workspace;
 
+  // Read before anything below touches the tree, so this is the version the
+  // copy is actually running today - not a guess from whatever the working
+  // tree happens to hold partway through the sync.
+  const previousVersion = versionAt(["show", "HEAD:package.json"], root);
+
   rmSync(upstreamCheckout, { recursive: true, force: true });
   run("git", ["clone", "--depth", "1", upstreamUrl, upstreamCheckout], root);
   const upstreamSha = capture("git", ["-C", upstreamCheckout, "rev-parse", "--short", "HEAD"], root).trim();
+  const newVersion = versionAt(["-C", upstreamCheckout, "show", "HEAD:package.json"], root);
 
   run("git", ["config", "user.email", COMMITTER.email], root);
   run("git", ["config", "user.name", COMMITTER.name], root);
@@ -405,7 +458,8 @@ function take({ runner, upstreamUrl, upstreamCheckout }: TakeUpdatesOptions): nu
     summarise(runner, "Updated the open pull request.\n");
     return 0;
   }
-  if (createPullRequest(root, runner.refName, pullRequestBody(updater))) return 0;
+  const title = pullRequestTitle(previousVersion, newVersion);
+  if (createPullRequest(root, runner.refName, title, pullRequestBody(updater, previousVersion, newVersion))) return 0;
 
   const issue = issueBody(runner);
   run("gh", ["issue", "create", "--title", ISSUE_TITLE, "--body-file", "-"], root, issue);
@@ -437,6 +491,20 @@ function capture(command: string, args: readonly string[], cwd: string): string 
 }
 
 /**
+ * `packageVersion` of `git <args>`'s own output, or undefined if the command
+ * itself fails - the ref has no `package.json`, or none at all. Swallowed
+ * rather than thrown: unlike every other git call here, this one is cosmetic,
+ * and must never turn a working update into a failed run.
+ */
+function versionAt(args: readonly string[], cwd: string): string | undefined {
+  try {
+    return packageVersion(capture("git", args, cwd));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * `git diff --quiet` answers in its exit code: 0 nothing staged, 1 something
  * staged. Anything else is git failing, and is not read as either.
  */
@@ -463,10 +531,10 @@ function pullRequestIsOpen(cwd: string): boolean {
 }
 
 /** Whether the pull request was opened. Refused is an answer: the caller files an issue instead. */
-function createPullRequest(cwd: string, base: string, body: string): boolean {
+function createPullRequest(cwd: string, base: string, title: string, body: string): boolean {
   const result = spawnSync(
     "gh",
-    ["pr", "create", "--base", base, "--head", BRANCH, "--title", PULL_REQUEST_TITLE, "--body-file", "-"],
+    ["pr", "create", "--base", base, "--head", BRANCH, "--title", title, "--body-file", "-"],
     { cwd, input: body, stdio: ["pipe", "inherit", "inherit"] },
   );
   return result.status === 0;

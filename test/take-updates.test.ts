@@ -27,7 +27,9 @@ import {
   UPDATER_COPY,
   UPSTREAM,
   issueBody,
+  packageVersion,
   pullRequestBody,
+  pullRequestTitle,
   readRunner,
   rootProblem,
   rsyncArgs,
@@ -163,6 +165,37 @@ test("a changed shell is named in the pull request, with the one step left to a 
   assert.ok(section.includes("`.github/workflows/take-updates.yml`"), "and where to paste it");
 });
 
+test("packageVersion reads the version field, and gives up cleanly rather than throwing", () => {
+  // Owner, 2026-09-27: the version has to be visible in the pull request
+  // itself. This is the part of that which is worth reading in isolation - a
+  // failure here degrades to "no version shown", never to a broken run.
+  assert.equal(packageVersion('{ "type": "module", "version": "0.6.0" }'), "0.6.0");
+  assert.equal(packageVersion('{ "version": 6 }'), undefined, "a version that is not a string is not a version");
+  assert.equal(packageVersion("{}"), undefined, "no field at all");
+  assert.equal(packageVersion("not json"), undefined, "unparsable text does not throw");
+  assert.equal(packageVersion(""), undefined, "an empty file does not throw");
+});
+
+test("pullRequestTitle names the version change only when both ends are known and different", () => {
+  assert.equal(pullRequestTitle("0.5.1", "0.6.0"), `${PULL_REQUEST_TITLE} (v0.5.1 → v0.6.0)`);
+  assert.equal(pullRequestTitle(undefined, "0.6.0"), PULL_REQUEST_TITLE, "the copy's own version could not be read");
+  assert.equal(pullRequestTitle("0.5.1", undefined), PULL_REQUEST_TITLE, "the upstream version could not be read");
+  assert.equal(pullRequestTitle(undefined, undefined), PULL_REQUEST_TITLE, "neither could be read");
+  assert.equal(pullRequestTitle("0.6.0", "0.6.0"), PULL_REQUEST_TITLE, "nothing to say when the version has not moved");
+});
+
+test("the pull request body opens with the version line when both ends are known", () => {
+  const withVersion = pullRequestBody(false, "0.5.1", "0.6.0");
+  assert.ok(withVersion.startsWith("**v0.5.1 → v0.6.0**"), `did not open with the version line: ${withVersion.slice(0, 80)}`);
+  const japaneseAt = withVersion.indexOf("への更新です");
+  const englishAt = withVersion.indexOf("Updating v0.5.1");
+  assert.ok(japaneseAt >= 0 && englishAt >= 0, "the version line has to say the same thing in both languages");
+  assert.ok(japaneseAt < englishAt, "and open in Japanese, like the rest of the body");
+  assert.equal(pullRequestBody(false, undefined, "0.6.0"), pullRequestBody(false), "no line when the copy's own version is unknown");
+  assert.equal(pullRequestBody(false, "0.5.1", undefined), pullRequestBody(false), "no line when the upstream version is unknown");
+  assert.equal(pullRequestBody(false, "0.6.0", "0.6.0"), pullRequestBody(false), "no line when the version has not moved");
+});
+
 test("a refused pull request still says where the update is", () => {
   // A repository created today does not let Actions open a pull request, and
   // the push has already succeeded by then: the update is on the branch, and
@@ -274,12 +307,12 @@ type Sandbox = {
  * A licensee's repository as actions/checkout leaves it - a full clone of its
  * origin, every branch known - and a platform to take an update from.
  */
-function sandbox(platform: Readonly<Record<string, string>>, options: { openBranch?: boolean } = {}): Sandbox {
+function sandbox(platform: Readonly<Record<string, string>>, options: { openBranch?: boolean; copy?: Readonly<Record<string, string>> } = {}): Sandbox {
   const dir = mkdtempSync(join(tmpdir(), "amp-take-updates-"));
   const seed = join(dir, "seed");
   mkdirSync(seed);
   git(seed, "init", "-q", "-b", "main");
-  writeTree(seed, COPY);
+  writeTree(seed, options.copy ?? COPY);
   git(seed, "add", "-A");
   git(seed, "commit", "-q", "-m", "the copy the Deploy button made");
   if (options.openBranch) {
@@ -464,7 +497,7 @@ function inOrigin(box: Sandbox, ...args: string[]): string {
   return git(box.origin, ...args);
 }
 
-function withSandbox(platform: Readonly<Record<string, string>>, body: (box: Sandbox) => void, options: { openBranch?: boolean } = {}): void {
+function withSandbox(platform: Readonly<Record<string, string>>, body: (box: Sandbox) => void, options: { openBranch?: boolean; copy?: Readonly<Record<string, string>> } = {}): void {
   const box = sandbox(platform, options);
   try {
     body(box);
@@ -499,10 +532,10 @@ test("an update arrives as a pull request, and leaves the copy's own files alone
       outcome.gh.map((call) => call.args.join(" ")),
       [
         `pr view ${BRANCH} --json state --jq .state`,
-        `pr create --base main --head ${BRANCH} --title ${PULL_REQUEST_TITLE} --body-file -`,
+        `pr create --base main --head ${BRANCH} --title ${pullRequestTitle("0.5.1", "0.6.0")} --body-file -`,
       ],
     );
-    assert.equal(outcome.gh[1]?.stdin, pullRequestBody(false), "the body is the whole text, and nothing about the shell");
+    assert.equal(outcome.gh[1]?.stdin, pullRequestBody(false, "0.5.1", "0.6.0"), "the body is the whole text, and nothing about the shell");
     assert.equal(outcome.summary, "", "a pull request is its own report");
     assert.equal(outcome.stdout.includes(UPSTREAM_MARKER), false, "upstream's copy of the script is copied, never run");
   });
@@ -513,8 +546,25 @@ test("when the shell itself changed, the pull request says so", () => {
     const outcome = takeUpdatesIn(box);
     assert.equal(outcome.status, 0, outcome.stderr);
     const create = outcome.gh.find((call) => call.args[1] === "create");
-    assert.equal(create?.stdin, pullRequestBody(true));
+    assert.equal(create?.stdin, pullRequestBody(true, "0.5.1", "0.6.0"));
   });
+});
+
+test("a copy whose own package.json has no version field still gets its pull request - just without a version in it", () => {
+  // The version is a convenience read before anything else touches the tree
+  // (see the comment above `previousVersion` in take-updates.ts). A copy that
+  // predates this feature - `package.json` with no "version" at all - must
+  // not turn a working update into a failed run over a cosmetic detail.
+  // (Invalid JSON is not tried here: Node itself refuses to start a script
+  // from a working directory whose nearest package.json does not parse,
+  // before this file's own code ever runs - a different failure entirely.)
+  withSandbox(PLATFORM, (box) => {
+    const outcome = takeUpdatesIn(box);
+    assert.equal(outcome.status, 0, outcome.stderr);
+    const create = outcome.gh.find((call) => call.args[1] === "create");
+    assert.deepEqual(create?.args, ["pr", "create", "--base", "main", "--head", BRANCH, "--title", PULL_REQUEST_TITLE, "--body-file", "-"]);
+    assert.equal(create?.stdin, pullRequestBody(false), "no version line either, for the same reason");
+  }, { copy: { ...COPY, "package.json": '{ "type": "module" }\n' } });
 });
 
 test("nothing to take ends green, says so, and opens nothing", () => {

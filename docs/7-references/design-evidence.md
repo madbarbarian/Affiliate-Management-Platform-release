@@ -164,6 +164,27 @@ Each entry also says **what would invalidate it** (so it can be re-checked) and 
 - **Our reading (not a legal opinion):** the platform is licensed software; each licensee uses their own subscription for their own work; the platform never holds their credentials. That is not reselling. The 2026-09-20 rejection reason "the breach is inherited by licensees" was withdrawn on this basis (`decisions.md` 2026-09-25).
 - **Not established:** whether Anthropic agrees. No legal review was done.
 
+### E-23 · A Routine requires at least one repository, and its instructions must opt in to acting on `text`
+
+- **Grade:** P (fetched and read directly, 2026-09-28) — https://code.claude.com/docs/en/routines
+- **What it says:** "Select repositories: Add one or more GitHub repositories for Claude to work in. Each repository is cloned at the start of a run." A routine cannot be created without one, even when its own instructions never touch the repository. Separately: text sent at fire time "doesn't reach the routine as a bare message. It arrives wrapped in a `<routine-fire-payload>` block that labels it as untrusted data and tells Claude not to follow instructions inside it unless the routine's own prompt says to." A routine's saved prompt must reference that block by name for fire-time `text` to do anything at all.
+- **Consequence:** phase 1a's setup procedure (`external-generation-design.md`) picks any one repository (unused) and, since phase 1a holds exactly one global job at a time, sidesteps the `<routine-fire-payload>` requirement entirely — the saved instructions always fetch "the" pending job rather than one named by an id passed in `text`.
+
+### E-24 · "API credentials" (Pro/Max): a header value the session's own transcript never sees
+
+- **Grade:** P (fetched and read directly, 2026-09-28) — https://code.claude.com/docs/en/cloud-environments, "Add API credentials"
+- **What it says:** "An API credential is an API key or token you store on a cloud environment so Claude can call that API from any session in the environment without seeing the key. Anthropic's agent proxy adds the key to requests for the hosts you list, after each request leaves the session's VM. The key never reaches Claude, the commands it runs, or the session's environment variables." A plain environment variable, by contrast, is "visible to anyone who uses the environment." A credentialed host is also reachable under **Trusted** network access without a separate **Allowed domains** edit. Credentials can only be added to an environment that already exists — not from the new-environment dialog.
+- **Consequence:** `AMP_EXTERNAL_SESSION_TOKEN`'s value is stored here, not in the routine's instructions text or a plain environment variable — a stronger property (never visible to the session at all) than anything phase 1a's own design otherwise offers.
+- **Not confirmed:** the routine-creation form's "Behaviour" and "Notification" fields (named by the owner from the live UI) do not appear under those names anywhere in this page or `routines`'s own page. Left unconfirmed in the design doc rather than guessed.
+
+### E-25 · Observed: API credentials did not appear, despite meeting every documented precondition
+
+- **Grade:** X — our own observation, contradicting E-24's documented claim, not a secondary source repeating a rumour.
+- **What happened (2026-09-28):** the owner opened an already-created environment for editing (satisfying "credentials can only be added to an environment that already exists"), on a personal Max-plan account (satisfying "available on Pro and Max plans" and "on Pro and Max, you hold [the admin role] in your own organization"). No **API credentials** section appeared anywhere in the dialog.
+- **Not established:** the cause. Candidates, none confirmed: a rollout gap in a feature the docs themselves call "research preview" for the surrounding Routines system (though the cloud-environments page does not carry that same disclaimer for API credentials specifically); an account-side difference the docs don't name; a UI placement the owner didn't find despite looking.
+- **Consequence at the time:** phase 1a's procedure used a plain Environment variable instead — a documented, supported, but weaker fallback (the value is visible to the session, acceptable only because the owner is the environment's sole user).
+- 🔴 **Invalidated the same day.** A second attempt found **API credentials** in the same dialog, on the same account, nothing else changed. The first attempt had not reached the specific **Update cloud environment** dialog the section lives in — that dialog opens only via the *routine's own* edit screen (routine → Edit → the cloud-icon environment selector below Instructions → hover the environment → the settings icon), not from any more general environment-management page. **Downgraded from "feature gap" to "findability issue" — the precondition list in E-24 was correct; the missing piece was which screen to open, not documented anywhere as a distinct prerequisite.** `external-generation-design.md`'s step 10 and the Instructions text were reverted to the API-credentials version; the environment-variable version is kept only as a documented fallback for a plan where API credentials is genuinely unavailable (Team/Enterprise, per E-24).
+
 ---
 
 ## C. Visual references

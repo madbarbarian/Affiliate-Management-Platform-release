@@ -83,8 +83,16 @@ export async function startConsole(runtime: Runtime): Promise<Result<ConsoleHand
       { host: config.console.host, port: config.console.port },
     );
   }
+  // Phase 1a (docs/3-development/external-generation-design.md): resolved once
+  // at startup, the same way the console's own token is - only read from the
+  // environment when the config switch is on, so a fork that never turns this
+  // on never even looks for the variable.
+  const externalSessionToken = config.llm.externalSession.enabled
+    ? process.env[config.llm.externalSession.tokenEnv]?.trim() || undefined
+    : undefined;
+
   const server = createServer((request, response) => {
-    serve(runtime, operators, request, response).catch((cause) => {
+    serve(runtime, operators, request, response, externalSessionToken).catch((cause) => {
       runtime.services.logger.error("console request failed", {
         url: request.url,
         error: cause instanceof Error ? cause.message : String(cause),
@@ -126,7 +134,13 @@ export async function startConsole(runtime: Runtime): Promise<Result<ConsoleHand
  * `Response` back out. Everything the console decides lives in `router.ts`;
  * this file only knows how to speak to a socket.
  */
-async function serve(runtime: Runtime, operators: readonly Operator[], incoming: IncomingMessage, response: ServerResponse): Promise<void> {
+async function serve(
+  runtime: Runtime,
+  operators: readonly Operator[],
+  incoming: IncomingMessage,
+  response: ServerResponse,
+  externalSessionToken?: string,
+): Promise<void> {
   const url = new URL(incoming.url ?? "/", `http://${incoming.headers.host ?? "localhost"}`);
   const headers = new Headers();
   for (const [name, value] of Object.entries(incoming.headers)) {
@@ -146,7 +160,12 @@ async function serve(runtime: Runtime, operators: readonly Operator[], incoming:
     body = read.value;
   }
 
-  const result = await handleRequest(runtime, operators, new Request(url, { method, headers, ...(body === undefined ? {} : { body }) }));
+  const result = await handleRequest(
+    runtime,
+    operators,
+    new Request(url, { method, headers, ...(body === undefined ? {} : { body }) }),
+    externalSessionToken,
+  );
 
   const out: Record<string, string | string[]> = {};
   for (const [name, value] of result.headers) {

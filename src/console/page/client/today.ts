@@ -125,6 +125,7 @@ export const TODAY_SCRIPT = `function render() {
    */
   const portfolioCells = (row) => ({
     name: '<div class="acct-name">' + esc(row.name) + '</div><div class="acct-id">' + esc(row.ventureId) + "</div>" +
+      row.channels.map(channelBadgeHtml).join("") +
       (row.review
         ? '<div class="acct-review"><span class="chip warn">' + esc(T["accounts.review"]) +
           '</span><div class="muted">' + esc(row.review) + "</div></div>"

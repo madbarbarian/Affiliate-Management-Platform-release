@@ -310,6 +310,20 @@ test("the example a licensee edits carries the retry limit, with what it costs",
   assert.match(comment.slice(-400), /Cloudflare/, "nothing says a redeploy is needed there");
 });
 
+test("llm.externalSession defaults to disabled when the block is omitted entirely", () => {
+  const config = testConfig();
+  assert.equal(config.llm.externalSession.enabled, false);
+  assert.equal(config.llm.externalSession.tokenEnv, "AMP_EXTERNAL_SESSION_TOKEN");
+});
+
+test("llm.externalSession round-trips an explicit enabled: true and a custom tokenEnv", () => {
+  const config = testConfig({
+    llm: { ...BASE_CONFIG.llm, externalSession: { enabled: true, tokenEnv: "MY_CUSTOM_TOKEN_ENV" } },
+  });
+  assert.equal(config.llm.externalSession.enabled, true);
+  assert.equal(config.llm.externalSession.tokenEnv, "MY_CUSTOM_TOKEN_ENV");
+});
+
 test("the retry limit is refused with the fix in the message, not only the bound", async () => {
   // `.number({ min, max })` answers "must be at most 5, got 20", which names
   // the problem and not the repair. This is a number whose only effect is on

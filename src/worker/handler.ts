@@ -275,7 +275,19 @@ export function createWorker(bundle: Bundle): WorkerHandlers {
     }
 
     try {
-      return await handleRequest(runtime.value, operators, request);
+      // Phase 1a (docs/3-development/external-generation-design.md): only read
+      // from the binding when the config switch is on, the same reasoning as
+      // `readToken` above - a fork that never enables this never even looks.
+      const externalSessionConfig = runtime.value.config.llm.externalSession;
+      const externalSessionToken = externalSessionConfig.enabled ? env[externalSessionConfig.tokenEnv] : undefined;
+      return await handleRequest(
+        runtime.value,
+        operators,
+        request,
+        typeof externalSessionToken === "string" && externalSessionToken.trim() !== ""
+          ? externalSessionToken.trim()
+          : undefined,
+      );
     } finally {
       await runtime.value.close();
     }

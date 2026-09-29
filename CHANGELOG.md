@@ -10,6 +10,22 @@ seen from a licensee's config: a **major** release is one where an existing
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-09-28
+
+**設定は変わりません。更新するだけで反映されます。**
+
+### Added
+
+- **チャネルのバッジを、毎日見るトップの「アカウントの状態」欄と全アカウント表にも出すようにしました。**
+  前回のバッジは、ほぼ開かない2つの画面にしか出ていませんでした。
+- **Take Updates の Pull Request に、バージョンの変化がタイトルと本文に自動で入るようにしました。**
+  `Take updates from the platform (v0.13.2 → v0.13.3)` のように、PR を開かなくても分かります。
+- 🧪 **実験的・未サポート機能：`llm.externalSession`。** 既定はオフで、何もしなければ画面にも
+  動作にも一切現れません。オンにすると、ライセンシー自身の Claude Code の Routine を使って
+  下書きを作らせる仕組み（検証中）向けの、認証付きエンドポイントが有効になります。
+  予告なく変更・削除されることがあります。詳細:
+  `docs/3-development/external-generation-design.md`。
+
 ## [0.13.2] - 2026-09-27
 
 **設定は変わりません。更新するだけで反映されます。**画面の見た目の変更が2件です。

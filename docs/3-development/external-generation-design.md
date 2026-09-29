@@ -90,14 +90,152 @@ Item 1 is the same discipline as this platform's `context.llm.completeJson(...)`
 
 **But for now only the decision is placed.** Showing a switch that can be pressed on screen when there is no backend (endpoint, validation, the cycle's new waiting state) would recreate the "the screen lies" pattern we have been fixing all day today. It will be placed together with the backend when that is built.
 
+## Phasing (owner, 2026-09-27): prove it works before deciding whether to hand it to licensees
+
+**"まず機能として、ちゃんと動くかを私の環境で試し、ライセンシーに機能提供するかは、次の段階と考えてもいいです。"** ("First try it as a feature, in my own environment, to see whether it actually works — whether to offer it to licensees is a decision for the next stage.") Agreed: every open question below (the per-day launch limit, whether `text` meshes with a saved routine's own instructions, real latency, whether a full Claude Code session behaves as expected end to end) is answered only by running it, and the owner already has what running it needs — a Max-plan account, at a desktop, able to create a Routine right now. Building the licensee-facing half (the settings switch, the Free-plan messaging, a procedure document handed to someone else) before any of that is known would be spending effort on a shape nobody has confirmed works.
+
+**🔴 Scope boundary, so this is not misread later:** `docs/1-requirements/requirements.md` §3.1 ("the licensee has no terminal") governs the *licensee-facing* stage only. The owner acting as the platform's own developer, testing against their own deployment, is not that stage — nothing here is a plan to hand a terminal to a licensee. If phase 1's procedure is ever reused as a licensee's own setup step, that reuse is what has to satisfy §3.1, not this phase.
+
+### Phase 1a — prove the mechanical loop, not wired into the orchestrator's cycle yet
+
+The smallest thing that answers "does this work at all", built in the real codebase, in the real deployment (`amp-test`), off by default.
+
+1. **The owner creates their own Routine** (`claude.ai/code/routines`), with saved instructions telling it to read a small authenticated endpoint, do the job it describes, and POST back JSON in the schema it names. Adds an API trigger, gets the `routine_id` and a bearer token. Allows `amp-test`'s domain in the routine's own environment settings (the network-reach step E-10 already flagged as required).
+2. **Four routes in `src/console/router.ts`**, gated by a real, documented, off-by-default config field (see "🔴 Correction, 2026-09-28" below — this is where the design actually landed, after a detour). `GET` returns the pending job's prompt and JSON Schema; `POST` accepts the answer.
+3. **A standalone script**, run from the owner's own machine: creates one job, POSTs to the routine's `/fire` (no `text` needed — the routine's own instructions always fetch whichever job is currently pending, since phase 1a holds exactly one), polls `amp-test` for the answer, validates it against `src/llm/validate.ts`, prints pass or fail. Not wired into the cycle/orchestrator yet — that is phase 1b.
+
+This alone proves or disproves the mechanism: push → the owner's own Claude Code session wakes, reads the job, does it, writes back → the platform sees a schema-valid answer, inside whatever time the retry budget allows.
+
+### Phase 1a: the owner's Routine setup procedure
+
+Read directly (grade P, fetched 2026-09-28) from https://code.claude.com/docs/en/routines and https://code.claude.com/docs/en/cloud-environments. Two facts here were not known when the design above was written, and change the procedure:
+
+- **A routine needs at least one GitHub repository selected** ("Select repositories: Add one or more GitHub repositories for Claude to work in. Each repository is cloned at the start of a run"). The repository is never used by this harness's own instructions — any repository the account can access satisfies the form.
+- **Claude Code has a purpose-built mechanism for exactly this platform's own secret, better than an environment variable: "API credentials"** (Pro/Max plans only — confirmed available on this plan). A credential is a header value Anthropic's own agent proxy attaches to outbound requests whose host matches, *after* the request leaves the session's VM — "the key never reaches Claude, the commands it runs, or the session's environment variables." This is a stronger property than a plain environment variable (which the docs say is "visible to anyone who uses the environment"), so `AMP_EXTERNAL_SESSION_TOKEN`'s value goes here, not into the instructions text or a plain environment variable. A side effect, also confirmed: a host listed on a credential is reachable even under **Trusted** network access, without editing **Allowed domains** separately.
+
+**Procedure:**
+
+1. `claude.ai/code/routines` → **New routine**.
+2. **Name**: anything descriptive.
+3. **Instructions** (the saved prompt — see the exact text below).
+4. **Select repositories**: any one repository.
+5. **Select an environment**: **Default**, for now — it has to already exist before step 8 can add a credential to it (see the docs quote: "You add credentials one at a time from the editor of an environment that already exists. The dialog for a new environment doesn't offer them.").
+6. **Select a trigger**: **API**. Not Schedule, not GitHub event.
+7. **Connectors**: remove every one that's included by default. This harness's whole discipline is "talk to nothing but the one endpoint," and a routine can use every tool of every included connector, unsupervised, during a run.
+8. **Behaviour**, **Notification**: 🔴 **not found in the fetched documentation under these names.** Left unconfirmed rather than guessed — read whatever the live form actually offers before deciding, and update this section once confirmed.
+9. **Create**.
+10. 🔴 **Correction, 2026-09-28 (twice): step 10 works after all — see E-25.** First attempt: the documented path showed no **API credentials** section, on a personal Max account, editing an already-created environment — every documented precondition met. Recorded as an open discrepancy and worked around with a plain Environment variable instead. **Second attempt, same day: the section was there** — it appears inside the **Update cloud environment** dialog reached via the routine's own edit screen (routine → **Edit** → the cloud-icon environment selector below **Instructions** → hover the environment → the settings icon on the right), not from a more general environment-management page. The first attempt had not reached that specific dialog. **E-25 is downgraded from "feature gap" to "findability issue"; the fix is the navigation path, not a fallback.** Use **API credentials**, as originally planned: **Add credential** → Credential type **Bearer** (default), Name anything, **Allowed websites** `amp-test.madbarbarian.workers.dev`, **Custom headers** one row (Name `Authorization`, Prefix `Bearer`, Value = `AMP_EXTERNAL_SESSION_TOKEN`'s actual value — the same string set as the Cloudflare secret on `amp-test`) → **Connect**. Remove the plain Environment variable if it was added during the first attempt — the credential supersedes it and is never visible to the session.
+11. Still in **Edit** → **Select a trigger** → **Add another trigger** → **API** → copy the URL, **Generate token**, copy the token immediately (shown once). This token is **not** the same secret as step 10 — it is what the platform uses to wake the routine (`POST .../fire`), the opposite direction from `AMP_EXTERNAL_SESSION_TOKEN` (what the routine uses to call the platform).
+
+**The Instructions text** (English — design documents are English-first; the routine's own tool use, `curl`, is language-agnostic either way):
+
+```
+Do only the following. Do not modify anything in the repository and do not use any tool other than the two commands below.
+
+1. Fetch the pending job:
+   curl -s https://amp-test.madbarbarian.workers.dev/api/external-session/job
+   (Do not add an Authorization header yourself — it is attached automatically.)
+
+2. If the response is 404, there is no job to do. Stop here and do nothing else.
+
+3. If the response is 200, carry out the instruction in its "prompt" field, and
+   produce JSON that matches its "schema" field exactly (no extra fields beyond
+   what the schema allows).
+
+4. Post your answer back (<id> is the job id from step 1, <value> is the JSON
+   from step 3):
+   curl -s -X POST https://amp-test.madbarbarian.workers.dev/api/external-session/job/result \
+     -H "Content-Type: application/json" \
+     -d '{"id": "<id>", "value": <value>}'
+
+5. If the status code is 422, read the "issues" field, fix the JSON to match
+   the schema, and POST again. If it is 200, you are done — do nothing further.
+```
+
+**Environment-variable fallback version** (kept in case API credentials is ever genuinely unavailable — e.g. a Team/Enterprise plan, per E-24 — not needed on a personal Pro/Max account):
+
+```
+Do only the following. Do not modify anything in the repository and do not use any tool other than the two commands below.
+
+1. Fetch the pending job:
+   curl -s -H "Authorization: Bearer $AMP_EXTERNAL_SESSION_TOKEN" https://amp-test.madbarbarian.workers.dev/api/external-session/job
+
+2. If the response is 404, there is no job to do. Stop here and do nothing else.
+
+3. If the response is 200, carry out the instruction in its "prompt" field, and
+   produce JSON that matches its "schema" field exactly (no extra fields beyond
+   what the schema allows).
+
+4. Post your answer back (<id> is the job id from step 1, <value> is the JSON
+   from step 3):
+   curl -s -X POST -H "Authorization: Bearer $AMP_EXTERNAL_SESSION_TOKEN" \
+     -H "Content-Type: application/json" \
+     https://amp-test.madbarbarian.workers.dev/api/external-session/job/result \
+     -d '{"id": "<id>", "value": <value>}'
+
+5. If the status code is 422, read the "issues" field, fix the JSON to match
+   the schema, and POST again. If it is 200, you are done — do nothing further.
+```
+
+### 🔴 Design review, 2026-09-27: the first shape crossed a line and was sent back
+
+A full design (endpoints in `src/console/router.ts`, sharing `StateStore`/`src/storage/sql-state.ts`, a `src/llm/validate.ts` validator, the on/off token read as a bare `AMP_EXTERNAL_SESSION_TOKEN` env var with no config field) was produced by one agent, then reviewed by two independent agents. Reviewer 1 (validator/storage correctness) approved with four must-fix items (kept — see below). Reviewer 2 (auth design and scope discipline) **sent the routing half back for rework**, on this finding:
+
+> `src/console/router.ts` is the file every licensee's own fork runs, and it is wholesale inside `scripts/make-release.ts`'s `INCLUDE` list. Putting these four routes there, gated only by an env var invisible to `platform.config.yaml`'s schema, means **the code ships to every licensee's fork the moment this merges and releases**, discoverable only by reading the open-source router — "not licensee-facing" was true of the operator's *intent*, not of what the merge would have shipped.
+
+**First resolution (superseded the next day — see the 2026-09-28 correction just below): move the harness entirely outside `src/`, into a separate, unshipped top-level directory and a second Cloudflare Worker.** This was overcorrection, and it did not survive the owner's own review of it.
+
+### 🔴 Correction, 2026-09-28: the separate-Worker resolution was itself wrong, and was undone
+
+The owner's objection, in their own words: *"変な仕組みを作って開発者の私だけの機能を作ると言うよりは、将来的には大勢が使う可能性もあるわけなんだから、あるべき設計をやった上で、どこかに蓋をして送ってこれから正しいんじゃないの？"* ("Rather than building a strange mechanism that makes this a feature for me the developer alone — since it might be used by many people eventually — isn't it right to do the proper design, then cap it off somewhere, and ship from there?")
+
+Re-examined, this is correct, and the separate-Worker plan (committed to `main` the day before as `owner-only/external-session-harness/`, now removed) was the wrong fix for a real problem:
+
+- **What reviewer 2 actually found fault with was never "this code lives in `router.ts`."** It was specifically that the on/off switch was a *bare environment variable with no config-schema presence* — invisible to `platform.config.example.yaml`, undocumented, discoverable only by reading source. That is a real gap. It is not a gap that required moving the feature out of the shared codebase to close.
+- **The blast radius reviewer 2's finding actually describes is single-tenant, not cross-tenant.** Each licensee's deployment is their own isolated Worker and D1 database. A licensee who discovers and enables this uses *their own* Claude Code Routine and *their own* bearer token to answer jobs on *their own* deployment. There is no path from this feature to another licensee's data or to the platform's own infrastructure. The actual risk was never "a security breach"; it was "an unreviewed, unlabelled capability existing in shipped code" — the same shape of gap `CLAUDE.md`'s own recorded precedent describes, and the fix for *that* is to make it reviewed and labelled, not to hide it in a deployment nobody else has.
+- **A separate Worker is throwaway architecture for something phase 1b explicitly intends to become real** (`llm.provider: external-session`). Building it twice — once as a disposable harness, once "for real" in phase 1b — is exactly the "変な仕組み" (strange, contorted mechanism) the owner objected to, and phase 1a's own harness would have been discarded rather than becoming phase 1b's foundation.
+
+**The actual fix: move the on/off switch and the token's env-var name into `platform.config.yaml`'s schema, the same pattern `channels[].credentialEnv`/`networks[].credentialEnv`/`company.exploration.enabled` already use** — a real, documented, schema-validated field, defaulting to off, shown (commented out, labelled experimental and unsupported) in `platform.config.example.yaml`, the same way `company.exploration.enabled: false` is real, shipped, and off by default. This is a deliberate, documented product decision to build the mechanism but not yet support or advertise it — not a hidden backdoor, and not a second deployment:
+
+```yaml
+llm:
+  provider: anthropic       # anthropic | mock
+  # ...
+  # 🧪 実験的・未サポート機能。予告なく変更・削除されることがあります。
+  # フェーズ1a（docs/3-development/external-generation-design.md）の検証専用。
+  externalSession:
+    enabled: false
+    tokenEnv: AMP_EXTERNAL_SESSION_TOKEN
+```
+
+`owner-only/external-session-harness/` (the directory, the separate Worker, the Durable Object, the `test/release.test.ts` case asserting it never ships) is removed. The four routes, the validator, and the job-storage module all live in the shared codebase as originally designed on 2026-09-27, with reviewer 1's and reviewer 2's *other* findings still binding:
+
+- **Reviewer 1's four must-fix items for `validate.ts`**: never let `JSON.stringify` throw inside a truncated-value preview (circular references, `BigInt`) — wrap it; guard every recursion entry against the schema fragment itself being `null` or non-an-object, not only the top-level call; pin the path-string convention explicitly (root is `"$"`, a property is `$.name`, an array index is `$.items[0]`) before implementation; add a real round-trip test proving the `sql-state.ts` fix works for a third key, not only "old tests still pass".
+- **Reviewer 2's job-identity finding**: `POST /job` must refuse (409), not silently replace, when an unanswered job already exists, and `GET /job/result`'s "done" response must echo the job's own id and `createdAt` — closing the misattribution where a slow answer to job N arrives after job N+1 already exists, and a poller can't tell which job its "done" answer belongs to.
+- **Reviewer 2's auth-mechanism finding stands** (`safeEqual`, dispatched before `identify()`, its own bearer secret) — only the *discoverability* of the on/off switch was wrong, not the token-check mechanism itself.
+
+### Phase 1b — wire it into a real `llm.provider`, still owner-only
+
+Only once 1a has run for real: turn the harness into `llm.provider: external-session`, a real adapter the orchestrator can select, still gated by a config value only the owner sets on their own deployment. This is where the asynchronous shape (push a job, wait for a callback, possibly across the retry budget in `cycle.retry_abandoned`) has to be designed properly against the orchestrator's own persistence model — deferred until 1a says the mechanism itself is worth that design cost.
+
+### Phase 2 — decide whether to offer it to licensees at all
+
+Not started, and not decided. Only after 1a and 1b have run for real does it become a real question rather than a guess: the settings-screen switch, Free-plan messaging, and a procedure document written for someone who is not the platform's own developer.
+
+## Phase 1a status: implemented, off by default, not yet released
+
+**Done (2026-09-28), reviewed and merged:** `llm.externalSession` in `platform.config.yaml`'s schema (`enabled`, `tokenEnv`, defaulting to off); the four job routes in `src/console/router.ts`; `src/llm/validate.ts`; the `sql-state.ts` key-list fix; `src/kernel/external-session.ts`. Two independent design reviews, a parent-level correction between them (see above), and the parent's own re-run of the resulting tests and `mutate.ts` proofs — recorded in `decisions.md`.
+
+**Still to do before this proves anything real:**
+- The owner creates their own Routine and runs the standalone script against a real deployment with `llm.externalSession.enabled: true` set.
+- Measuring the per-day launch limit — one of the things this exists to find out, not yet known.
+- Whether the information passed in the routine's saved instructions actually meshes with what `text` carries at fire time — also unverified until run for real.
+
 ## Not doing yet
 
-- Implementing `llm.provider: external-session`
-- The endpoint (read and write) API
-- The cycle's new waiting state
-- The settings-screen switch
-- A template of the routine instructions to hand to licensees
-- Measuring the per-day launch limit
+- `llm.provider: external-session` itself, and wiring an answer into the orchestrator's cycle (phase 1b — deferred until phase 1a has run for real)
+- The settings-screen switch (phase 2)
+- A template of the routine instructions to hand to licensees (phase 2 — phase 1a's instructions are the owner's own, not licensee-facing)
 
 ---
 

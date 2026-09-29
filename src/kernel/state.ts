@@ -28,6 +28,8 @@ import { writeFileAtomic } from "../storage/atomic.ts";
 /** The slot names. Each is one file, or one row. */
 export const PAUSE_KEY = "paused";
 export const VENTURE_STATE_KEY = "venture-state";
+/** Phase 1a's external-session job. See docs/3-development/external-generation-design.md. */
+export const EXTERNAL_SESSION_JOB_KEY = "external-session-job";
 
 export type StateSlot =
   /** Nothing has ever been written here. Not an error. */

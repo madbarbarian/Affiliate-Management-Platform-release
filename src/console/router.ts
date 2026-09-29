@@ -51,9 +51,21 @@ import { companyTimezone, createWhen, type When } from "./when.ts";
 import { checkForUpdate } from "./updates.ts";
 import { isVentureActive, readVentureState } from "../kernel/venture-state.ts";
 import { readUnlockSubmission, renderUnlock, UNLOCK_MISMATCH, UNLOCK_PATH } from "./unlock.ts";
+import { readExternalSessionJob, writeExternalSessionJob, type ExternalSessionJob } from "../kernel/external-session.ts";
+import { validate } from "../llm/validate.ts";
+import type { JsonSchema } from "../llm/schema.ts";
 
 export const COOKIE_NAME = "amp_console";
 export const MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Phase 1a's job routes (`docs/3-development/external-generation-design.md`),
+ * under one prefix so their gate and their place in `handleRequest` are easy
+ * to find together. Not part of `UNLOCK_PATH`'s or `identify()`'s credential
+ * scheme - see `externalSessionGate`.
+ */
+export const EXTERNAL_SESSION_JOB_PATH = "/api/external-session/job";
+export const EXTERNAL_SESSION_RESULT_PATH = "/api/external-session/job/result";
 
 /**
  * The session a valid passphrase buys, written once.
@@ -170,6 +182,7 @@ export async function handleRequest(
   runtime: Runtime,
   operators: readonly Operator[],
   request: Request,
+  externalSessionToken?: string,
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -183,6 +196,29 @@ export async function handleRequest(
 
   // The redirect is public by design - it is the link in the posts.
   if (path.startsWith(REDIRECT_PATH)) return handleRedirect(runtime.services, url, request);
+
+  // Phase 1a's job routes. Their own bearer secret, checked before anything
+  // else - including which method was used - so "not configured" and "route
+  // doesn't exist" read the same (`externalSessionGate`). Placed alongside
+  // REDIRECT_PATH and UNLOCK_PATH, both dispatched before `identify()`: none of
+  // these three use the operator passphrase scheme at all.
+  if (path === EXTERNAL_SESSION_JOB_PATH || path === EXTERNAL_SESSION_RESULT_PATH) {
+    const gate = externalSessionGate(runtime, request, externalSessionToken);
+    if (!gate.ok) return gate.response;
+    if (path === EXTERNAL_SESSION_JOB_PATH && request.method === "POST") {
+      return handleExternalSessionCreateJob(runtime, request);
+    }
+    if (path === EXTERNAL_SESSION_JOB_PATH && request.method === "GET") {
+      return handleExternalSessionGetJob(runtime);
+    }
+    if (path === EXTERNAL_SESSION_RESULT_PATH && request.method === "POST") {
+      return handleExternalSessionPostResult(runtime, request);
+    }
+    if (path === EXTERNAL_SESSION_RESULT_PATH && request.method === "GET") {
+      return handleExternalSessionGetResult(runtime);
+    }
+    return json(404, { error: "not found" });
+  }
 
   // The passphrase, typed. Before the gate, because this is how you get through
   // it: everything else here needs a credential, and this route is where one is
@@ -905,6 +941,7 @@ async function buildState(runtime: Runtime): Promise<Record<string, unknown>> {
       rows: portfolio.rows.map((row) => ({
         ventureId: row.ventureId,
         name: row.name,
+        channels: row.channels,
         state: row.stopped ? "stopped" : row.deactivated ? "deactivated" : row.active ? "active" : "inactive",
         ...(row.deactivated ? { deactivated: row.deactivated } : {}),
         ...(row.review ? { review: row.review } : {}),
@@ -1670,6 +1707,117 @@ function buildPreview(detail: Readonly<Record<string, unknown>>, T: Messages): s
     }
   }
   return lines.join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1a: the external-session job routes
+// ---------------------------------------------------------------------------
+
+/**
+ * Both gates required, checked before anything else about the request -
+ * including which method was used. `enabled === false` (the shipped default)
+ * and "no token resolved" both answer 404, matching this file's own
+ * console-token precedent: a route that is not configured and a route that
+ * does not exist must read the same to anyone probing from outside. Only once
+ * both are true does a wrong or missing bearer answer 401.
+ */
+function externalSessionGate(
+  runtime: Runtime,
+  request: Request,
+  resolvedToken: string | undefined,
+): { readonly ok: true } | { readonly ok: false; readonly response: Response } {
+  if (runtime.config.llm.externalSession.enabled !== true || !resolvedToken) {
+    return { ok: false, response: json(404, { error: "not found" }) };
+  }
+  const header = request.headers.get("authorization");
+  const presented = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+  if (presented === undefined || presented === "" || !safeEqual(presented, resolvedToken)) {
+    return { ok: false, response: json(401, { error: "unauthorised" }) };
+  }
+  return { ok: true };
+}
+
+/** A non-null, non-array object - a schema or an answer has to be this shape to even be considered. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `POST /api/external-session/job`: the owner creates the pending job. Refuses
+ * (409) rather than replacing an unanswered one - a slow answer to an old job
+ * must never be mistaken for an answer to a new one (design review finding,
+ * 2026-09-28).
+ */
+async function handleExternalSessionCreateJob(runtime: Runtime, request: Request): Promise<Response> {
+  const body = await readJson(request);
+  if (!body.ok) return errorJson(400, body.error);
+  const payload = body.value as { prompt?: unknown; schema?: unknown };
+  const prompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
+  if (prompt === "") return json(400, { error: "prompt is required and must be a non-empty string." });
+  if (!isPlainRecord(payload.schema)) return json(400, { error: "schema is required and must be an object." });
+
+  const existing = readExternalSessionJob(runtime.state);
+  if (existing && existing.result === undefined) {
+    return json(409, { error: "an unanswered job already exists.", id: existing.id });
+  }
+
+  const job: ExternalSessionJob = {
+    id: runtime.services.ids.next("extjob"),
+    prompt,
+    schema: payload.schema as JsonSchema,
+    createdAt: runtime.services.clock.nowIso(),
+  };
+  await writeExternalSessionJob(runtime.state, job);
+  return json(201, { id: job.id, prompt: job.prompt, schema: job.schema, createdAt: job.createdAt });
+}
+
+/** `GET /api/external-session/job`: the routine fetches the pending job. */
+function handleExternalSessionGetJob(runtime: Runtime): Response {
+  const job = readExternalSessionJob(runtime.state);
+  if (!job || job.result !== undefined) return json(404, { error: "not found" });
+  return json(200, { id: job.id, prompt: job.prompt, schema: job.schema, createdAt: job.createdAt });
+}
+
+/**
+ * `POST /api/external-session/job/result`: the routine posts its answer.
+ * Validated against the job's own schema with `src/llm/validate.ts` - the same
+ * check a model's structured output already gets, regardless of provenance.
+ */
+async function handleExternalSessionPostResult(runtime: Runtime, request: Request): Promise<Response> {
+  const body = await readJson(request);
+  if (!body.ok) return errorJson(400, body.error);
+  const payload = body.value as { id?: unknown; value?: unknown };
+  const id = typeof payload.id === "string" ? payload.id : "";
+  if (id === "") return json(400, { error: "id is required." });
+
+  const job = readExternalSessionJob(runtime.state);
+  if (!job) return json(404, { error: "not found" });
+  if (job.id !== id || job.result !== undefined) {
+    return json(409, { error: "no matching unanswered job." });
+  }
+
+  const outcome = validate(job.schema as JsonSchema, payload.value);
+  if (!outcome.ok) return json(422, { error: "the answer does not match the job's schema.", issues: outcome.issues });
+
+  const answered: ExternalSessionJob = {
+    ...job,
+    result: { receivedAt: runtime.services.clock.nowIso(), value: payload.value },
+  };
+  await writeExternalSessionJob(runtime.state, answered);
+  return json(200, { id: job.id, status: "done" });
+}
+
+/**
+ * `GET /api/external-session/job/result`: the owner's poller. Echoes the
+ * job's own `id` and its answer's `receivedAt` on a "done" reply so a poller
+ * that outlives one job can tell which job the answer belongs to (design
+ * review finding, 2026-09-28).
+ */
+function handleExternalSessionGetResult(runtime: Runtime): Response {
+  const job = readExternalSessionJob(runtime.state);
+  if (!job) return json(404, { error: "not found" });
+  if (job.result === undefined) return json(200, { id: job.id, status: "pending" });
+  return json(200, { id: job.id, status: "done", result: job.result.value, receivedAt: job.result.receivedAt });
 }
 
 // ---------------------------------------------------------------------------

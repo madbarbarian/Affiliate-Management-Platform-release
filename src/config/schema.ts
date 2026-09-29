@@ -46,6 +46,19 @@ export type Autonomy = "manual" | "assisted" | "auto";
  */
 export type LlmEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
+/**
+ * Phase 1a of `docs/3-development/external-generation-design.md`: a real,
+ * shipped, off-by-default config block, not a hidden env var. Enabling it
+ * turns on the four job routes in `src/console/router.ts` on *this*
+ * deployment only - it does not add `external-session` as an `llm.provider`
+ * (that is phase 1b) and it does not touch anyone else's fork or data.
+ */
+export type ExternalSessionConfig = {
+  readonly enabled: boolean;
+  /** Env var holding the bearer token the job routes require. Never a literal secret. */
+  readonly tokenEnv: string;
+};
+
 export type LlmConfig = {
   readonly provider: "anthropic" | "mock";
   /** Model for judgement-heavy roles: research, planning, inspection. */
@@ -62,6 +75,7 @@ export type LlmConfig = {
   /** Retries per call for retryable failures (429/5xx/connection). */
   readonly maxRetries: number;
   readonly requestTimeoutMs: number;
+  readonly externalSession: ExternalSessionConfig;
 };
 
 /**
@@ -467,6 +481,7 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
 
   const llmRaw = at("llm", get(raw, "llm")).object();
   const model = at("llm.model", llmRaw["model"]).string("claude-opus-5");
+  const externalSessionRaw = at("llm.externalSession", llmRaw["externalSession"]).object();
   const llm: LlmConfig = {
     provider: at("llm.provider", llmRaw["provider"]).oneOf(["anthropic", "mock"] as const, "anthropic"),
     model,
@@ -497,6 +512,12 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
       integer: true,
       fallback: 120_000,
     }),
+    externalSession: {
+      enabled: at("llm.externalSession.enabled", externalSessionRaw["enabled"]).boolean(false),
+      tokenEnv: at("llm.externalSession.tokenEnv", externalSessionRaw["tokenEnv"]).string(
+        "AMP_EXTERNAL_SESSION_TOKEN",
+      ),
+    },
   };
 
   const consoleRaw = at("console", get(raw, "console")).object();

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { fileState, memoryState, PAUSE_KEY, VENTURE_STATE_KEY, type StateStore } from "../src/kernel/state.ts";
+import { EXTERNAL_SESSION_JOB_KEY, fileState, memoryState, PAUSE_KEY, VENTURE_STATE_KEY, type StateStore } from "../src/kernel/state.ts";
 import { applyPause, isPaused, readPause } from "../src/kernel/pause.ts";
 import { readVentureState } from "../src/kernel/venture-state.ts";
 import { createSqlState } from "../src/storage/sql-state.ts";
@@ -88,6 +88,31 @@ test("a SQL-backed state store reports a stop until it has actually been read", 
   await later.refresh?.();
   const stop = readPause(later);
   assert.equal(stop.all?.reason, "hands off");
+  await driver.close?.();
+});
+
+// The bug this guards: `SELECT key, json FROM state WHERE key IN (?, ?)` had
+// its placeholder count hardcoded to two, tied to KEYS.length on the day it
+// was written rather than derived from it. A third key (EXTERNAL_SESSION_JOB_KEY)
+// silently never came back from `refresh()` - `write()` still stored it fine,
+// so the failure only showed up on the *next* invocation's read, which on a
+// Worker is a different request than the one that wrote it.
+test("a third key written by one invocation is visible to refresh() in a later one, against the same driver", async () => {
+  const driver = createSqliteDriver({ filename: ":memory:" });
+  await migrate(driver);
+
+  const writer = createSqlState(driver);
+  await writer.refresh?.();
+  await writer.write(EXTERNAL_SESSION_JOB_KEY, '{"id":"extjob_1"}');
+
+  // A fresh instance, the way a later cron fire or a later Worker request
+  // would build one - never the same in-memory object as `writer`.
+  const reader = createSqlState(driver);
+  await reader.refresh?.();
+  const slot = reader.read(EXTERNAL_SESSION_JOB_KEY);
+  assert.equal(slot.kind, "text");
+  assert.equal(slot.kind === "text" ? slot.text : "", '{"id":"extjob_1"}');
+
   await driver.close?.();
 });
 

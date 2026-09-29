@@ -104,6 +104,7 @@ function renderStatusRow(row) {
   return '<a class="status-row" href="#/ventures/' + encodeURIComponent(row.ventureId) + '">' +
     '<div class="status-row-top">' +
       '<span class="status-name">' + esc(row.name) + "</span>" +
+      row.channels.map(channelBadgeHtml).join("") +
       '<span class="status-facts">' + facts + "</span>" +
     "</div>" +
     (failed ? failureCell(row.lastCycle.failureCode) : "") +
