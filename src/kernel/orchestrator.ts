@@ -14,7 +14,7 @@
  */
 
 import { localDate } from "../core/clock.ts";
-import { describeError, fail, ok, type PlatformError, type Result } from "../core/result.ts";
+import { abortsRun, describeError, fail, ok, type Err, type PlatformError, type Result } from "../core/result.ts";
 import type {
   AuditEvent,
   Cycle,
@@ -486,6 +486,15 @@ export function createOrchestrator(services: Services): Orchestrator {
           if (!idea) continue;
           const result = await writer.run(await context(writer.id), { idea });
           if (!result.ok) {
+            // The provider says no later call in this run can succeed (a spent
+            // wait budget, a routine that did not answer). Skipping this idea
+            // would only spend the same failure on the next one and end the day
+            // with the rest dropped, so the step stops here and the scheduler
+            // resumes it. The cost - the drafts already written become orphans -
+            // is stated in the phase 1b plan, Task 6, and pinned by a test.
+            if (abortsRun(result.error)) {
+              return stoppedByProvider(result.error, `${draftIds.length} of ${approved.length} drafts written`);
+            }
             // One idea failing should not cost the others their day.
             logger.warn("draft failed", { ideaId, error: result.error.message });
             draftFailures.push(`${idea.title}: ${result.error.message}`);
@@ -507,7 +516,9 @@ export function createOrchestrator(services: Services): Orchestrator {
             { retryable: true, details: { failures: draftFailures } },
           );
         }
-        return ok({ kind: "advance", note: `${draftIds.length} drafts written`, artifacts: { write: { draftIds } } });
+        // Always said, even at zero: a partial loss must never be silent.
+        const writeTally = `${draftFailures.length} of ${approved.length} failed`;
+        return ok({ kind: "advance", note: `${draftIds.length} drafts written (${writeTally})`, artifacts: { write: { draftIds } } });
       }
 
       case "inspect": {
@@ -526,6 +537,13 @@ export function createOrchestrator(services: Services): Orchestrator {
           if (!draft) continue;
           const result = await inspector.run(await context(inspector.id), { draft });
           if (!result.ok) {
+            // Same rule as `write`: a provider that has ended the run stops the
+            // step so it resumes here, instead of reporting every remaining
+            // draft as "could not be inspected" and finishing the day short.
+            // Re-running this step is safe (the phase 1b plan, Task 6).
+            if (abortsRun(result.error)) {
+              return stoppedByProvider(result.error, `${reports.length} of ${draftIds.length} drafts inspected`);
+            }
             logger.warn("inspection failed", { draftId, error: result.error.message });
             rejected.push(draftId);
             uninspected.push(`${draftId}: ${result.error.message}`);
@@ -535,20 +553,22 @@ export function createOrchestrator(services: Services): Orchestrator {
           if (!result.value.passed) rejected.push(draftId);
         }
         const passed = reports.filter((report) => report.passed).length;
+        // Always said, even at zero: a partial loss must never be silent.
+        const inspectTally = `${uninspected.length} of ${draftIds.length} failed`;
         if (passed === 0) {
           return ok({
             kind: "finish",
             note:
-              uninspected.length > 0
+              (uninspected.length > 0
                 ? `Nothing publishes today. ${rejected.length - uninspected.length} blocked at inspection, ` +
                   `${uninspected.length} could not be inspected — ${uninspected.join(" / ")}`
-                : `Every draft was blocked at inspection (${rejected.length}). Nothing publishes today.`,
+                : `Every draft was blocked at inspection (${rejected.length}). Nothing publishes today.`) + ` (${inspectTally})`,
             artifacts: { inspect: { reports, rejectedDraftIds: rejected } },
           });
         }
         return ok({
           kind: "advance",
-          note: `${passed} of ${reports.length} drafts cleared inspection`,
+          note: `${passed} of ${reports.length} drafts cleared inspection (${inspectTally})`,
           artifacts: { inspect: { reports, rejectedDraftIds: rejected } },
         });
       }
@@ -1339,6 +1359,19 @@ export function createOrchestrator(services: Services): Orchestrator {
 export function stepAfter(step: CycleStep): CycleStep | undefined {
   const index = STEP_ORDER.indexOf(step);
   return index === -1 ? undefined : STEP_ORDER[index + 1];
+}
+
+/**
+ * The step's failure when a provider has ended the run. Keeps the provider's own
+ * code and details (the console has words for the code) and says how far the
+ * step got; always retryable, because the provider's whole point in setting
+ * `abortsRun` is that a later run can succeed.
+ */
+function stoppedByProvider(error: PlatformError, progress: string): Err<PlatformError> {
+  return fail(error.kind, error.code, `${progress} before the provider ended the run. ${error.message}`, {
+    retryable: true,
+    ...(error.details ? { details: { ...error.details } } : {}),
+  });
 }
 
 function errorText(cause: unknown): string {

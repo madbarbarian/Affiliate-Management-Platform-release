@@ -46,3 +46,6 @@ wrangler.generated.jsonc
 
 # Output of the release tests. Never committed.
 release-test-output/
+
+# Working notes of the development sessions (plans, briefs, reports). Never shipped, never committed.
+.superpowers/

@@ -174,6 +174,23 @@ export function refusingProvider(refusals: Record<string, string>): MockProvider
   };
 }
 
+/**
+ * A `fixedClock` whose `sleep` advances time by the amount slept.
+ *
+ * `fixedClock.sleep` is a no-op, so a deadline loop that sleeps and re-checks
+ * `clock.now()` never ends on it. Opt-in, not a change to `fixedClock`: every
+ * existing test leans on time standing still while it sleeps.
+ */
+export function advancingClock(startIso: string): ReturnType<typeof fixedClock> {
+  const base = fixedClock(startIso);
+  return {
+    ...base,
+    sleep: async (ms: number) => {
+      base.advance(ms);
+    },
+  };
+}
+
 export type TestCompany = {
   readonly services: Services;
   readonly orchestrator: Orchestrator;

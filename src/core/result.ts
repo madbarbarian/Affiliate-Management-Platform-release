@@ -30,6 +30,14 @@ export type PlatformError = {
   readonly code: string;
   /** True when the same call has a realistic chance of succeeding later. */
   readonly retryable: boolean;
+  /**
+   * Set by a source that has decided no further call in this run can succeed (a
+   * spent wait budget, a routine that did not answer). A caller that loops over
+   * independent items stops the loop on it - see `abortsRun` below - instead of
+   * skipping the item and trying the next, which would spend the same failure
+   * again. Absent means "this one call failed; the others may not".
+   */
+  readonly abortsRun?: boolean;
   readonly details?: Readonly<Record<string, unknown>>;
   readonly cause?: unknown;
 };
@@ -46,13 +54,14 @@ export function fail(
   kind: ErrorKind,
   code: string,
   message: string,
-  options: { retryable?: boolean; details?: Record<string, unknown>; cause?: unknown } = {},
+  options: { retryable?: boolean; abortsRun?: boolean; details?: Record<string, unknown>; cause?: unknown } = {},
 ): Err<PlatformError> {
   return err({
     kind,
     code,
     message,
     retryable: options.retryable ?? false,
+    ...(options.abortsRun ? { abortsRun: true } : {}),
     ...(options.details ? { details: options.details } : {}),
     ...(options.cause !== undefined ? { cause: options.cause } : {}),
   });
@@ -64,6 +73,15 @@ export function isOk<T, E>(result: Result<T, E>): result is Ok<T> {
 
 export function isErr<T, E>(result: Result<T, E>): result is Err<E> {
   return !result.ok;
+}
+
+/**
+ * True when a failure says the rest of the run cannot succeed either. Requires
+ * `retryable`: an error that will not clear itself is not a reason to stop
+ * and resume later, it is a reason to fail the step for good.
+ */
+export function abortsRun(error: PlatformError): boolean {
+  return error.retryable && error.abortsRun === true;
 }
 
 /** Unwraps a Result, throwing on failure. Only for tests and CLI top level. */

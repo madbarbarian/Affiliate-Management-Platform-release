@@ -51,7 +51,7 @@ import { companyTimezone, createWhen, type When } from "./when.ts";
 import { checkForUpdate } from "./updates.ts";
 import { isVentureActive, readVentureState } from "../kernel/venture-state.ts";
 import { readUnlockSubmission, renderUnlock, UNLOCK_MISMATCH, UNLOCK_PATH } from "./unlock.ts";
-import { readExternalSessionJob, writeExternalSessionJob, type ExternalSessionJob } from "../kernel/external-session.ts";
+import { isLiveJob, readExternalSessionJob, writeExternalSessionJob, type ExternalSessionJob } from "../kernel/external-session.ts";
 import { validate } from "../llm/validate.ts";
 import type { JsonSchema } from "../llm/schema.ts";
 
@@ -1757,7 +1757,7 @@ async function handleExternalSessionCreateJob(runtime: Runtime, request: Request
   if (!isPlainRecord(payload.schema)) return json(400, { error: "schema is required and must be an object." });
 
   const existing = readExternalSessionJob(runtime.state);
-  if (existing && existing.result === undefined) {
+  if (existing && isLiveJob(existing)) {
     return json(409, { error: "an unanswered job already exists.", id: existing.id });
   }
 
@@ -1774,7 +1774,7 @@ async function handleExternalSessionCreateJob(runtime: Runtime, request: Request
 /** `GET /api/external-session/job`: the routine fetches the pending job. */
 function handleExternalSessionGetJob(runtime: Runtime): Response {
   const job = readExternalSessionJob(runtime.state);
-  if (!job || job.result !== undefined) return json(404, { error: "not found" });
+  if (!job || !isLiveJob(job)) return json(404, { error: "not found" });
   return json(200, { id: job.id, prompt: job.prompt, schema: job.schema, createdAt: job.createdAt });
 }
 
@@ -1792,7 +1792,9 @@ async function handleExternalSessionPostResult(runtime: Runtime, request: Reques
 
   const job = readExternalSessionJob(runtime.state);
   if (!job) return json(404, { error: "not found" });
-  if (job.id !== id || job.result !== undefined) {
+  // A discarded job answers 409 exactly like a replaced one: the platform gave
+  // up on it, and a late answer must not land where a later job may be written.
+  if (job.id !== id || !isLiveJob(job)) {
     return json(409, { error: "no matching unanswered job." });
   }
 
@@ -1816,6 +1818,7 @@ async function handleExternalSessionPostResult(runtime: Runtime, request: Reques
 function handleExternalSessionGetResult(runtime: Runtime): Response {
   const job = readExternalSessionJob(runtime.state);
   if (!job) return json(404, { error: "not found" });
+  if (job.discardedAt !== undefined) return json(200, { id: job.id, status: "discarded" });
   if (job.result === undefined) return json(200, { id: job.id, status: "pending" });
   return json(200, { id: job.id, status: "done", result: job.result.value, receivedAt: job.result.receivedAt });
 }

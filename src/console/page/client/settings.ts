@@ -14,6 +14,8 @@ export const SETTINGS_SCRIPT = `function renderSettings(s) {
 
   const model = s.llm.provider === "mock"
     ? loud(T["settings.modelMock"])
+    : s.llm.provider === "external-session"
+    ? loud(T["settings.modelExternal"])
     : esc(fmt("settings.modelReal", { model: s.llm.model, fastModel: s.llm.fastModel, effort: s.llm.effort }));
 
   // The same hostname doctor refuses. Left at the example's placeholder every

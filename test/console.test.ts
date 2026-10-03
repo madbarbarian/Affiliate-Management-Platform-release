@@ -2730,6 +2730,23 @@ test("running on the simulated model says so on the settings screen", async () =
   });
 });
 
+test("running on the external-session provider says so on the settings screen, not a model name that is never used", async () => {
+  // The row used to print llm.model for anything that was not the mock. With
+  // this provider that is a name nothing calls, on the one screen that exists
+  // to say what is really happening.
+  await withConsole(
+    { AMP_TEST_TOKEN: "tok-extrow" },
+    async (base, handle) => {
+      const page = await openPage({ base, token: handle.token, hash: "#/settings", until: "settings-body" });
+      const body = page.html("settings-body");
+      assert.match(body, /external-session/);
+      assert.match(body, /llm\.model は使われません/);
+      assert.doesNotMatch(body, /claude-opus-5/, "the configured model is not shown as though it were in use");
+    },
+    { config: { llm: { ...BASE_CONFIG.llm, provider: "external-session", externalSession: { enabled: true } } } },
+  );
+});
+
 test("the settings screen names the markets it counts prohibited claims for, never undefined", async () => {
   // router.ts moved the disclosure text and the prohibited-claims count into
   // compliance[], resolved per market (src/domain/market.ts) - a good change,

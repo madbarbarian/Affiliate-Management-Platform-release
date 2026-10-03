@@ -13,7 +13,11 @@ import { EXTERNAL_SESSION_JOB_PATH, EXTERNAL_SESSION_RESULT_PATH, handleRequest 
 import { createTestCompany, testConfig, BASE_CONFIG } from "./helpers.ts";
 import { guardWithStop } from "../src/kernel/assemble.ts";
 import { memoryState, type StateStore } from "../src/kernel/state.ts";
-import { readExternalSessionJob } from "../src/kernel/external-session.ts";
+import { createStateJobStore, readExternalSessionJob, tombstoneJob, writeExternalSessionJob } from "../src/kernel/external-session.ts";
+import { sequentialIds } from "../src/core/ids.ts";
+import { silentLogger } from "../src/core/logger.ts";
+import { createExternalSessionProvider } from "../src/llm/external-session.ts";
+import { advancingClock } from "./helpers.ts";
 import { object, string, type JsonSchema } from "../src/llm/schema.ts";
 import type { Runtime } from "../src/runtime.ts";
 import type { Operator } from "../src/console/operators.ts";
@@ -250,4 +254,91 @@ test("creating a job with a missing prompt or a non-object schema is 400", async
     TOKEN,
   );
   assert.equal(badSchema.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1b: a discarded job is a tombstone
+// ---------------------------------------------------------------------------
+
+const DISCARDED_AT = "2026-09-30T00:10:00.000Z";
+
+/** A job created through the router, then given up on by the platform. */
+async function createDiscardedJob(runtime: Runtime, state: StateStore): Promise<string> {
+  const created = await createJob(runtime, TOKEN, "old work", ANSWER_SCHEMA);
+  assert.equal(created.status, 201);
+  const job = readExternalSessionJob(state);
+  assert.ok(job);
+  await writeExternalSessionJob(state, tombstoneJob(job, DISCARDED_AT));
+  return job.id;
+}
+
+test("a late answer to a discarded job is refused with 409 and is never stored", async () => {
+  const { runtime, state } = buildRuntime({ enabled: true });
+  const id = await createDiscardedJob(runtime, state);
+
+  const late = await postResult(runtime, TOKEN, id, { answer: "too late" });
+  assert.equal(late.status, 409);
+
+  const after = readExternalSessionJob(state);
+  assert.equal(after?.result, undefined, "the late answer must not have landed");
+  assert.equal(after?.discardedAt, DISCARDED_AT);
+});
+
+test("a discarded job is not handed to a routine that fetches it", async () => {
+  const { runtime, state } = buildRuntime({ enabled: true });
+  await createDiscardedJob(runtime, state);
+  const fetched = await handleRequest(runtime, operators, new Request(JOB_URL, { headers: bearer(TOKEN) }), TOKEN);
+  assert.equal(fetched.status, 404);
+});
+
+test("a discarded job does not block the next job, unlike an unanswered one", async () => {
+  const { runtime, state } = buildRuntime({ enabled: true });
+  const oldId = await createDiscardedJob(runtime, state);
+  const next = await createJob(runtime, TOKEN, "new work", ANSWER_SCHEMA);
+  assert.equal(next.status, 201);
+  assert.notEqual(((await next.json()) as { id: string }).id, oldId);
+});
+
+test("the poller is told a job was discarded rather than that it is still pending", async () => {
+  const { runtime, state } = buildRuntime({ enabled: true });
+  const id = await createDiscardedJob(runtime, state);
+  const polled = await handleRequest(runtime, operators, new Request(RESULT_URL, { headers: bearer(TOKEN) }), TOKEN);
+  assert.equal(polled.status, 200);
+  assert.deepEqual(await polled.json(), { id, status: "discarded" });
+});
+
+test("a job whose answer the provider has returned (consumed) is still reported done to the poller, not discarded", async () => {
+  // The provider marks a returned answer as consumed so it is never adopted a
+  // second time. That mark must not be the tombstone: the poller would read a
+  // job that was answered and used as one the platform gave up on.
+  const { runtime, state } = buildRuntime({ enabled: true });
+  const clock = advancingClock("2026-09-30T00:00:00Z");
+  const provider = createExternalSessionProvider({
+    store: createStateJobStore(state),
+    clock,
+    ids: sequentialIds(),
+    logger: silentLogger,
+    // The routine, answering through the real route the moment it is woken.
+    fetch: async () => {
+      const job = readExternalSessionJob(state);
+      assert.ok(job);
+      assert.equal((await postResult(runtime, TOKEN, job.id, { answer: "routed" })).status, 200);
+      return new Response(JSON.stringify({ claude_code_session_id: "s-1" }), { status: 200 });
+    },
+    fireUrl: "https://api.anthropic.com/v1/claude_code/routines/r-1/fire",
+    routineToken: "sk-ant-oat01-fake",
+    jobTimeoutMs: 60_000,
+    pollIntervalMs: 5_000,
+    pollMaxIntervalMs: 5_000,
+    invocationBudgetMs: Number.POSITIVE_INFINITY,
+    fireTimeoutMs: 1_000,
+  });
+  const answered = await provider.completeJson<{ answer: string }>({ system: "s", user: "u", purpose: "test.route", schema: ANSWER_SCHEMA });
+  assert.deepEqual(answered.ok && answered.value, { answer: "routed" });
+  const job = readExternalSessionJob(state);
+  assert.ok(job?.consumedAt, "the provider marked the answer as consumed");
+
+  const polled = await handleRequest(runtime, operators, new Request(RESULT_URL, { headers: bearer(TOKEN) }), TOKEN);
+  assert.equal(polled.status, 200);
+  assert.equal(((await polled.json()) as { status: string }).status, "done");
 });

@@ -109,6 +109,31 @@ export const FAILURE_SUMMARIES: Readonly<Record<string, FailureSummary>> = {
     short: "実行できませんでした",
     hint: "設定したモデル（llm.model）が見つかりませんでした。名前が間違っているか、そのモデルが提供終了になっている可能性があります。",
   },
+  // llm.provider: external-session (phase 1b). Every one of these is retried by
+  // the scheduler on its next tick, the schedule step's comment calls included.
+  "external_session.busy": { short: "外部セッションが使用中です", hint: "別の呼び出しが同じジョブ置き場を使っています。次の実行で再開します。" },
+  "external_session.aborted": {
+    short: "先の失敗のため見送りました",
+    hint: "同じ実行の中で、ルーティンが一度答えなかったため、続きは次の実行に回しました。",
+  },
+  "external_session.budget_exhausted": {
+    short: "待ち時間の上限に達しました",
+    hint: "1回の実行で待ってよい時間（llm.externalSession.invocationBudgetMs）を使い切りました。次の実行で続きから再開します。",
+  },
+  "external_session.store_unreadable": { short: "ジョブ置き場を読めません", hint: "データベースに届きませんでした。次の実行で再試行します。" },
+  "external_session.store_write_failed": { short: "ジョブを書き込めません", hint: "データベースへの書き込みに失敗しました。次の実行で再試行します。" },
+  "external_session.fire_refused": {
+    short: "ルーティンを起こせません",
+    hint: "ルーティンの起動が断られました。起動用のURLとトークン（ジョブ用の合言葉とは別物）を確認してください。",
+  },
+  "external_session.fire_unreachable": { short: "ルーティンに届きません", hint: "起動用のURLに届きませんでした。回線かURLを確認してください。" },
+  "external_session.fire_timeout": { short: "ルーティンの起動が遅すぎます", hint: "起動の要求が時間内に返りませんでした。次の実行で再試行します。" },
+  "external_session.timeout": {
+    short: "ルーティンが答えませんでした",
+    hint: "claude.ai/code/routines で、ルーティンの直近の実行を確認してください。起動していなければ、URL・トークン・承認画面の公開アドレスを見直します。",
+  },
+  "external_session.superseded": { short: "別の仕事に置き換わりました", hint: "同じジョブ置き場を別の呼び出しが使いました。次の実行で再試行します。" },
+  "external_session.schema_violation": { short: "答えの形式が違いました", hint: "ルーティンの答えがスキーマに合いませんでした。次の実行で再試行します。" },
   "llm.no_api_key": {
     short: "実行できませんでした",
     hint: "モデルの鍵が設定されていません。",

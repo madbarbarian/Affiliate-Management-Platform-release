@@ -80,7 +80,7 @@ llm:
   # Starts on the simulated model so the whole day runs, and the console opens,
   # before you hold any key. Switch to "anthropic" when the proposals are worth
   # paying for - that is step 4 of the licensee guide, not step 1.
-  provider: mock               # anthropic | mock
+  provider: mock               # anthropic | mock | external-session（🧪 実験的。下の externalSession を参照）
   model: claude-opus-5         # judgement work: research, planning, inspection
   fastModel: claude-haiku-4-5  # mechanical work: summaries, comment drafts
   effort: high                 # low | medium | high | xhigh | max
@@ -91,11 +91,30 @@ llm:
   requestTimeoutMs: 120000
 
   # 🧪 実験的・未サポート機能。予告なく変更・削除されることがあります。
-  # ライセンシー自身の Claude Code Routine を使って生成させる、フェーズ1aの検証専用の仕組みです。
+  # ライセンシー自身の Claude Code Routine に文章を作らせる仕組みです。
+  # オーナー自身の環境での検証専用です（フェーズ1a/1b）。
   # 詳細: docs/3-development/external-generation-design.md
+  #
+  # provider を external-session にするときは、次がすべて必要です。
+  #   ・enabled: true（Routine が仕事を取りに来る窓口を開けます）
+  #   ・承認画面が、インターネットから届く https のアドレスで公開されていること。
+  #     Routine は Anthropic のクラウドで動くので、127.0.0.1 には届きません
+  #   ・Cloudflare では有料プラン。無料プランは1回の起動あたりの呼び出し回数（50回）が足りません
+  #     （1日ぶんで約100回の見積もり。答えを待つたびに D1 を読むため）。プランは自動では判別できません
+  #   ・下の4つの環境変数（値は設定ファイルに書かず、.env.local か Cloudflare の Secret に置きます）
+  # 投稿へのコメント文の生成（schedule の段）も、この provider を通ります。文章の生成と同じ枠を順番に使います。
+  #
   # externalSession:
   #   enabled: false
-  #   tokenEnv: AMP_EXTERNAL_SESSION_TOKEN
+  #   tokenEnv: AMP_EXTERNAL_SESSION_TOKEN                  # Routine が窓口に送る合言葉
+  #   baseUrlEnv: AMP_EXTERNAL_SESSION_BASE_URL             # 承認画面の公開アドレス
+  #   fireUrlEnv: AMP_EXTERNAL_SESSION_ROUTINE_FIRE_URL     # Routine の /fire URL
+  #   routineTokenEnv: AMP_EXTERNAL_SESSION_ROUTINE_TOKEN   # Routine を起こすトークン
+  #   jobTimeoutMs: 300000        # 1回の生成を待つ上限。過ぎるとそのサイクルの段は失敗し、再試行に回ります
+  #   pollIntervalMs: 5000        # 答えを確かめる間隔の最初の値（倍々に伸びます）
+  #   pollMaxIntervalMs: 60000    # 間隔の上限
+  #   invocationBudgetMs: 600000  # 1回の起動で待ってよい合計。Cloudflare（Worker）でだけ効きます。上限は11分です（2026-10-02 に使い捨ての Worker で12分の待ちが cron でも HTTP でも持ちこたえたのを測り、そこから余裕1分を引いた値です。測ったのは12分までで、それより長くは測っていません。Node には壁時計の上限がなく、効きません）
+  #   fireTimeoutMs: 30000        # Routine を起こす要求そのものの上限
 
 console:
   enabled: true

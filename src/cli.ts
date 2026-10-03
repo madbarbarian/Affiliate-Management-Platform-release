@@ -295,7 +295,11 @@ async function commandDoctor(runtime: Runtime, options: Options): Promise<number
   lines.push(`data        ${runtime.loaded.dataDir}`);
   lines.push(`prompts     ${runtime.loaded.promptsDir}`);
   lines.push(`autonomy    ${runtime.config.company.autonomy}`);
-  lines.push(`model       ${runtime.config.llm.provider} / ${runtime.config.llm.model} (effort ${runtime.config.llm.effort})`);
+  lines.push(
+    runtime.config.llm.provider === "external-session"
+      ? "model       external-session (your own Claude Code routine; llm.model is not used)"
+      : `model       ${runtime.config.llm.provider} / ${runtime.config.llm.model} (effort ${runtime.config.llm.effort})`,
+  );
   lines.push("");
 
   for (const name of ["researcher", "planner", "writer", "inspector", "analyst", "publisher", "scout"]) {

@@ -18,7 +18,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { silentLogger } from "../src/core/logger.ts";
-import type { LlmConfig } from "../src/config/schema.ts";
+import { DEFAULT_EXTERNAL_SESSION_CONFIG, type LlmConfig } from "../src/config/schema.ts";
 import { createAnthropicProvider } from "../src/llm/anthropic.ts";
 import { object, string } from "../src/llm/schema.ts";
 
@@ -116,7 +116,7 @@ function llmConfig(baseUrl: string, overrides: Partial<LlmConfig> = {}): LlmConf
     baseUrl,
     maxRetries: 0,
     requestTimeoutMs: 5000,
-    externalSession: { enabled: false, tokenEnv: "AMP_EXTERNAL_SESSION_TOKEN" },
+    externalSession: DEFAULT_EXTERNAL_SESSION_CONFIG,
     ...overrides,
   };
 }

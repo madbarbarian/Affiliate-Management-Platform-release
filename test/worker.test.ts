@@ -88,6 +88,61 @@ async function configWantingAKey(): Promise<string> {
   return wanted;
 }
 
+/** The example, selecting external-session with its routes on. */
+async function configWithExternalSession(): Promise<string> {
+  const text = await exampleConfig();
+  const wanted = text
+    .replace(/^([ \t]*)provider: mock\b.*$/m, "$1provider: external-session")
+    .replace(/^([ \t]*)requestTimeoutMs: 120000$/m, "$1requestTimeoutMs: 120000\n$1externalSession:\n$1  enabled: true");
+  assert.notEqual(wanted, text, "the example's llm block changed - update this helper");
+  assert.match(wanted, /provider: external-session/);
+  assert.match(wanted, /externalSession:\n\s+enabled: true/);
+  return wanted;
+}
+
+test("external-session assembles on Cloudflare from four dashboard variables, and names every one that is missing", async () => {
+  const db = fakeD1();
+  const missing = await createWorkerRuntime({ env: { DB: db }, configText: await configWithExternalSession(), prompts: {} });
+  assert.equal(missing.ok, false);
+  const message = missing.ok ? "" : missing.error.message;
+  for (const name of [
+    "AMP_EXTERNAL_SESSION_BASE_URL",
+    "AMP_EXTERNAL_SESSION_TOKEN",
+    "AMP_EXTERNAL_SESSION_ROUTINE_FIRE_URL",
+    "AMP_EXTERNAL_SESSION_ROUTINE_TOKEN",
+  ]) {
+    assert.match(message, new RegExp(`${name} is not set`));
+  }
+  assert.doesNotMatch(message, /ANTHROPIC_API_KEY/, "this provider never asks for the API key");
+
+  // The Worker logs warnings through `console.error`; the build's warning says
+  // whether a wait budget applies, which is the only outward sign of the flag.
+  const warnings: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  let present: Awaited<ReturnType<typeof createWorkerRuntime>>;
+  try {
+    present = await createWorkerRuntime({
+      env: {
+        DB: db,
+        AMP_EXTERNAL_SESSION_BASE_URL: "https://amp-test.example.workers.dev",
+        AMP_EXTERNAL_SESSION_TOKEN: "job-token",
+        AMP_EXTERNAL_SESSION_ROUTINE_FIRE_URL: "https://api.anthropic.com/v1/claude_code/routines/r-1/fire",
+        AMP_EXTERNAL_SESSION_ROUTINE_TOKEN: "sk-ant-oat01-fake",
+      },
+      configText: await configWithExternalSession(),
+      prompts: {},
+    });
+  } finally {
+    console.error = realError;
+  }
+  assert.ok(present.ok, present.ok ? "" : present.error.message);
+  assert.match(warnings.join("\n"), /at most 600 s of waiting per invocation/, "the Worker is wall-limited, so the budget applies there");
+  assert.equal(present.ok && present.value.services.llm.name, "external-session");
+  if (present.ok) await present.value.close();
+  await db.close();
+});
+
 test("a second operator's passphrase is a second Cloudflare variable, and a second name", async () => {
   // On a host there is no .env.local: another operator is another variable in
   // the same dashboard. This covers the wiring rather than the rule - the rule

@@ -191,6 +191,7 @@ export async function createWorkerRuntime(parts: WorkerParts): Promise<Result<Ru
       sink: jsonConsoleSink(),
     }),
     env: stringEnv,
+    wallLimited: true,
     ...(parts.lock ? { lock: parts.lock } : {}),
     ...(parts.release ? { release: parts.release } : {}),
     dryRun: false,

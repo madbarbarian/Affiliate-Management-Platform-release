@@ -108,6 +108,65 @@ test("the shipped example needs no API key to run", async () => {
   }
 });
 
+/** The example, selecting the external-session provider with its routes on. */
+function selectingExternalSession(yaml: string): string {
+  const wanted = yaml
+    .replace(/^([ \t]*)provider: mock\b.*$/m, "$1provider: external-session")
+    .replace(/^([ \t]*)requestTimeoutMs: 120000$/m, "$1requestTimeoutMs: 120000\n$1externalSession:\n$1  enabled: true");
+  assert.notEqual(wanted, yaml, "the example's llm block changed - update this helper");
+  return wanted;
+}
+
+const BLANK_EXTERNAL_ENV = {
+  AMP_EXTERNAL_SESSION_BASE_URL: "",
+  AMP_EXTERNAL_SESSION_TOKEN: "",
+  AMP_EXTERNAL_SESSION_ROUTINE_FIRE_URL: "",
+  AMP_EXTERNAL_SESSION_ROUTINE_TOKEN: "",
+};
+
+test("selecting external-session with nothing set is refused by the real binary, naming all four variables and the way out", async () => {
+  const { config, cleanup } = await scratchConfig(selectingExternalSession);
+  try {
+    const outcome = await amp(["doctor", "--config", config], BLANK_EXTERNAL_ENV);
+    assert.notEqual(outcome.code, 0, "a provider that cannot work must not report a healthy install");
+    const output = `${outcome.stdout}${outcome.stderr}`;
+    for (const name of Object.keys(BLANK_EXTERNAL_ENV)) assert.match(output, new RegExp(`${name} is not set`));
+    assert.match(output, /llm\.provider to "anthropic" or "mock"/);
+    assert.doesNotMatch(output, /ANTHROPIC_API_KEY/, "this provider never asks for the API key");
+    assert.ok(!looksLikeACrash(outcome), outcome.stderr);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("external-session with its routes left off is a config error naming the switch, not a run that waits out every timeout", async () => {
+  const { config, cleanup } = await scratchConfig((yaml) =>
+    yaml.replace(/^([ \t]*)provider: mock\b.*$/m, "$1provider: external-session"),
+  );
+  try {
+    const outcome = await amp(["doctor", "--config", config], BLANK_EXTERNAL_ENV);
+    assert.notEqual(outcome.code, 0);
+    assert.match(`${outcome.stdout}${outcome.stderr}`, /llm\.externalSession\.enabled/);
+    assert.ok(!looksLikeACrash(outcome), outcome.stderr);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a dry run on external-session needs none of the four variables: nothing is fired", async () => {
+  const { config, cleanup } = await scratchConfig(selectingExternalSession);
+  try {
+    const outcome = await amp(["doctor", "--dry-run", "--config", config], BLANK_EXTERNAL_ENV);
+    const output = `${outcome.stdout}${outcome.stderr}`;
+    assert.doesNotMatch(output, /AMP_EXTERNAL_SESSION_\w+ is not set/);
+    // And doctor says what will really write the text, not a model name nothing calls.
+    assert.match(output, /model\s+external-session \(your own Claude Code routine/);
+    assert.doesNotMatch(output, /claude-opus-5|claude-sonnet-5/);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("the shipped example config loads and passes doctor", async () => {
   const { config, cleanup } = await scratchConfig();
   try {

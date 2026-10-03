@@ -16,7 +16,7 @@ import type {
   Venture,
   VoiceProfile,
 } from "../core/types.ts";
-import { createReader, formatIssues, get, type Issue } from "./validate.ts";
+import { createReader, formatIssues, get, type Issue, type Reader } from "./validate.ts";
 import { parseTimeOfDay } from "../core/clock.ts";
 import { LOCALES, type Locale } from "../console/messages.ts";
 
@@ -47,20 +47,115 @@ export type Autonomy = "manual" | "assisted" | "auto";
 export type LlmEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
- * Phase 1a of `docs/3-development/external-generation-design.md`: a real,
- * shipped, off-by-default config block, not a hidden env var. Enabling it
- * turns on the four job routes in `src/console/router.ts` on *this*
- * deployment only - it does not add `external-session` as an `llm.provider`
- * (that is phase 1b) and it does not touch anyone else's fork or data.
+ * `docs/3-development/external-generation-design.md`, phases 1a and 1b: a real,
+ * shipped, off-by-default config block, not a hidden env var.
+ *
+ * `enabled` turns on the four job routes in `src/console/router.ts` on *this*
+ * deployment only. `llm.provider: external-session` (phase 1b) additionally
+ * makes the platform itself put jobs there and fire the routine; it requires
+ * `enabled`, because a routine that cannot reach its job can only time out.
+ *
+ * Every secret is named here by its environment variable, never held here.
  */
 export type ExternalSessionConfig = {
   readonly enabled: boolean;
   /** Env var holding the bearer token the job routes require. Never a literal secret. */
   readonly tokenEnv: string;
+  /**
+   * Env var holding the console's public https base URL. The routine runs in
+   * Anthropic's cloud and fetches its job over HTTP, so this has to be an
+   * address the internet can reach - not `127.0.0.1`, which is the example's
+   * console bind.
+   */
+  readonly baseUrlEnv: string;
+  /** Env var holding the routine's `/fire` URL (from its API trigger). */
+  readonly fireUrlEnv: string;
+  /** Env var holding the routine's own trigger token. The opposite direction from `tokenEnv`. */
+  readonly routineTokenEnv: string;
+  /**
+   * How long one call waits for its answer before the cycle step fails. Also the
+   * age at which a job found in the slot counts as stale (its caller has given
+   * up); never longer than the scheduler's retry backoff, so a retry does not
+   * meet its own leftover job as still young.
+   */
+  readonly jobTimeoutMs: number;
+  /** First wait between polls; doubles up to `pollMaxIntervalMs`. */
+  readonly pollIntervalMs: number;
+  readonly pollMaxIntervalMs: number;
+  /**
+   * Wall time all calls in one run may spend waiting, on a host that kills an
+   * invocation at a wall cap: the Worker. The Node daemon has no such cap and
+   * ignores this (see `invocationBudgetFor` in `src/llm/external-session.ts`).
+   * A killed invocation runs no `finally`, so the lock stays held until its TTL:
+   * the budget stops the platform starting a wait it cannot finish. Bounded by
+   * the wall time measured by the Task 0 spike
+   * (`EXTERNAL_SESSION_MEASURED_WALL_MS`), not by the documented 15 minutes.
+   */
+  readonly invocationBudgetMs: number;
+  /** How long the `/fire` request itself may take. */
+  readonly fireTimeoutMs: number;
+};
+
+/**
+ * How long a Cloudflare invocation is known to stay alive while waiting.
+ * **Measured 12 minutes, and nothing longer.** The Task 0 spike (2026-10-02,
+ * the owner's account, one throwaway Worker) waited 12 minutes in a cron
+ * invocation and in an HTTP request, and both survived. Nothing past 12 minutes
+ * was tried. Cloudflare documents 15; this stays at the length that was
+ * actually run, and nothing here may rely on more. If a longer wait is ever
+ * wanted, measure it first. It is the only constant the limits below are
+ * written in terms of.
+ */
+export const EXTERNAL_SESSION_MEASURED_WALL_MS = 12 * 60_000;
+
+/** Kept back from the measured wall time for what a tick does after its last wait: settle the cycle, release the lock. */
+export const EXTERNAL_SESSION_WALL_HEADROOM_MS = 60_000;
+
+/** The 11-minute cap: the measured 12 minutes less one minute of headroom. */
+export const EXTERNAL_SESSION_MAX_INVOCATION_BUDGET_MS = EXTERNAL_SESSION_MEASURED_WALL_MS - EXTERNAL_SESSION_WALL_HEADROOM_MS;
+
+/**
+ * The scheduler waits 10 minutes before it retries a failed cycle
+ * (`CYCLE_RETRY_BACKOFF_MS`, `src/scheduler/tick.ts`; copied here because the
+ * config layer does not import the scheduler, and a test keeps the two equal). A job the provider itself left behind is old enough
+ * to discard when the retry looks only if its age reaches `jobTimeoutMs`, so the
+ * timeout may not exceed that wait.
+ */
+export const EXTERNAL_SESSION_MAX_JOB_TIMEOUT_MS = 10 * 60_000;
+
+/** Every bound the reader below enforces, named once so the schema and its tests cannot disagree. */
+export const EXTERNAL_SESSION_LIMITS = {
+  jobTimeoutMs: { min: 10_000, max: EXTERNAL_SESSION_MAX_JOB_TIMEOUT_MS },
+  pollIntervalMs: { min: 1_000, max: 60_000 },
+  pollMaxIntervalMs: { min: 1_000, max: 300_000 },
+  invocationBudgetMs: { min: 60_000, max: EXTERNAL_SESSION_MAX_INVOCATION_BUDGET_MS },
+  fireTimeoutMs: { min: 1_000, max: 120_000 },
+} as const;
+
+/** The round numbers a config gets when it says nothing, before they are capped by what was measured. */
+const TARGET_INVOCATION_BUDGET_MS = 10 * 60_000;
+const TARGET_JOB_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_INVOCATION_BUDGET_MS = Math.min(
+  TARGET_INVOCATION_BUDGET_MS,
+  EXTERNAL_SESSION_MAX_INVOCATION_BUDGET_MS - EXTERNAL_SESSION_WALL_HEADROOM_MS,
+);
+
+/** The named values behind the defaults, so no caller writes a bare number. */
+export const DEFAULT_EXTERNAL_SESSION_CONFIG: ExternalSessionConfig = {
+  enabled: false,
+  tokenEnv: "AMP_EXTERNAL_SESSION_TOKEN",
+  baseUrlEnv: "AMP_EXTERNAL_SESSION_BASE_URL",
+  fireUrlEnv: "AMP_EXTERNAL_SESSION_ROUTINE_FIRE_URL",
+  routineTokenEnv: "AMP_EXTERNAL_SESSION_ROUTINE_TOKEN",
+  jobTimeoutMs: Math.min(TARGET_JOB_TIMEOUT_MS, DEFAULT_INVOCATION_BUDGET_MS),
+  pollIntervalMs: 5_000,
+  pollMaxIntervalMs: 60_000,
+  invocationBudgetMs: DEFAULT_INVOCATION_BUDGET_MS,
+  fireTimeoutMs: 30_000,
 };
 
 export type LlmConfig = {
-  readonly provider: "anthropic" | "mock";
+  readonly provider: "anthropic" | "mock" | "external-session";
   /** Model for judgement-heavy roles: research, planning, inspection. */
   readonly model: string;
   /** Cheaper model for mechanical roles. Falls back to `model` if unset. */
@@ -483,7 +578,7 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
   const model = at("llm.model", llmRaw["model"]).string("claude-opus-5");
   const externalSessionRaw = at("llm.externalSession", llmRaw["externalSession"]).object();
   const llm: LlmConfig = {
-    provider: at("llm.provider", llmRaw["provider"]).oneOf(["anthropic", "mock"] as const, "anthropic"),
+    provider: at("llm.provider", llmRaw["provider"]).oneOf(["anthropic", "mock", "external-session"] as const, "anthropic"),
     model,
     fastModel: at("llm.fastModel", llmRaw["fastModel"]).string(model),
     maxOutputTokens: at("llm.maxOutputTokens", llmRaw["maxOutputTokens"]).number({
@@ -513,12 +608,47 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
       fallback: 120_000,
     }),
     externalSession: {
-      enabled: at("llm.externalSession.enabled", externalSessionRaw["enabled"]).boolean(false),
+      enabled: at("llm.externalSession.enabled", externalSessionRaw["enabled"]).boolean(DEFAULT_EXTERNAL_SESSION_CONFIG.enabled),
       tokenEnv: at("llm.externalSession.tokenEnv", externalSessionRaw["tokenEnv"]).string(
-        "AMP_EXTERNAL_SESSION_TOKEN",
+        DEFAULT_EXTERNAL_SESSION_CONFIG.tokenEnv,
       ),
+      baseUrlEnv: at("llm.externalSession.baseUrlEnv", externalSessionRaw["baseUrlEnv"]).string(
+        DEFAULT_EXTERNAL_SESSION_CONFIG.baseUrlEnv,
+      ),
+      fireUrlEnv: at("llm.externalSession.fireUrlEnv", externalSessionRaw["fireUrlEnv"]).string(
+        DEFAULT_EXTERNAL_SESSION_CONFIG.fireUrlEnv,
+      ),
+      routineTokenEnv: at("llm.externalSession.routineTokenEnv", externalSessionRaw["routineTokenEnv"]).string(
+        DEFAULT_EXTERNAL_SESSION_CONFIG.routineTokenEnv,
+      ),
+      jobTimeoutMs: at("llm.externalSession.jobTimeoutMs", externalSessionRaw["jobTimeoutMs"]).number({
+        ...EXTERNAL_SESSION_LIMITS.jobTimeoutMs,
+        integer: true,
+        fallback: DEFAULT_EXTERNAL_SESSION_CONFIG.jobTimeoutMs,
+      }),
+      pollIntervalMs: at("llm.externalSession.pollIntervalMs", externalSessionRaw["pollIntervalMs"]).number({
+        ...EXTERNAL_SESSION_LIMITS.pollIntervalMs,
+        integer: true,
+        fallback: DEFAULT_EXTERNAL_SESSION_CONFIG.pollIntervalMs,
+      }),
+      pollMaxIntervalMs: at("llm.externalSession.pollMaxIntervalMs", externalSessionRaw["pollMaxIntervalMs"]).number({
+        ...EXTERNAL_SESSION_LIMITS.pollMaxIntervalMs,
+        integer: true,
+        fallback: DEFAULT_EXTERNAL_SESSION_CONFIG.pollMaxIntervalMs,
+      }),
+      invocationBudgetMs: at("llm.externalSession.invocationBudgetMs", externalSessionRaw["invocationBudgetMs"]).number({
+        ...EXTERNAL_SESSION_LIMITS.invocationBudgetMs,
+        integer: true,
+        fallback: DEFAULT_EXTERNAL_SESSION_CONFIG.invocationBudgetMs,
+      }),
+      fireTimeoutMs: at("llm.externalSession.fireTimeoutMs", externalSessionRaw["fireTimeoutMs"]).number({
+        ...EXTERNAL_SESSION_LIMITS.fireTimeoutMs,
+        integer: true,
+        fallback: DEFAULT_EXTERNAL_SESSION_CONFIG.fireTimeoutMs,
+      }),
     },
   };
+  checkExternalSession(llm, reader);
 
   const consoleRaw = at("console", get(raw, "console")).object();
   const consoleConfig: ConsoleConfig = {
@@ -803,6 +933,34 @@ export function parseConfig(raw: unknown, source = "platform.config.yaml"): Plat
 
   if (reader.issues.length > 0) throw new ConfigError(reader.issues, source);
   return config;
+}
+
+/**
+ * The cross-field rules for `llm.externalSession`, each with the fix in the
+ * message: a value that is individually in range can still make the provider
+ * unable to work at all.
+ */
+function checkExternalSession(llm: LlmConfig, reader: Reader): void {
+  const ext = llm.externalSession;
+  if (llm.provider === "external-session" && !ext.enabled) {
+    reader.at("llm.externalSession.enabled", ext.enabled).reject(
+      'must be true when llm.provider is "external-session": the routine reaches its job through the routes this switch turns on, ' +
+        'so with it off every call would wait out its timeout. Set llm.externalSession.enabled: true, or set llm.provider to "anthropic" or "mock".',
+      "llm.external_session_disabled",
+    );
+  }
+  if (ext.invocationBudgetMs < ext.jobTimeoutMs) {
+    reader.at("llm.externalSession.invocationBudgetMs", ext.invocationBudgetMs).reject(
+      `is ${ext.invocationBudgetMs} but jobTimeoutMs is ${ext.jobTimeoutMs}: the budget must be at least one job's timeout, ` +
+        "or the first call could never finish. Raise invocationBudgetMs or lower jobTimeoutMs.",
+    );
+  }
+  if (ext.pollMaxIntervalMs < ext.pollIntervalMs) {
+    reader.at("llm.externalSession.pollMaxIntervalMs", ext.pollMaxIntervalMs).reject(
+      `is ${ext.pollMaxIntervalMs} but pollIntervalMs is ${ext.pollIntervalMs}: the cap on the wait between polls cannot be below the first wait. ` +
+        "Raise pollMaxIntervalMs or lower pollIntervalMs.",
+    );
+  }
 }
 
 /** One start plus one retry. Enough for a blip, not enough to pay for a bad day twice over. */

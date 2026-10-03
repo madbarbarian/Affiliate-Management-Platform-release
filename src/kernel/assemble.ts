@@ -19,9 +19,12 @@ import type { ReleaseStamp } from "../core/release.ts";
 import type { LoadedConfig } from "../config/load.ts";
 import type { PlatformConfig } from "../config/schema.ts";
 import { createAnthropicProvider } from "../llm/anthropic.ts";
+import { createExternalSessionProvider, invocationBudgetFor } from "../llm/external-session.ts";
+import { readExternalSessionEnv } from "../llm/external-session-env.ts";
 import { createMockProvider } from "../llm/mock.ts";
 import { createDemoHandlers } from "../llm/demo.ts";
 import type { LlmProvider } from "../llm/provider.ts";
+import type { FetchLike } from "../llm/routine-fire.ts";
 import type { StoreRegistry } from "../storage/store.ts";
 import type { Decision } from "../core/types.ts";
 import type { Lock } from "../storage/lock.ts";
@@ -31,6 +34,7 @@ import type { PromptLibrary } from "./prompts.ts";
 import { createOrchestrator, type Orchestrator } from "./orchestrator.ts";
 import { describePause, pausedVentures, readPause, type PauseRecord } from "./pause.ts";
 import { deactivatedBy, describeInactive, inactiveVentures, readVentureState } from "./venture-state.ts";
+import { createStateJobStore } from "./external-session.ts";
 import type { StateStore } from "./state.ts";
 import type { Services } from "./role.ts";
 
@@ -69,6 +73,12 @@ export type AssembleParts = {
   readonly ids: IdGenerator;
   readonly logger: Logger;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * True from the Worker only: a Cloudflare invocation is killed at a wall cap,
+   * which is what the external-session provider's wait budget protects. Absent
+   * on a machine, where nothing kills a long wait.
+   */
+  readonly wallLimited?: boolean;
   readonly lock?: Lock;
   readonly dryRun: boolean;
   readonly release?: ReleaseStamp;
@@ -78,7 +88,7 @@ export async function assembleRuntime(parts: AssembleParts): Promise<Result<Runt
   const { loaded, stores, state, prompts, clock, ids, logger, env, dryRun } = parts;
   const { config } = loaded;
 
-  const llm = buildLlm(config, env, logger, dryRun);
+  const llm = buildLlm(config, env, logger, dryRun, { state, clock, ids, wallLimited: parts.wallLimited ?? false });
   if (!llm.ok) {
     await stores.close();
     return llm;
@@ -258,17 +268,71 @@ export function guardWithStop(inner: Orchestrator, services: Services, state: St
   };
 }
 
+/**
+ * What only the external-session provider needs from its surroundings. Passed
+ * whole rather than as three more positional arguments: it is the state the
+ * slot lives in, the clock the deadlines run on, and the ids the jobs get.
+ */
+export type BuildLlmDeps = {
+  readonly state: StateStore;
+  readonly clock: Clock;
+  readonly ids: IdGenerator;
+  /**
+   * The host kills an invocation at a wall cap (the Worker). Decides whether the
+   * provider's wait budget applies: a Node process has no such cap.
+   */
+  readonly wallLimited: boolean;
+  /** Only a test passes this. */
+  readonly fetch?: FetchLike;
+};
+
 export function buildLlm(
   config: PlatformConfig,
   env: Readonly<Record<string, string | undefined>>,
   logger: Logger,
   dryRun: boolean,
+  deps: BuildLlmDeps,
 ): Result<LlmProvider, PlatformError> {
   if (dryRun || config.llm.provider === "mock") {
     if (!dryRun) {
       logger.warn("llm.provider is \"mock\" - no real model will be called");
     }
     return ok(createMockProvider({ responses: createDemoHandlers() }));
+  }
+
+  if (config.llm.provider === "external-session") {
+    const external = readExternalSessionEnv(config.llm.externalSession, env);
+    if (!external.ok) return external;
+    const settings = config.llm.externalSession;
+    const invocationBudgetMs = invocationBudgetFor(deps.wallLimited, settings.invocationBudgetMs);
+    logger.warn(
+      "llm.provider is \"external-session\" (experimental) - text is written by your own Claude Code routine, " +
+        `which must be able to reach ${external.value.baseUrl}; ` +
+        (deps.wallLimited
+          ? `at most ${Math.round(invocationBudgetMs / 1000)} s of waiting per invocation (the host kills an invocation at a wall cap)`
+          : "no wait budget (this host has no wall cap)"),
+    );
+    return ok(
+      createExternalSessionProvider({
+        store: createStateJobStore(deps.state),
+        clock: deps.clock,
+        ids: deps.ids,
+        logger,
+        // An arrow, not `fetch` itself: on Cloudflare a global `fetch` called
+        // as a bare function reference throws "Illegal invocation".
+        fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
+        fireUrl: external.value.fireUrl,
+        routineToken: external.value.routineToken,
+        jobTimeoutMs: settings.jobTimeoutMs,
+        pollIntervalMs: settings.pollIntervalMs,
+        pollMaxIntervalMs: settings.pollMaxIntervalMs,
+        invocationBudgetMs,
+        fireTimeoutMs: settings.fireTimeoutMs,
+        // One provider per Worker invocation: its run starts now and no idle
+        // gap restarts it (see the option). Wired here so no caller can forget.
+        wallLimited: deps.wallLimited,
+      }),
+    );
   }
 
   const apiKey = env[config.llm.apiKeyEnv];
